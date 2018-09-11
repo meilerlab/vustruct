@@ -1,0 +1,33 @@
+Notes on creation of the psbadmin python environment.
+IMPORTANT: All steps must be run as user psbadmin
+
+1) Checkout CapraLab/psbadmin to /dors/capra_lab/users/psbadmin
+   (The psbadmin git repository is essentially a backup of the write-protected /dors/capra_lab/users/psbadmin directory)
+
+2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/psbadmin/pdbmap
+
+3) Download Anaconda2  and install to /dors/capra_lab/users/psbadmin/anaconda2
+
+4) Install add-on libraries with:
+
+pip install biopython
+# Grab an Entity.py from pre 1.69 version and patch the new one!
+
+pip install MySQL-python
+pip install mysqlclient
+pip install --upgrade pip
+pip install argparse
+pip install WeasyPrint
+pip install PyVCF
+
+# Newer versions of networkx have incompatible data file formats
+pip install networkx==1.9
+
+pip install fuzzywuzzy
+pip install python-Levenshtein
+
+5) Precompile all python modules as user psbadmin.  Currently, accomplished with
+
+$ cd /dors/capra_lab/users/psbadmin
+$ ./precompile.bash
+

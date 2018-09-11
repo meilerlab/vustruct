@@ -1,0 +1,119 @@
+#!/bin/tcsh
+
+# default blast iterations and additional blast iterations, the letter can be change over the commandline, and only if different, blast will run a second time
+set blast_iterations = 3
+# the number of iterations for the jufo9d blast run starting from nothing - internally it actually resumes and adds the difference of blast_iterations and jufo9d_blast_iterations
+set jufo9d_blast_iterations = 6
+set e_threshold = 0.001
+
+if ($#argv != 1) then
+  if ($#argv == 2 && $argv[2] == 6) then 
+    echo "It is no longer necessary to pass 6 to this script"
+  else
+    echo "error: need to pass only a fasta file as argument"
+    exit (1)
+  endif
+endif
+
+if (! -f ${1}) then
+  echo "$0 Usage: $0 my.fasta "
+  echo "Compute BLAST pssm profile and run PsiPred2, PROF-PhD and JUFO-9D SS-prediction on my.fasta"
+  exit (0)
+endif
+
+set meiler_home = /dors/meilerlab/apps
+set basename = ${1:t:r}
+set rootname = ${basename:t}
+set dir = ${meiler_home}/scripts/sequence_analysis
+set moldir  = ${dir}/bin
+set condir  = ${dir}/perl
+set dbname  = ${dir}/../db/filtnr
+set ncbidir = ${meiler_home}/Linux2/x86_64/blast/blast-2.2.18/bin
+set execdir = ${meiler_home}/Linux2/x86_64/psipred/2.61/bin
+set datadir = ${meiler_home}/Linux2/x86_64/psipred/2.61/data
+
+cd `dirname $1`
+
+set tempfile = `mktemp -p .`
+#echo "tempfile=${tempfile}" # debug output
+set signature = `basename ${tempfile}`
+#echo "signature=${signature}" # debug output
+rm ${tempfile}
+
+cp -f ${1} ${signature}.fasta
+
+echo "Running PSI-BLAST with sequence" ${1} "..."
+
+${ncbidir}/blastpgp -b 0 -j 3 -h 0.001 -d ${dbname} -i ${signature}.fasta -C ${signature}.chk -Q ${signature}.ascii >& ${basename}.psipred_blast
+cp -f ${signature}.ascii ${basename}.ascii
+
+echo "Running PSI-PRED with sequence" ${1} "..."
+echo ${signature}.chk > ${signature}.pn
+echo ${signature}.fasta > ${signature}.sn
+${ncbidir}/makemat -P ${signature}
+
+echo Pass1 ...
+
+${execdir}/psipred ${signature}.mtx ${datadir}/weights.dat ${datadir}/weights.dat2 ${datadir}/weights.dat3 ${datadir}/weights.dat4 > ${basename}.psipred_ss
+
+echo Pass2 ...
+
+${execdir}/psipass2 ${datadir}/weights_p2.dat 1 1.0 1.0 ${basename}.psipred_ss2 ${basename}.psipred_ss > ${basename}.psipred_horiz
+
+#echo "Running PROFphd with sequence " ${1} "..."
+#/dors/meilerlab/home/sliwosgr/udn_pipeline/predict_ss/runss_scripts/runPROFphd ${1}
+
+#running additional blast iterations
+# IMPORTANT: DO NOT REMOVE the + 1 on the set difference_iterations = ... line, IT IS DELIBERATE
+# blastpgp's checkpoint file's are written out at the beginning of each iteration, so the 1st iteration performed just catches up to where the .ascii file was written out before
+set difference_iterations = `expr ${jufo9d_blast_iterations} - ${blast_iterations} + 1`
+echo "Do additional blast iterations: ${difference_iterations} (use the previous ${blast_iterations} iterations as checkoint to get a total of $jufo9d_blast_iterations iterations)"
+${ncbidir}/blastpgp -b 0 -j ${difference_iterations} -h 0.001 -d ${dbname} -i ${signature}.fasta -R ${signature}.chk -Q ${signature}.ascii >& ${basename}.psipred_blast${jufo9d_blast_iterations}
+cp -f ${signature}.ascii ${basename}.ascii${jufo9d_blast_iterations}
+
+# run new jufo9d; use basename so that the output of runBCLjufo9D has the correct filename
+#./runBCLjufo9D ${basename}.fasta
+
+set tempfile = `mktemp -p .`
+#echo "tempfile=${tempfile}" # debug output
+set signature = `basename ${tempfile}`
+#echo "signature=${signature}" # debug output
+rm ${tempfile} # mktemp actually creates a file; it's not needed, so remove it
+
+# copy fasta to a temp fast file
+\cp -f $1 sstmp$signature.fasta
+
+if (-f $basename.ascii$jufo9d_blast_iterations) then
+  echo "Using existing PSI-BLAST file $basename.ascii$jufo9d_blast_iterations; Delete this file if you want to regenerate the PSI-BLAST file."
+else
+  echo "Running PSI-BLAST with sequence $1 on 1 CPUs..."
+  # starting blast on 1 CPUs
+  $ncbidir/blastpgp -a 1 -b 0 -j $jufo9d_blast_iterations -h $e_threshold -d $dbname -i sstmp$signature.fasta -C sstmp$signature.chk -Q sstmp$signature.ascii >& $basename.psipred_output
+  # copy the substitution matrix to the final files
+  \cp -f sstmp$signature.ascii $basename.ascii$jufo9d_blast_iterations
+  echo "Running Blast finished.\n"
+endif
+
+# remove temporary files
+echo Cleaning up ...
+\rm -f sstmp$signature.* error.log core
+
+# run BCL::Jufo9D
+echo "Running BCL::Jufo9D..."
+set jufodir = '/dors/meilerlab/apps/scripts/sequence_analysis'
+setenv LD_LIBRARY_PATH /dors/meilerlab/apps/Linux2/x86_64/bcl/3.1.0/:$LD_LIBRARY_PATH
+/dors/meilerlab/home/mwdaemon/mwd/applications/jufo_2012/bcl-apps-static.exe Jufo $* >& $basename.jufo9d_output
+
+# create heatmap
+$jufodir/create_BCLjufo9D_heatmap.pl $basename
+
+# create the topology file
+/dors/meilerlab/home/mwdaemon/mwd/applications/jufo_2012/topology_from_jufo9d_files.pl $basename.jufo9d
+
+echo "===  Find results in the directory with the fasta file. ==="
+# Remove temporary files
+
+echo Cleaning up ...
+rm -f ${signature}* error.log core    
+
+echo "Finished."

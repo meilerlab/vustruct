@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+		<meta charset="UTF-8" name="viewport" content="width=devie-width, intial-scale=1">
+		<title>{{ title }}</title>
+      <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+      <link rel="stylesheet" href="file:html/css/typography.css" />
+		<style media="print" type="text/css">
+		h4{text-align:center;margin:0;padding:0.1in;}
+		h5{text-align:center;margin:0;padding:0.1in;}
+		.container{width:6.5in;float:left;}
+		.box{width:2in;float:left;height:auto;}
+		.big-box{width:3in;float:left;height:auto;}
+		</style>
+
+<script type="text/javascript">
+  function resizeIframe(obj) {
+    obj.style.height = (40 + obj.contentWindow.document.body.scrollHeight) + 'px';
+  }
+</script>
+
+
+    <!-- load the prototype library from google -->
+    <script type="text/javascript" src="http://www.google.com/jsapi"></script>
+    <script type="text/javascript">google.load("prototype", "1.7");</script>
+
+    <!-- styles applicable to all browsers 
+    <link rel='stylesheet' href='http://pfam.xfam.org/static/css/tab_layout.css' type='text/css' />
+    <link rel='stylesheet' href='http://pfam.xfam.org/static/css/protein.css' type='text/css' />
+	 -->
+
+    <!-- in order to standardize the look of text, and in order to make it work at
+         all in older browsers (and IE), we need the canvas text library. And, in turn,
+         that library uses a font description in a separate javascript file -->
+    <!--
+      <script type="text/javascript" src="http://pfam.xfam.org/static/javascripts/canvas.text.js?dontUseMoz=true&amp;reimplement=true"></script>
+    -->
+
+    <!--
+    <script type="text/javascript" src="http://pfam.xfam.org/static/javascripts/canvas.text.js?dontUseMoz=true&amp;reimplement=true"></script>
+    <script type="text/javascript" src="http://pfam.xfam.org/static/javascripts/faces/optimer-bold-normal.js"></script>
+    -->
+
+    <!-- NGL molecular graphics viewer -->
+    <script type="text/javascript" src="html/javascript/ngl.js"></script>
+
+
+    <!-- IE, being IE, needs extra help. In particular we need to add an extra library
+         that implements <canvas> using the VML drawing layer in IE. And, so that 
+         "console.log" calls don't screw everything up, we include the firebug-lite 
+         script -->
+    <!--[if IE]>
+      <script type="text/javascript" src="http://pfam.xfam.org/static/javascripts/excanvas.js"></script>
+      <script type="text/javascript" src="http://getfirebug.com/releases/lite/1.2/firebug-lite-compressed.js"></script>
+    <![endif]-->
+
+    <style type="text/css">
+      #dg canvas { 
+        margin: 2em;
+      }
+      #errors {
+        border: 1px solid red;
+        margin: 1em 0;
+        padding: 0.4em;
+      }
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+/* Make grey header boxes for the sub-sections */
+.header, .footer {
+    background-color: grey;
+    display: inline-block;
+    /* text-align: center; */
+    padding-top: 7px;
+    padding-bottom: 0px;
+    padding-left: 40px;
+    padding-right: 40px;
+    margin-top: 5px;
+    
+}
+
+div.header * {
+	color:white;
+   vertical-align: middle;
+}
+
+body {
+    margin: 0px;         /* Reset default margin on the body element */
+    padding: 0px;
+    height: 100%;
+    overflow:hidden;
+}
+iframe {
+    /* border: "1px solid black";         /* Reset default border */
+    width: 100%;
+    overflow: hidden;
+    scrolling: "no";
+}
+
+.wrapper {
+	position: relative;
+	width: 100%; /* <-- just a default, can be anything. */
+}
+
+div.wrapper * {
+	text-align: center;
+}
+
+img {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* Positioning for the main box */
+.main-box {
+    width: 99%;
+    margin: 1% auto;
+    display: inline-block;
+}
+
+
+/* Create two equal columns that floats next to each other */
+.column2 {
+    /* float: left; */
+    width: 50%;
+    padding: 10px;
+    /* height: 300px; /* Should be removed. Only for demonstration */
+}
+/* Create three equal columns that floats next to each other */
+.column3 {
+   float: left;
+   width: 33%;
+   padding: 8px;
+	padding-bottom: 6px;
+	/* display: inline-block; */
+    /* height: 300px; /* Should be removed. Only for demonstration */
+}
+/* Create four equal columns that floats next to each other */
+.column4 {
+    /* float: left; */
+    width: 25%;
+    padding: 5px;
+    /* height: 300px; /* Should be removed. Only for demonstration */
+}
+
+/* Clear floats after the columns */
+.row:after {
+    float: left;
+    content: "";
+    display: table;
+    clear: both;
+}
+</style>
+
+
+
+    </style>
+
+
+
+
+</head>
+<body>
+<div class="w3-sidebar w3-bar-block w3-light-grey w3-card" style="width:14%">
+  <a href="#" class="w3-bar-item w3-button">Home</a> 
+  <a href="#StructureReport" class="w3-bar-item w3-button">Structure Report</a> 
+{% for structure in Structure_Detail %}
+  <a href="#{{ structure['html_id'] }}" class="w3-bar-item w3-button">{{structure['structid']}}</a> 
+{% endfor %}
+
+</div>
+<div style="margin-left:15%">
+<!-- This is where the domain graphic is targetted with canvas, by underlying routines -->
+<table class="w3-table" style="width:50%">
+	<tr>
+		<th style="text-align:right">Date</th>
+		<td>{{ date }}</td>
+	</tr>
+	<tr>
+		<th style="text-align:right">Case</th>
+		<td>{{ case }}</td>
+	</tr>
+	<tr>
+		<th style="text-align:right">Gene</th>
+		<td>{{ gene }}</td>
+	</tr>
+	<tr>
+		<th style="text-align:right">Protein</th>
+		<td>{{ protein }}</td>
+	</tr>
+	<tr>
+		<th style="text-align:right">Mutation</th>
+		<td>{{ mutation }}</td>
+	</tr>
+</table>
+
+      <iframe  height="100%" width="100%" style="width:100%; height:100%; border: none; overflow:hidden; " src="{{ pfamGraphicsIframe_fname }}" onload="resizeIframe(this)" scrolling="no" >
+      </iframe> 
+
+<hr id="StructureReport">
+<div class="container">
+      <div class="header">
+		<h3> Structure Summary </h3> 
+		</div>
+		<h3>ClinVar Summary - {{ gene }} {{ mutation }}</h3>
+		{{ clinvar_summary }}
+		<h3>COSMIC Summary - {{ gene }} {{ mutation }}</h3>
+		{{ cosmic_summary }}
+		<p><i>All results are summarized by the median over all valid structures.</i></p>
+		<h3>ddG Summary - {{ gene }} {{ mutation }}</h3>
+		{{ ddG_summary }}
+		<h3>Structure Report - {{ gene }} {{mutation}}</h3>
+		{{ psb_structure_results }}
+</div>
+
+{% for structure in Structure_Detail %}
+	<p style="page-break-before: always"></p>
+
+	<hr id="{{ structure['html_id'] }}">
+	<div class="container">
+      <div class="header">
+		<h3 >{{ structure['structid'] }}.{{ structure['chain'] }} - Structure Detail</h3>
+      </div>
+		{{ structure['details'] }}
+		<h4>PSB ClinVar Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
+		{{ structure['cln_results'] }}
+		<h4>PSB COSMIC Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
+		{{ structure['csm_results'] }}
+
+		<!-- Structure Plots -->
+		<div class="container">
+			<h4>Location of {{ structure['mutation'] }} in {{ structure['structid'] }}.{{ structure['chain'] }}</h4>
+			<img src="file:{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto">
+         <h4>NGL Viewer of same </h4>
+
+		   <script>
+		    document.addEventListener("DOMContentLoaded", function () {
+            var variantResidues = "{{structure['ngl_variant_residues']}}";
+            var exacResidues = "{{structure['ngl_neutral_residues'] if structure['ngl_neutral_residues']}}";
+            var clnResidues = "{{structure['ngl_cln_residues'] if structure['ngl_cln_residues']}}";
+            var csmResidues = "{{structure['ngl_csm_residues'] if structure['ngl_csm_residues']}}";
+            var exacResidueCount = "{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}}";
+            var clnResidueCount = "{{structure['ngl_cln_residue_count'] if structure['ngl_cln_residue_count']}}";
+            var csmResidueCount = "{{structure['ngl_csm_residue_count'] if structure['ngl_csm_residue_count']}}";
+            var exacRepresentation = null;
+            var clnRepresentation = null;
+            var csmRepresentation = null;
+		      var stage = new NGL.Stage("viewport_{{ structure['unique_div_name'] }}", { backgroundColor : "white" } );
+		      stage.loadFile("{{ structure['pdbSSfilename'] }}").then(function (o) {
+		      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
+		      o.addRepresentation("cartoon", {color: "skyblue"})
+            stage.autoView()
+
+function addElement (el) {
+  Object.assign(el.style, {
+    position: "relative",
+    zIndex: 10
+  })
+  stage.viewer.container.appendChild(el)
+}
+
+function createElement (name, properties, style) {
+  var el = document.createElement(name)
+  Object.assign(el, properties)
+  Object.assign(el.style, style)
+  return el
+}
+
+var centerButton = createElement("input", {
+  textcolor: "Green",
+  type: "button",
+  value: "center",
+  onclick: function () {
+    stage.autoView(1000)
+  }
+ }
+, { top: "-40px", left:"3px" }
+)
+addElement(centerButton)
+
+if (exacResidues && exacResidues.length > 0) {
+	var exacButton = createElement("input", {
+	  textcolor: "Green",
+	  type: "button",
+	  value: exacResidueCount + " Exac",
+	  onclick: function () {
+	    if (exacRepresentation) {
+			 o.removeRepresentation(exacRepresentation);
+			 exacRepresentation = null;
+			 }
+	    else
+	        exacRepresentation = o.addRepresentation("ball+stick", { sele: exacResidues, color: "blue",radius: "0.6" })
+	  }
+	 }
+	, { top: "-40px", display:"inline-block" }
+	)
+	addElement(exacButton);
+}
+
+if (clnResidues && clnResidues.length > 0) {
+	var clnButton = createElement("input", {
+	  textcolor: "Green",
+	  type: "button",
+	  value: clnResidueCount + " Clinvar",
+	  onclick: function () {
+	    if (clnRepresentation) {
+			 o.removeRepresentation(clnRepresentation);
+			 clnRepresentation = null;
+			 }
+	    else
+	        clnRepresentation = o.addRepresentation("ball+stick", { sele: clnResidues, color: "red",radius: "0.6" })
+	  }
+	 }
+	, { top: "-40px", display:"inline-block" }
+	)
+	addElement(clnButton);
+}
+
+if (csmResidues && csmResidues.length > 0) {
+var csmButton = createElement("input", {
+  textcolor: "Green",
+  type: "button",
+  value: csmResidueCount + " Cosmic",
+  onclick: function () {
+    if (csmRepresentation) {
+		 o.removeRepresentation(csmRepresentation);
+		 csmRepresentation = null;
+		 }
+    else
+        csmRepresentation = o.addRepresentation("ball+stick", { sele: csmResidues, color: "orange",radius: "0.6" })
+  }
+ }
+, { top: "-40px", display: "inline-block" }
+)
+addElement(csmButton)
+}
+
+var screenshotButton = createElement("input", {
+  type: "button",
+  value: "screenshot",
+  onclick: function () {
+    stage.makeImage({
+      factor: 1,
+      antialias: false,
+      trim: false,
+      transparent: false
+    }).then(function (blob) {
+      NGL.download(blob, "screenshot.png")
+    })
+  }
+}, { top: "-40px", display:"inline-block" })
+
+addElement(screenshotButton);
+
+		       });
+		  //  var shape = new NGL.Shape( "shape", /*{ disableImpostor: true }*/ );
+		    });
+		  </script>
+		  <div style="width:802px; height:602px; margin:0px; border:1px solid black">
+		  <div id="viewport_{{ structure['unique_div_name'] }}" style="width:800px; height:600px; margin:0px"></div>
+        </div>
+		</div>
+
+		<!-- ExAC, ClinVar, COSMIC Variant Mapping Plots -->
+		<div class="wrapper main-box">
+			<h4>Variant Distributions</h4>
+
+			<div class="column3">
+				<h5>{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}} ExAC</h5>
+				<img src="file:{{ structure['exac_var'] }}" class="img" style="width:100%;height:auto">
+			</div>
+			<div class="column3">
+				<h5>{{structure['ngl_cln_residue_count'] if structure['ngl_cln_residue_count']}} ClinVar</h5>
+				{% if structure['cln_var'] %}
+					<img src="file:{{ structure['cln_var'] }}"  class="img" style="width:100%;height:auto">
+				{% else %}
+					No Clinvar Variants map to this structure
+				{% endif %}
+			</div>
+			<div class="column3">
+				<h5>{{structure['ngl_csm_residue_count'] if structure['ngl_csm_residue_count']}} COSMIC</h5>
+				{% if structure['csm_var'] %}
+					<img src="file:{{ structure['csm_var'] }}"  class="img" style="width:300%;height:auto">
+				{% else %}
+					No COSMIC Variants map to this structure
+				{% endif %}
+			</div>
+		</div>
+
+
+		<div class="wrapper main-box">
+		<!-- ExAC, ClinVar, COSMIC Univariate K Plots -->
+			<h4>Ripley's Univariate K</h4>
+			<div class="column3">
+				<h5>ExAC</h5>
+				{% if structure['exac_K'] %}
+					<img src="file:{{ structure['exac_K'] }}" class="img" style="width:100%;height:auto"> 
+				{% else %}
+					Ripley's Univariate K graphic was not created for ExAC
+				{% endif %}
+			</div>
+			<div class="column3">
+				<h5>ClinVar</h5>
+				{% if structure['cln_K'] %}
+					<img src="file:{{ structure['cln_K'] }}"  class="img" style="width:100%;height:auto"> 
+				{% else %}
+					Ripley's Univariate K graphic was not created for Clinvar
+				{% endif %}
+			</div>
+			<div class="column3">
+				<h5>COSMIC</h5>
+				{% if structure['csm_K'] %}
+					<img src="file:{{ structure['csm_K'] }}"  class="img" style="width:100%;height:auto"> 
+				{% else %}
+					Ripley's Univariate K graphic was not created for COSMIC
+				{% endif %}
+			</div>
+		</div>
+		
+		<!-- ClinVar-ExAC, COSMIC-ExAC Bivariate D Plots -->
+		<div class="wrapper main-box">
+			<h4>Ripley's Bivariate D</h4>
+			<div class="column3">
+				<h5>ClinVar - ExAC</h5>
+				{% if structure['cln_D'] %}
+					<img src="file:{{ structure['cln_D'] }}" class="img" style="width:100%;height:auto"> <!-- class="img" style="width:100%;height:auto"> -->
+				{% else %}
+					ClinVar-Exac Bivariate D plot was not created
+				{% endif %}
+			</div>
+			<div class="column3">
+				<h5>COSMIC - ExAC</h5>
+				{% if structure['csm_D'] %}
+					<img src="file:{{ structure['csm_D'] }}" class="img" style="width:100%;height:auto"> 
+				{% else %}
+					COSMIC-Exac Bivariate D plot was not created
+				{% endif %}
+			</div>
+		</div>
+	</div>
+
+	<div class="wrapper main-box">
+		<!-- ClinVar-ExAC PathProx, ROC, PR -->
+		<h4>PathProx (ClinVar - ExAC) Results</h4>
+		<div class="column3">
+			<h5>PathProx</h5>
+			{% if structure['cln_pm'] %}
+				<img src="file:{{ structure['cln_pp'] }}"  class="img" style="width:100%;height:auto">
+			{% else %}
+				No graphic was created
+			{% endif %}
+		</div>
+		<div class="column3">
+			<h5>PathProx CV ROC</h5>
+			{% if structure['cln_roc'] %}
+				<img src="file:{{ structure['cln_roc'] }}" class="img" style="width:100%;height:auto">
+			{% else %}
+				No graphic was created
+			{% endif %}
+		</div>
+		<div class="column3">
+			<h5>PathProx CV PR</h5>
+			{% if structure['cln_pr'] %}
+				<img src="file:{{ structure['cln_pr'] }}"  class="img" style="width:100%;height:auto">
+			{% else %}
+				No graphic was created
+			{% endif %}
+		</div>
+  </div>
+				
+		<!-- COSMIC-ExAC PathProx, ROC, PR -->
+	<div class="wrapper main-box">
+			<h4>PathProx (COSMIC - ExAC) Results</h4>
+			<div class="column3">
+				<h5>PathProx</h5>
+				{% if structure['csm_pp'] %}
+					<img src="file:{{ structure['csm_pp'] }}"  class="img" style="width:100%;height:auto">
+				{% else %}
+					No graphic was created
+				{% endif %}
+			</div>
+			<div class="column3">
+				<h5>PathProx CV ROC</h5>
+				{% if structure['csm_roc'] %}
+					<img src="file:{{ structure['csm_roc'] }}" class="img" style="width:100%;height:auto">
+				{% else %}
+					No graphic was created
+				{% endif %}
+			</div>
+			<div class="column3">
+				<h5>PathProx CV PR</h5>
+				{% if structure['csm_pr'] %}
+					<img src="file:{{ structure['csm_pr'] }}"  class="img" style="width:100%;height:auto">
+				{% else %}
+					No graphic was created
+				{% endif %}
+			</div>
+		</div>
+{% endfor %}
+</div>
+</body>
+</html>

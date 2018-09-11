@@ -1,0 +1,140 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-us">
+<head>
+	<title>jQuery plugin: Tablesorter 2.0 - Enabling debug mode</title>
+	<link rel="stylesheet" href="html/javascript/tablesorter/docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="html/javascript/tablesorter/themes/blue/style.css" type="text/css" id="" media="print, projection, screen" />
+	<script type="text/javascript" src="html/javascript/jquery-2.2.4/jquery-2.2.4.js"></script>
+	<script type="text/javascript" src="html/javascript/tablesorter/jquery.tablesorter.js"></script>
+	<script type="text/javascript" src="html/javascript/tablesorter/addons/pager/jquery.tablesorter.pager.js"></script>
+<!--
+	<script type="text/javascript" src="html/javascript/chili-1.8b/chili-1.8b.js"></script>
+	<script type="text/javascript" src="html/javascript/tablesorter/docs/js/docs.js"></script>
+	<script type="text/javascript" src="html/javascript/tablesorter/docs/js/examples.js"></script>
+-->
+<script type="text/javascript" id="js">$(document).ready(function() {
+	// call the tablesorter plugin
+	$("table").tablesorter();
+}); </script>
+
+<div class="row">
+  <div class="span2">
+<img src="html/PSBgraphicHeader.png" />
+  </div>
+
+  <div class="span2">
+<table class="w3-table" style="width:50%">
+	<tr>
+		<th >Date</th>
+		<td>{{ date }}</td>
+	</tr>
+	<tr>
+		<th>Case</th>
+		<td>{{ case }}</td>
+	</tr>
+</table>
+</div>
+</div>
+</head>
+
+<body>
+
+
+
+
+<div id="main">
+	
+	<h1>{{ case }}</h1>
+		
+		<table cellspacing="1" class="tablesorter">
+		<thead>
+			{% if mutation_summaries %}
+				<tr>
+					<th>#</th>
+					<th>Gene Mutation</th>
+					<th>Error</th>
+					<th>PP Clinvar</th>
+					<th>PP COSMIC</th>
+					<th>ddg Max</th>
+					<th>ddg Min</th>
+					<th>Gene Intrctns Generic</th>
+					<th>Gene Intrctns Familial</th>
+<!-- Great to get everything for debugging
+					{% for colname in mutation_summaries[0] %}
+					<th>{{ colname }}</th>
+					{% endfor %}
+-->
+				</tr>
+			{% endif %}
+			</thead>
+			<tbody>
+				{% for mutation in mutation_summaries %}
+				<tr>
+					<td> {{ mutation['#'] }} </td>
+					<td><A href={{ mutation['html_fname'] }}>{{ mutation['Gene Mutation'] }}</A></td>
+					<td> {{ mutation['Error'] }} </td>
+					<td>
+						{% if mutation['cln_pp'] is not none %}   
+						    {{ mutation['cln_pp']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if mutation['csm_pp'] is not none %}   
+						    {{ mutation['csm_pp']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if mutation['ddG Max'] is not none %}   
+						    {{ mutation['ddG Max']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if mutation['ddG Min'] is not none %}   
+						    {{ mutation['ddG Min']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td> {{ mutation['Gene Interactions Generic'] }}
+					</td>
+
+					<td> {{ mutation['Gene Interactions Familial'] }}
+					</td>
+
+<!-- Great to get everything for debugging
+					{% for colname in mutation %}
+					<td>{{ mutation[colname] }} </td>
+					{% endfor %}
+-->
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+
+    <br>
+    <!-- Now insert the table of all the gene reports -->
+    <link rel="stylesheet" href="file:html/css/typography.css" />
+    <hr>
+    <h3>Generic Gene Interactions Table</h3>
+    <table class="w3-table">
+    {{ firstGeneTable }} 
+	 </table>
+    <hr>
+    <h3>Generic Gene Interactions Report</h3>
+    {{ firstGeneReport }} 
+    <hr>
+    <h3>Familial Gene Interactions Table</h3>
+    <table class="w3-table">
+    {{ secondGeneTable }} 
+	 </table>
+    <hr>
+    <h3>Familial Gene Interactions Report</h3>
+    {{ secondGeneReport }} 
+	
+</div>
+</body>
+</html>
+
