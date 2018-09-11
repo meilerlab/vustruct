@@ -1,3 +1,7 @@
+# Ignore directories provided by other means
+pdbmap/
+anaconda2/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -11,7 +15,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
+[dD]ownloads/
 eggs/
 .eggs/
 lib/
