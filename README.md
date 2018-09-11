@@ -3,4 +3,4 @@ Cluster computer application suite to analyze human mutation lists, and recommen
 
 The software is ultimately loaded into production on the ACCRE cluster by user psbadmin with:
 
-git clone user@github.com/CapraLab/psbadmin /dors/capra_lab/users
+git clone https://github.com/CapraLab/psbadmin /dors/capra_lab/users
