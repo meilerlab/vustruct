@@ -129,7 +129,7 @@ def read_fasta(fasta):
       msg = "Malformed fasta header. Please provide unaltered UniProt fasta files.\n"
       logging.getLogger().critical(msg); 
       sys_exit_failure(msg)
-    if len(unp)!=6 or not unp[0].isalpha():
+    if len(unp.split('-')[0])!=6 or not unp[0].isalpha():
       msg = "Malformed fasta header. Please provide unaltered UniProt fasta files.\n"
       logging.getLogger().critical(msg); 
       sys_exit_failure(msg)
@@ -612,26 +612,75 @@ def check_coverage(s,chain,pos,refpos=True):
   """ Test if a protein position is covered by the protein structure """
   return bool(s.get_residue(chain,pos,refpos=refpos))
 
-def parse_variants(varset):
+# The parser has to cope with AnnnB, AaaNNNBbb, and p.AaaNNNBbb (official) input formats
+# See http://varnomen.hgvs.org/
+# Strings ending with .X are consired to terminate with chain indicators
+from Bio.SeqUtils import seq1
+LOGGER = logging.getLogger()
+import re
+def parse_variants(variantsFlavor,varset):
   if not varset:
     return []
   if os.path.isfile(varset):
-    variants = [l.strip() for l in open(varset,'rb')]
-    chains   = [v.split('.')[-1] if len(v.split('.'))>1 else None for v in variants]
-    variants = [v.split('.')[ 0] for v in variants]
+    LOGGER.info("Parsing %s variants from file: %s",variantsFlavor,varset)
+    raw_variants = [line.strip() for line in open(varset,'rb')]
   else:
-    chains   = [v.split('.')[-1] if len(v.split('.'))>1 else None for v in varset.split(',')]
-    variants = [v.split('.')[ 0] for v in varset.split(',')]
-  try:
-    variants = [[int(v[1:-1]),v[0],v[-1]] for v in variants]
-  except:
-    variants = [[int(v[3:-3]),v[:3],v[-3:]] for v in variants]
-    # Reduce to single-letter codes
-    variants = [[pos,longer_names[ref.upper()],longer_names[alt.upper()]] for pos,ref,alt in variants]
- 
+    LOGGER.info("Parsing %s variants from command line argument:\n %s",variantsFlavor,varset)
+    raw_variants = [variant.strip() for variant in varset.split(',')]
+
+  # Strip out opening "p." if it is there
+  variants_without_p = []
+  for v in raw_variants:
+    if v.startswith("p."):
+      variants_without_p.append(v[2:])
+    else :
+      variants_without_p.append(v)
+
+  if len(variants_without_p) == len(raw_variants):
+    LOGGER.info("Raw variant parse: %d %s variants loaded",len(variants_without_p),variantsFlavor)
+  else:
+    LOGGER.warning("Blank/invalid variants dected in raw variant parse.  Started with %d %s, then reduced to %d",len(raw_variants),variantsFlavor,len(variants_without_p))
+
+  parsed_variants = []
+  chains = []
+
+  one_letter_matcher = re.compile(r"^(?P<refAA>[A-Z])(?P<position>[0-9]+)(?P<altAA>[A-Z])$")
+  assert one_letter_matcher
+
+  three_letter_matcher = re.compile(r"^(?P<refAA>[A-Z]{3})(?P<position>[0-9]+)(?P<altAA>[A-Z]{3})$")
+  assert three_letter_matcher
+
+  for v in variants_without_p:
+    chain_delimiter = v.rfind('.')
+    if chain_delimiter > -1:
+      chains.append(v[chain_delimiter])
+      v_without_chain = v[0:chain_delimiter].upper()
+    else:
+      chains.append(None)
+      v_without_chain = v.upper()
+    result = one_letter_matcher.match(v_without_chain)
+    if result:
+      v_dict = result.groupdict()
+    else:
+      result = three_letter_matcher.match(v_without_chain)
+      if result:
+        v_dict = result.groupdict()
+        v_dict['refAA'] = seq1(v_dict['refAA'])
+        v_dict['altAA'] = seq1(v_dict['altAA'])
+      else:
+        msg = "Unable to parse variant fragment %s"%v_without_chain
+        LOGGER.critical(msg)
+        sys_exit_failure(msg)
+    parsed_variants.append([int(v_dict['position']),v_dict['refAA'],v_dict['altAA']])
+
   # pdb_pos, unp_pos, ref, alt, chain
-  variants = [[None]+v+[chains[i]] if chains[i] else v for i,v in enumerate(variants)]
-  return variants
+  final_variants = [[None]+v+[chains[i]] if chains[i] else v for i,v in enumerate(parsed_variants)]
+  LOGGER.info("%d variants retained by parser",len(final_variants))
+  if len(final_variants) > 1:
+    LOGGER.info("Variants: %s .... %s",final_variants[0],final_variants[-1])
+  elif len(final_variants) == 1:
+    LOGGER.info("Variant: %s",final_variants[0])
+  return final_variants
 
 def parse_qt(varset):
   if not varset:
@@ -642,7 +691,7 @@ def parse_qt(varset):
       var.append(line.split('\t')[0].strip())
       q.append(line.split('\t')[1].strip())
   var = ','.join(var)
-  var = parse_variants(var)
+  var = parse_variants("Quantitative",var)
   return zip(var,q)
 
 def resicom(resi):
@@ -1564,9 +1613,9 @@ if __name__ == "__main__":
 
     # Reinitialize variant sets for each structure
     q = parse_qt(args.quantitative)
-    p = parse_variants(args.pathogenic)
-    n = parse_variants(args.neutral)
-    c = parse_variants(args.variants)
+    p = parse_variants("Pathogenic",args.pathogenic)
+    n = parse_variants("Neutral",args.neutral)
+    c = parse_variants("Candidate",args.variants)
 
     if unp_flag:
       tlabel = olabel.split('_')
