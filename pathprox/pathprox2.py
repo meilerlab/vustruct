@@ -12,21 +12,23 @@
 #                : spatial position relative to known pathogenic and neutral
 #                : variation in protein structure.
 #=============================================================================#
-"""Predicts the pathogenicity of a missense variant by its
-spatial position relative to known pathogenic and neutral
-variation it its protein structure."""
+"""Pathprox predicts (scores) the pathogenicity of a missense variant by its
+spatial position relative to known pathogenic and neutral variation in its 
+3D protein structure."""
 
 #logging
 import logging
 import json
+import re
 
 from logging.handlers import RotatingFileHandler
 from logging import handlers
-log_formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)4d] %(message)s',datefmt='%H:%M:%S')
+PATHPROX_LOG_FORMATTER = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)4d] %(message)s',datefmt='%H:%M:%S')
 ch = logging.StreamHandler()
-ch.setFormatter(log_formatter)
-logging.getLogger().addHandler(ch)
-logging.getLogger().setLevel(logging.INFO)
+ch.setFormatter(PATHPROX_LOG_FORMATTER)
+LOGGER = logging.getLogger()
+LOGGER.addHandler(ch)
+LOGGER.setLevel(logging.INFO)
 
 import inspect # For status updates
 
@@ -41,7 +43,7 @@ from collections import OrderedDict
 import pprint
 from subprocess import Popen, PIPE
 
-cache_dir = '/tmp/sqlcache'  # Mus tbe overridden early
+cache_dir = '/tmp/sqlcache'  # Must be overridden early
 
 # Warnings
 from warnings import filterwarnings,resetwarnings
@@ -53,10 +55,11 @@ import math
 TOL = 1e-5 # zero-tolerancection with a given name return the same logger instance. This means that logger instances never need to be passed between d
 
 # Stats
-from scipy.spatial.distance import cdist,pdist,squareform
-from scipy.stats import norm,percentileofscore,mannwhitneyu
+from scipy.spatial.distance import cdist, pdist, squareform
+from scipy.stats import norm, percentileofscore, mannwhitneyu
 from scipy.spatial import KDTree
-from scipy.stats.mstats import zscore
+
+# Removed October - because built-in zscore chokes on sigma=0 from scipy.stats.mstats import zscore
 
 # Plotting
 import matplotlib as mpl
@@ -68,10 +71,12 @@ sns.set_style("white")
 # Machine Learning
 filterwarnings('ignore',category=RuntimeWarning)
 from sklearn.linear_model import LogisticRegression as LR
-from sklearn.preprocessing import scale
-from sklearn.metrics import auc,roc_curve
-from sklearn.metrics import precision_recall_curve as pr_curve
-from sklearn.metrics import average_precision_score
+
+from  sklearn.preprocessing import scale
+import  sklearn.metrics 
+# from  sklearn.metrics import roc_curve 
+# from sklearn.metrics import precision_recall_curve
+# from sklearn.metrics import average_precision_score
 resetwarnings()
 
 # Biopython
@@ -127,11 +132,11 @@ def read_fasta(fasta):
       unp,refid = fin.readline().split('|')[1:3]
     except:
       msg = "Malformed fasta header. Please provide unaltered UniProt fasta files.\n"
-      logging.getLogger().critical(msg); 
+      LOGGER.critical(msg); 
       sys_exit_failure(msg)
     if len(unp.split('-')[0])!=6 or not unp[0].isalpha():
-      msg = "Malformed fasta header. Please provide unaltered UniProt fasta files.\n"
-      logging.getLogger().critical(msg); 
+      msg = "Fasta header |%s| lacks uniprot ID in position 2. Please provide unaltered UniProt fasta files."%unp
+      LOGGER.critical(msg); 
       sys_exit_failure(msg)
     refid     = refid.split()[0]
     return unp,refid,''.join([l.strip() for l in fin.readlines() if l[0]!=">"])
@@ -150,7 +155,6 @@ def query_alignment_new(sid):
   s  += "AND actr.trans_seqid=d.seqid "
   w   = "WHERE (act.label='pdb' or act.label='modbase' or act.label='swiss') AND act.structid=%s AND b.biounit=0 AND b.model=0"
   q   = s+w
-  # import pdb; pdb.set_trace()
   res = list(io.secure_cached_query(cache_dir,q,(sid,)))
   if (not res) or (len(res) == 0): # Then we are having a very bad day indeed
     return None,None
@@ -174,7 +178,6 @@ def query_alignment(sid): #Deprecate this one after pdbs in new structures
   s  += "AND a.trans_seqid=d.seqid "
   w   = "WHERE (a.label='pdb' or a.label='modbase' or a.label='swiss') AND b.structid=%s AND b.biounit=0 AND b.model=0"
   q   = s+w
-  # import pdb; pdb.set_trace()
   res = list(io.secure_cached_query(cache_dir,q,(sid,)))
 
   if (not res) or (len(res) == 0): # Then we need to query from the new AlignmentChain Setup
@@ -198,7 +201,7 @@ def structure_lookup(io,sid,bio=True,chain=None):
     res  = [r[0] for r in io.secure_cached_query(cache_dir,q,(io.slabel,sid.upper()),
                                           cursorclass='Cursor')]
   if bio and res: # Biological assemblies were requested and found
-    logging.getLogger().info("Using the first biological assembly for %s."%sid)
+    LOGGER.info("Using the first biological assembly for %s."%sid)
     flist = []
     loc   = "%s/biounit/coordinates/all/%s.pdb%d.gz"
     for b in res:
@@ -211,7 +214,7 @@ def structure_lookup(io,sid,bio=True,chain=None):
     return flist
   else:   # No biological assemblies were found; Using asymmetric unit
     if bio:
-      logging.getLogger().info("Using the asymmetric unit for %s."%sid)
+      LOGGER.info("Using the asymmetric unit for %s."%sid)
     loc = "%s/structures/all/pdb/pdb%s.ent.gz"
     f   = loc%(config_dict['pdb_dir'],sid.lower())
     if not os.path.exists(f):
@@ -223,7 +226,7 @@ def structure_lookup(io,sid,bio=True,chain=None):
 def model_lookup(io,mid):
   """ Returns coordinate files for a ModBase ID """
   f = PDBMapModel.get_coord_file(mid.upper())
-  logging.getLogger().info("File location for %s: %s"%(mid.upper(),f))
+  LOGGER.info("File location for %s: %s"%(mid.upper(),f))
   #f = "%s/Homo_sapiens_2016/model/%s.pdb.gz"%(args.modbase_dir,mid.upper())
   if not os.path.exists(f):
     try:
@@ -240,7 +243,7 @@ def model_lookup(io,mid):
 def swiss_lookup(io,model_id):
   """ Returns coordinate files for a Swiss ID """
   f = PDBMapSwiss.get_coord_file(model_id)
-  logging.getLogger().info("File location for %s: %s"%(model_id,f))
+  LOGGER.info("File location for %s: %s"%(model_id,f))
   if not os.path.exists(f):
     msg  = "Coordinate file missing for %s\n"%model_id
     msg += "Expected: %s\n"%f
@@ -253,7 +256,7 @@ def uniprot_lookup(io,ac):
   entities = io.load_unp(ac)
   if not entities:
     msg = "No structures or models associated with %s\n"%ac
-    logging.getLogger().warning(msg)
+    LOGGER.warning(msg)
     return None
   flist = []
   for etype,ac in entities:
@@ -284,7 +287,7 @@ def sequence_var_query():
     msg  = "\nWARNING: Reference isoform was not specified. \n"
     msg  = "       : Are there multiple isoforms for this protein?\n"
     msg += "       : Explictly declare isoform to avoid mis-alignments\n\n"
-    logging.getLogger().warning(msg)
+    LOGGER.warning(msg)
   return s,w
 
 def query_1kg(io,sid,refid=None,chains=None,indb=False):
@@ -312,14 +315,14 @@ def query_1kg(io,sid,refid=None,chains=None,indb=False):
 def query_exac(io,sid,refid=None,chains=None,indb=False):
   """ Query natural variants (ExAC) from PDBMap """
   if indb:
-    logging.getLogger().info("Known structure, querying pre-intersected variants...")
+    LOGGER.info("Known structure, querying pre-intersected variants...")
     s,w = default_var_query()
     if chains:
       w += "AND chain in (%s) "%','.join(["'%s'"%c for c in chains])
     f   = ("exac",sid)
     c   = ["unp_pos","ref","alt","chain"]
   else:
-    logging.getLogger().info("Unknown structure, querying all variants for %s..."%refid)
+    LOGGER.info("Unknown structure, querying all variants for %s..."%refid)
     s,w = sequence_var_query()
     f   = ("exac",refid)
     c   = ["unp_pos","ref","alt"]
@@ -431,7 +434,6 @@ def query_drug(io,sid,refid=None,chains=None,indb=False):
   return res
 
 def query_cosmic(io,sid,refid=None,chains=None,indb=False):
-  # import pdb; pdb.set_trace()
   """ Query somatic variants (COSMIC) from PDBMap """
   if indb:
     s,w = default_var_query()
@@ -488,29 +490,29 @@ def get_coord_files(entity,io):
     sid  = '.'.join(os.path.basename(entity).split('.')[:-exts]) 
     return [(sid,-1,entity)]
   else:
-    logging.getLogger().info("Attempting to identify entity: %s..."%entity)
+    LOGGER.info("Attempting to identify entity: %s..."%entity)
     etype = io.detect_entity_type(entity)
     if   etype == "structure":
-      logging.getLogger().info("Input is a PDB ID. Locating coordinate file...")
+      LOGGER.info("Input is a PDB ID. Locating coordinate file...")
       return structure_lookup(io,entity,args.chain is None)
     elif etype == "model":
-      logging.getLogger().info("Input is a ModBase model ID. Locating coordinate file...")
+      LOGGER.info("Input is a ModBase model ID. Locating coordinate file...")
       return model_lookup(io,entity)
     elif etype == "swiss":
-      logging.getLogger().info("Input is a Swissmodel ID. Locating coordinate file...")
+      LOGGER.info("Input is a Swissmodel ID. Locating coordinate file...")
       return swiss_lookup(io,entity)
     elif etype == "unp":
       unp_flag = True
-      logging.getLogger().info("Input is a UniProt AC. Identifying all relevant PDB structures and ModBase models...")
+      LOGGER.info("Input is a UniProt AC. Identifying all relevant PDB structures and ModBase models...")
       return uniprot_lookup(io,entity)
     elif etype: # HGNC returned a UniProt ID
       unp_flag = True
-      logging.getLogger().info("Input is an HGNC gene name. Identifying all relevant PDB structures and ModBase models...")
-      logging.getLogger().info("HGNC: %s => UniProt: %s..."%(entity,etype))
+      LOGGER.info("Input is an HGNC gene name. Identifying all relevant PDB structures and ModBase models...")
+      LOGGER.info("HGNC: %s => UniProt: %s..."%(entity,etype))
       return uniprot_lookup(io,etype)
     else:
       msg = "Could not identify %s."%entity
-      logging.getLogger().critical(msg);
+      LOGGER.critical(msg);
       sys_exit_failure(msg)
 
 def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumber=False):
@@ -522,7 +524,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
   else:
     if bio < 0:
       msg = "FASTA files must be provided for user-defined protein models\n"
-      logging.getLogger().critical(msg); 
+      LOGGER.critical(msg); 
       sys_exit_failure(msg)
     unp,aln = query_alignment(sid)
     refid = seq = None
@@ -548,7 +550,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
     for m in s:
       for c in list(m.get_chains()):
         if c.id != chain:
-          logging.getLogger().info("Ignoring chain %s (user specified %s)."%(c.id,chain))
+          LOGGER.info("Ignoring chain %s (user specified %s)."%(c.id,chain))
           c.get_parent().detach_child(c.id)
 
   s = PDBMapStructure(s,refseq=seq,pdb2pose={})
@@ -557,12 +559,12 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
 
   if not seq:
     # Manually create a PDBMapAlignment from the queried alignment
-    logging.getLogger().info("Chains in %s: %s"%
+    LOGGER.info("Chains in %s: %s"%
        (s.id,','.join(sorted([c.id for c in s.get_chains()]))))
-    logging.getLogger().info("Chains in %s with pre-calculated alignments: %s"%
+    LOGGER.info("Chains in %s with pre-calculated alignments: %s"%
        (s.id,','.join(sorted([c for c in set([k[0] for k in aln.keys()])]))))
     for c in s.get_chains():
-      logging.getLogger().info("Using pre-calculated alignment for chain %s"%c.id)
+      LOGGER.info("Using pre-calculated alignment for chain %s"%c.id)
       refdict = dict((val[0],(val[1],"NA",0,0,0)) for key,val in aln.iteritems() if key[0]==c.id)
       c.transcript = PDBMapTranscript("ref","ref","ref",refdict)
       c.alignment  = PDBMapAlignment(c,c.transcript)
@@ -589,7 +591,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
     for m in s:
       for c in list(m.get_chains()):
         if c.alignment.perc_identity<0.9:
-          logging.getLogger().info("Chain %s does not match reference sequence. Ignoring."%c.id)
+          LOGGER.info("Chain %s does not match reference sequence. Ignoring."%c.id)
           c.get_parent().detach_child(c.id)
 
   # Reduce to specified residue range if given
@@ -616,8 +618,6 @@ def check_coverage(s,chain,pos,refpos=True):
 # See http://varnomen.hgvs.org/
 # Strings ending with .X are consired to terminate with chain indicators
 from Bio.SeqUtils import seq1
-LOGGER = logging.getLogger()
-import re
 def parse_variants(variantsFlavor,varset):
   if not varset:
     return []
@@ -682,6 +682,7 @@ def parse_variants(variantsFlavor,varset):
     LOGGER.info("Variant: %s",final_variants[0])
   return final_variants
 
+
 def parse_qt(varset):
   if not varset:
     return []
@@ -691,7 +692,7 @@ def parse_qt(varset):
       var.append(line.split('\t')[0].strip())
       q.append(line.split('\t')[1].strip())
   var = ','.join(var)
-  var = parse_variants("Quantitative",var)
+  var = parse_variants("Quantity weights",var)
   return zip(var,q)
 
 def resicom(resi):
@@ -699,57 +700,79 @@ def resicom(resi):
   return np.array([np.array(a.get_coord()) for a in resi.get_unpacked_list()]).mean(axis=0)
 
 @np.vectorize
-def nw(d,lb=8.,ub=24):
-  if d <= TOL:
-    return 1+1e-10
-  elif d <= lb:
+def NeighborWeight(d,lower_bound=8.,upper_bound=24):
+  """For each distance between a variant of unknown significance (VUS) and a
+  known (pathogenic or neutral) variant, return a spatial proximity metric that 
+  weights by emphasizing closeness to the lower_bound of the interval of interest
+
+  See page 2 of 10 in "Methods:Protein structural" analysis in... 
+  "Sivley et al. BMC Bioinformatics (2018) 19:18" 
+
+  Parameters
+  ----------
+  d: Array-like set of distances between centroids of a VUS and known variants
+  
+  Returns
+  -------
+  Same shape'd np.array with weights in the interval [0.0,1.0]
+
+  In practice, the lower_bound can equal the upper_bound, as when they
+  calculated by a preceding the Ripley's K analysis"""
+
+  if d <= TOL: # Inter-residue distances this small are indicative of "same residue to same residue" or problems
+    retval = 1+1e-10
+    LOGGER.warning("NeighborWeight encountered tiny inter-residue distance %g Returning %g",d,retval)
+    return retval
+  elif d <= lower_bound:
     return 1.
-  elif d >= ub:
+  elif d >= upper_bound:
     return 0.
   else:
-    return 0.5*(np.cos(np.pi*(d-lb)/(ub-lb))+1)
+    return 0.5*(np.cos(np.pi*(d-lower_bound)/(upper_bound-lower_bound))+1)
 
-def uniprox(cands,v,nwlb=8.,nwub=24.,w=None):
+def uniprox(cands,v,nwlb=8.,nwub=24.,weights=None):
   """ Predicts a univariate constraint score from weight vector 'v' """
-  if w:
-    Cw,Vw = w
-    Cw = np.reshape(Cw,(Cw.size,1))
-    Vw = np.reshape(Vw,(Vw.size,1))
+  if weights:
+    Cw,Vw = weights
+    Cw = Cw.values.reshape((Cw.size,1))
+    Vw = Vw.values.reshape((Vw.size,1))
   D       = cdist(cands,v)
   D[D==0] = np.inf     # Do not use variants to score their own residues
-  NWv = nw(D,lb=nwlb,ub=nwub)
-  if w:
+  NWv = NeighborWeight(D,lower_bound=nwlb,upper_bound=nwub)
+  if weights:
     # Substitution severity adjustment
     NWv = NWv * Vw.T# * np.dot(Cw,Vw.T)
   # np.fill_diagonal(NWv,0.) # NeighborWeight of self = 0.0. Inplace.
   cscores = np.sum(NWv,axis=1)/v.size
   return list(cscores)
 
-def pathprox(cands,path,neut,nwlb=8.,nwub=24.,cv=None,w=None):
-  """ Predicts pathogenicity of a mutation vector given observed neutral/pathogenic """
-  if w:
-    Cw,Aw,Bw = w
-    Cw = np.reshape(Cw,(Cw.size,1))
-    Aw = np.reshape(Aw,(Aw.size,1))
-    Bw = np.reshape(Bw,(Bw.size,1))
+def pathprox(cands,path,neut,nwlb=8.,nwub=24.,cross_validation_flag=None,weights=None):
+  """ Predicts pathogenicty of variants of unknown significance (VUS)s
+  given their coordinates, as well as coordinates of known pathogenic
+  and neutral resides"""
+  if weights:
+    Cw,Aw,Bw = weights
+    Cw = Cw.values.reshape((Cw.size,1))
+    Aw = Aw.values.reshape((Aw.size,1))
+    Bw = Bw.values.reshape((Bw.size,1))
   ccount = len(cands)
   pcount = len(path)
   ncount = len(neut)
   N = pcount + ncount
   # NeighborWeight of each candidate for each neutral/pathogenic variant
-  NWn = nw(cdist(cands,neut),lb=nwlb,ub=nwub)
-  NWp = nw(cdist(cands,path),lb=nwlb,ub=nwub)
-  if w:
+  NWn = NeighborWeight(cdist(cands,neut),lower_bound=nwlb,upper_bound=nwub)
+  NWp = NeighborWeight(cdist(cands,path),lower_bound=nwlb,upper_bound=nwub)
+  if weights:
     # Substitution severity of each candidate for each neutral/pathogenic variant
     NWn  = NWn * Bw.T# * np.dot(Cw,Bw.T)
     # NWp  = NWp * Aw.T# * np.dot(Cw,Aw.T) # DO NOT WEIGHT PATHOGENIC VARIANTS  
   psum = np.sum(NWn)
   nsum = np.sum(NWp)
   # Set self-weights to 0. for cross-validation
-  if   cv == "N":
+  if   cross_validation_flag == "N":
     assert(len(set(NWn.shape))==1) # Fail if not square matrix
     np.fill_diagonal(NWn,0.) # NeighborWeight of self = 0.0. Inplace.
-  elif cv == "P":
+  elif cross_validation_flag == "P":
     assert(len(set(NWp.shape))==1) # Fail if not square metrix
     np.fill_diagonal(NWp,0.) # NeighborWeight of self = 0.0. Inplace.
   NWs = np.hstack((NWn,NWp)) # NeighborWeight matrix stack
@@ -761,20 +784,48 @@ def pathprox(cands,path,neut,nwlb=8.,nwub=24.,cv=None,w=None):
   cscores = pscores - nscores # subtraction binds c to -1..1
   return list(cscores)
 
-def calc_auc(pscores,nscores):
-  ## Calculate the AUC
-  labels = [0]*len(nscores)+[1]*len(pscores)
-  preds  = nscores+pscores
-  fpr,tpr,_  = roc_curve(labels,preds,drop_intermediate=False)
-  roc_auc    = auc(fpr,tpr)
-  prec,rec,_ = pr_curve(labels,preds)
-  prec       = np.maximum.accumulate(prec)
-  pr_auc     = average_precision_score(labels,preds,average="micro")
-  return fpr,tpr,roc_auc,prec,rec,pr_auc
+def calc_auc(pathogenic_scores,neutral_scores):
+  """Calculate the Area under the ROC curve (roc_auc)
+
+  Parameters
+  ----------
+  Pathogenic scores
+  Neutral scores
+
+  Returns
+  -------
+  False Positive Rates[]
+  True Positive Rates[]
+  roc_auc 
+  precision,recall pairs
+  average precision score
+  """
+ 
+  # labels are the known 'true binary labels' or 'y_true' parameter
+  LOGGER.info("calc_auc starting with %d pathogenic scores and %d neutral scores",len(pathogenic_scores),len(neutral_scores))
+  known_binary_labels = [0]*len(neutral_scores)+[1]*len(pathogenic_scores)
+
+  # catenate the lists of scores we computed
+  all_scores  = neutral_scores+pathogenic_scores
+
+  # Compute the increasing false positive, and true positive rates
+  # The ith element of fpr[i] and tpr[i]  is the false(true) positive rate of scores > threshholds[i]
+  fpr,tpr,thresholds  = sklearn.metrics.roc_curve(known_binary_labels,all_scores,drop_intermediate=False)
+
+  roc_auc    =          sklearn.metrics.auc(fpr,tpr)
+  LOGGER.info("roc_auc=%f  Compare to roc_auc_score()=%f",roc_auc,sklearn.metrics.roc_auc_score(known_binary_labels,all_scores))
+
+  # Compute precision-recall pairs Precision is #true_positives/(true_positives+false_positives)
+  precisions,recalls,_ = sklearn.metrics.precision_recall_curve(known_binary_labels,all_scores)
+  precision_max_accumulate        = np.maximum.accumulate(precisions)
+  pr_auc     =           sklearn.metrics.average_precision_score(known_binary_labels,all_scores,average="micro")
+  
+  LOGGER.info("Returning roc_auc=%g  pr_auc=%g",roc_auc,pr_auc)
+  return fpr,tpr,roc_auc,precision_max_accumulate,recalls,pr_auc
 
 def plot_roc(fpr,tpr,ax=None,save=True,label="PathProx",color='k'):
   ## Plot the ROC curve
-  roc_auc = auc(fpr,tpr)
+  roc_auc = sklearn.metrics.auc(fpr,tpr)
   if not ax:
     fig,ax = plt.subplots(1,1,figsize=(5,5))
     # plt.title("%s ROC"%label)
@@ -796,6 +847,7 @@ def plot_roc(fpr,tpr,ax=None,save=True,label="PathProx",color='k'):
 def plot_pr(rec,prec,pr_auc,ax=None,save=True,label="PathProx",color='k'):
   ## Plot the PR curve
   if not ax:
+    # Return one 5"x5" matplotlib.figure.Figure and matplotlib.axes.Axes
     fig,ax = plt.subplots(1,1,figsize=(5,5))
     # plt.title("%s PR"%label)
     ax.set_xlim([0.,1.])
@@ -837,38 +889,46 @@ def write_results(cands,cscores,cpvalues,preds,conf,N,mwu_p,roc_auc,pr_auc,label
       row = [cands[i]]+["%.4f"%cscores[i],"%.3g"%cpvalues[i],"%d"%N,"%.3g"%mwu_p,"%.2f"%roc_auc,"%.2f"%pr_auc,conf,preds[i]]
       res.append(row)
     res = sorted(res,key=lambda x: float(x[1]),reverse=True)
-    logging.getLogger().info("\t".join(h[:3]+h[-2:]))
+    LOGGER.info("\t".join(h[:3]+h[-2:]))
     for row in res:
       writer.writerow(row)
-      logging.getLogger().info("\t".join(row[:3]+row[-2:]))
+      LOGGER.info("\t".join(row[:3]+row[-2:]))
 """
 
 def var2coord(s,p,n,c,q=[]):
   # Construct a dataframe containing all variant sets
+  # These new columns are initialized to np.nan and only change from nan
+  # If they are loaded from known path/neutral/candidate/variants
   vdf = pd.DataFrame(columns=["unp_pos","ref","alt","chain","dcode","qt"])
-  if p:
+
+  if p: # List of pathogenic variants
     pdf = pd.DataFrame(p,columns=["unp_pos","ref","alt","chain"])
     pdf["dcode"] = 1
     pdf["qt"]    = np.nan
     vdf = vdf.append(pdf)
-  if n:
+  if n: # List of neutral variants
     ndf = pd.DataFrame(n,columns=["unp_pos","ref","alt","chain"])
     ndf["dcode"] = 0
     ndf["qt"]    = np.nan
     vdf = vdf.append(ndf)
-  if c:
+  if c: # List of Candidate variants
     cdf = pd.DataFrame(c,columns=["unp_pos","ref","alt","chain"])
     cdf["dcode"] = -1
     cdf["qt"]    = np.nan
     vdf = vdf.append(cdf)
-  if q:
+  if q: # List of quantified variants
     qdf = pd.DataFrame(q,columns=["unp_pos","ref","alt","chain","qt"])
     qdf["dcode"] = np.nan
     qdf["qt"]    = qdf["qt"].astype(np.float64)
     # Update column order to match  binary datasets
     qdf = qdf[["unp_pos","ref","alt","chain","dcode","qt"]]
     vdf = vdf.append(qdf)
-  vdf = vdf.drop_duplicates().reset_index(drop=True)
+
+  # drop_duplicates considers only the columns, not the IntIndex elements
+  vdf.drop_duplicates(inplace=True)
+ 
+  # Create a new MonotonicRangeIndex from 0 to len()-1.  Old index will be discarded
+  vdf.reset_index(drop=True,inplace=True)
 
   msg = None
   if vdf.empty and not (args.add_exac or args.add_gnomad or args.add_1kg or args.add_pathogenic or args.add_cosmic or args.add_tcga):
@@ -876,13 +936,17 @@ def var2coord(s,p,n,c,q=[]):
   elif vdf.empty:
     msg = "\nERROR: No variants identified. Please manually provide pathogenic and neutral variant sets.\n"
   if msg:
-    logging.getLogger().critical(msg); 
+    LOGGER.critical(msg); 
     sys_exit_failure(msg)
 
-  # Defer to pathogenic annotation if conflicted. DO NOT OVERWRITE CANDIDATES!
-  def pathdefer(g):
+  # If a position has both pathogenic and neutral variants, THEN eliminate the neutral ones
+  def defer_to_pathogenic(g):
+    # If all sub-group elements are neutral or candidate VUSs, then 
+    # simply return all of them.  Otherwise, return a group that has
+    # excluded all neutrals, and is _only_ pathogenic or candidates 
     return g if all(g["dcode"]<=0) else g[g["dcode"]!=0]
-  vdf = vdf.groupby(["unp_pos","ref","alt","chain"]).apply(pathdefer)
+
+  vdf_neutrals_deferred = vdf.groupby(["unp_pos","ref","alt","chain"],as_index=False).apply(defer_to_pathogenic)
   
   # Construct a dataframe from the coordinate file
   sdf = pd.DataFrame([[r.get_parent().id,r.id[1]] for r in s.get_residues()],columns=["chain","pdb_pos"])
@@ -891,12 +955,18 @@ def var2coord(s,p,n,c,q=[]):
   # Calculate the coordinate center-of-mass for all residues
   coords   = [resicom(r) for r in s.get_residues()]
   coord_df = pd.DataFrame(coords,index=sdf.index,columns=["x","y","z"])
-  sdf = sdf.merge(coord_df,left_index=True,right_index=True)
+  sdf_coord = sdf.merge(coord_df,left_index=True,right_index=True)
 
   # Merge the sequence-aligned structure dataframe with the sequence-based variant dataframe
-  sdf = sdf.merge(vdf[["unp_pos","ref","alt","chain","dcode","qt"]],how="left",on=["chain","unp_pos"])
+  vdf_extract = vdf_neutrals_deferred[["unp_pos","ref","alt","chain","dcode","qt"]].copy()
+  vdf_extract['unp_pos'] = vdf_extract['unp_pos'].apply(int)
+  vdf_extract['chain'] = vdf_extract['chain'].apply(str)
+  sdf_coord['unp_pos'] = sdf_coord['unp_pos'].apply(int)
+  sdf_coord['chain'] = sdf_coord['chain'].apply(str)
+  sdf_merged = sdf_coord.merge(vdf_extract,how="left",on=["chain","unp_pos"])
   # Ensure that no duplicate residues were introduced by the merge
-  sdf.drop_duplicates(["unp_pos","pdb_pos","chain","ref","alt","dcode"]).reset_index(drop=True)
+  sdf_merged.reset_index(drop=True,inplace=True)
+  sdf = sdf_merged.drop_duplicates(["unp_pos","pdb_pos","chain","ref","alt","dcode"]).reset_index(drop=True)
 
   # Annotate each amino acid substitution with the blosum100 score
   sdf["blosum100"] = sdf.apply(lambda x: blosum100[(x["ref"],x["alt"])] if not np.isnan(x["dcode"]) else None,axis=1)
@@ -909,7 +979,7 @@ def var2coord(s,p,n,c,q=[]):
       msg = "Structure successfully aligned to sequence, but no variants were mapped to non-missing residues."
     else:
       msg = "ERROR: Sequence-structure alignment failed."
-    logging.getLogger().critical(msg); 
+    LOGGER.critical(msg); 
     sys_exit_failure(msg)
 
   # Check that both variant categories are populated (if input is categorical)
@@ -922,7 +992,7 @@ def var2coord(s,p,n,c,q=[]):
       else:
         msg += "Please manually specify neutral variants.\n"
     if msg:
-      logging.getLogger().warning(msg)
+      LOGGER.warning(msg)
     if (sdf["dcode"]==1).sum() < 3:
       msg = "\nWARNING: Structure contains %d pathogenic variants (PathProx minimum 3).\n"%(sdf["dcode"]==1).sum()
       if not args.add_pathogenic and not args.add_cosmic and not args.add_tcga:
@@ -930,63 +1000,125 @@ def var2coord(s,p,n,c,q=[]):
       else:
         msg += "Please manually specify pathogenic variants.\n"
       if msg:
-        logging.getLogger().warning(msg)
+        LOGGER.warning(msg)
 
   # Conversion from short-code to explicit description
   code2class = {-1 : "Candidate",
                  0 : "Neutral",
                  1 : "Pathogenic"}
   cnts   = sdf.drop_duplicates(["unp_pos","ref","alt","dcode"]).groupby("dcode").apply(lambda x: (x["dcode"].values[0],len(x)))
-  logging.getLogger().info("################################")
-  logging.getLogger().info("Unique Variant Counts:")
+  LOGGER.info("################################")
+  LOGGER.info("Unique Variant Counts:")
   with open("%s_variant_counts.txt"%args.label,'wb') as fout:
     writer = csv.writer(fout,delimiter='\t')    
     for dcode,cnt in cnts[::-1]:
       writer.writerow([code2class[dcode],cnt])
-      logging.getLogger().info("%20s:  %d"%(code2class[dcode],cnt))
-  logging.getLogger().info("")
+      LOGGER.info("%20s:  %d"%(code2class[dcode],cnt))
+  LOGGER.info("")
   return sdf
 
+def TrangeCondensed(D):
+  """From a compressed pdist() type list of inter-residue distances, return
+     list of distances to consider"""
+
+  min_observed_intervariant_distance = np.min(D)
+  minT = max(np.ceil(min_observed_intervariant_distance),5)          # minimum observed inter-variant distance.  But no less than 5A
+  maxT = min(np.ceil(np.max(D)),45)            # maximum observed inter-variant distance (bivariate) if <45A
+  if maxT <= minT:
+    maxT = np.ceil(np.max(D))
+    msg = "Observations too close (min=%.0f, max=%.0f) to divide space; using full range.\n"%(minT,maxT)
+    LOGGER.warning(msg)
+  # Verify that the structure is large enough to analyze multiple distances
+  if maxT == minT:
+    LOGGER.warning("Skipped %s.%s: Structure is too small to analyze."%(sid,chain))
+    return None
+  # Retun a list of distances to consider, as consecutive Angstrom gradatons
+  T = np.arange(minT,maxT+1,1) # inclusive range
+  return T
+
 def Trange(D,o=[]):
-  minT = max(np.ceil(np.nanmin(D[D>0])),5)          # minimum observed inter-variant distance if >5A
+  """From the square symmetric matrix of inter-residue distances
+  Calculate the minimum and maximum inter-variant distance Threshhlds.
+
+  The optional parameter o is a specific list of variants
+  that are of interest, without which all residues are considered
+
+  The return value is a list of integers, the range of distance thresholds
+  from minT to maxT"""
+  
+  min_observed_intervariant_distance = np.min(D[np.triu_indices(D.shape[0],k=1)])
+
+  minT = max(np.ceil(min_observed_intervariant_distance),5)          # minimum observed inter-variant distance.  But no less than 5A
+  # If a specific list of variants was provided, 
+  # then consider only those variants in computing the max inter-variant distance
   if any(o):
     o = o.astype(bool)
     maxT = min(np.ceil(np.nanmax(D[o,:][:,o])),45)  # maximum observed inter-variant distance (univariate) if <45A
   else:
     maxT = min(np.ceil(np.nanmax(D)),45)            # maximum observed inter-variant distance (bivariate) if <45A
   if maxT <= minT:
-    maxT = np.ceil(np.nanmax(D))
+    maxT = np.ceil(np.n)
     msg = "Observations too close (min=%.0f, max=%.0f) to divide space; using full range.\n"%(minT,maxT)
-    logging.getLogger().warning(msg)
+    LOGGER.warning(msg)
   # Verify that the structure is large enough to analyze multiple distances
   if maxT == minT:
-    logging.getLogger().warning("Skipped %s.%s: Structure is too small to analyze."%(sid,chain))
-    return
+    LOGGER.warning("Skipped %s.%s: Structure is too small to analyze."%(sid,chain))
+    return None
+  # Retun a list of distances to consider, as consecutive Angstrom gradatons
   T = np.arange(minT,maxT+1,1) # inclusive range
   return T
 
 def permute(y,N):
-  """ Permutes the values of vector/matrix y """
+  """ Generate permutations of the rows of vector/matrix y 
+  Parameters
+  ----------
+  y: the vector or matrix that should be shuffled
+
+  N: The number of shuffles that the generator must perform
+  """
   for i in range(N):
     yield np.random.permutation(y)
     
 def Kest(D,y,T=[],P=9999):
   """ Ripley's K-Function Estimator for Spatial Cluster Analysis (w/ Positional Constraints) (w/o Edge Correction)
-      D: Distance matrix for all possible point pairs (observed and unobserved)
-      y: Weight vector for all possible points (un-observed points must have NaN weight)
-      T: Distance thresholds
-      P: Number of permutations for simulated confidence envelope # Can be none in some contexts, somehow
-      Caveat: Current implementation only handles positive weights"""
-  # logging.getLogger().info("Begin Kest()  permutations=%s"%str(P))
+
+  Parameters:
+  -----------
+  D: Distance matrix for all possible point pairs (observed and unobserved)
+
+  y: Weight (or "use these residues") vector for all possible centroids (un-observed points must have NaN weight)
+
+  T: Distance thresholds (integer range of distances of interest)
+
+  P: Number of permutations to simulate the empiracal null distribution, and calculate a 95% confidence envelope 
+    P=None implies a recursive call to calculate _ONE_ new permutation
+
+  Caveat: Current implementation only handles positive weights
+  
+  Returns:
+  --------
+  K(t) is returned as in the paper and defined as
+    K(t) = (SumOver(i, j != i)->(I(Dij < t))/N(N-1) for all thresholds t in T
+
+  """
+
+  if P: # Only log in the outer call, not all the recursive permutations
+    LOGGER.info("Begin Kest() D.shape=%s (y > 0).sum=%s permutations=%s"%(str(D.shape),(y > 0).sum(),str(P)))
   assert(P!=1)
+
+  # Ensure that all the weights are float values
   y = np.array(y,dtype=np.float64) # for NaN compatibility
+
+  # The ys are deemed 'weighted' if they contain something
+  # other than 0s, 1s, or np.Nans.
   weighted = (y==0).sum()+(y==1).sum() != y[~np.isnan(y)].size
-  if not weighted: # convert 0/1 to nan/1
-    y[y==0] = np.nan
-    y[~np.isnan(y)] = 1.
-  o   = ~np.isnan(y)
-  Do  = D[o,:][:,o] # Distance of observed points
-  yo  = y[o]        # Values of observed points
+  if not weighted: # convert 0/1 to nan/1, a cleanup of sorts
+    y[y==0] = np.nan      # Convert all the 0s to Nans
+    y[~np.isnan(y)] = 1.0 # Convert everything else to 1.0 floats
+
+  o   = ~np.isnan(y) # o is a boolean np array
+  Do  = D[o,:][:,o] # Distance matrix of only observed points, Nans on diagonal
+  yo  = y[o]        # y values of only observed points
   R   = y.size      # Number of protein residues
   N   = yo.size     # Number of observed points
   if weighted:
@@ -996,40 +1128,61 @@ def Kest(D,y,T=[],P=9999):
     Y /= Y.sum() # normalize by all-pairs product-sum
     K  =  np.array([np.ma.masked_where(dt,Y).sum() for dt in Kest.DT])
   else:
-    K = np.array([(Do<=t).sum() for t in T],dtype=np.float64) / (N*(N-1))
+    # K = np.array([((~np.isnan(Do)) & (Do<=t)).sum() for t in T],dtype=np.float64) / (N*(N-1))
+    # The above original line emits many run-time warnings because of the nan in the diagnoal
+    # Chris Moth changed Oct 12, 2018 to only use the upper triangle
+    inter_residue_distances = Do[np.triu_indices(Do.shape[0],k=1)]
+    K = np.array([(inter_residue_distances <= t).sum() for t in T],dtype=np.float64) / ((N * (N-1)) // 2)
 
-  if P:
+  if P: # Then this is the "master" call to Kest, and about to return final results
     if weighted:
-      # If weighted, shuffle values for observed points
+      # If weighted, shuffle values for observed points, via recursion
       K_perm = np.array([Kest(Do,yp,T,P=None) for yp in permute(yo,P)])
     else:
-      # If unweighted, shuffle positions for all points
+      # If unweighted, shuffle positions for all points, via recursion
       K_perm = np.array([Kest(D,yp,T,P=None) for yp in permute(y,P)])
     # Add the observed K vector to the permutation matrix
     K_perm = np.concatenate(([K],K_perm))
+    # LOGGER.error("REMOVE THIS Writing to /tmp/temp.csv")
+    # np.savetxt('/tmp/temp.csv',K_perm,delimiter='\t')
     # Calculate the simulated z-score 
-    K_z = zscore(K_perm)[0]
+    permutations_K_average,permutations_K_std,K_z = permutations_average_std_zscore(K_perm)
     if all(np.isnan(K_z)):
       # If all weights are equal, set K_z to 0. rather than NaN
       K_z = np.zeros(K_z.shape[0])
     # Calculate one-sided permutation p-value given K directionality
-    p = []
+    K_p = []
     for i,z in enumerate(K_z):
       if z>0:
-        p.append(min(1.,2.*(1.-percentileofscore(K_perm[:,i],K[i],'strict')/100.)))
+        K_p.append(min(1.,2.*(1.-percentileofscore(K_perm[:,i],K[i],'strict')/100.)))
       else:
-        p.append(min(1.,2.*(1.-percentileofscore(-K_perm[:,i],-K[i],'strict')/100.)))
-    K_p = p
-    K_pz = norm.sf(abs(K_z))*2 # two-sided simulated p-value
-    # Calculate the confidence envelope
+        K_p.append(min(1.,2.*(1.-percentileofscore(-K_perm[:,i],-K[i],'strict')/100.)))
+
+    # K_pz(t) = SurvivalFunction(o_z) = (1 - CumulativeDistributionFunction(o_z))*2.
+    K_pz = norm.sf(abs(K_z))*2. # two-sided simulated p-value
+
+    # Calculate the confidence envelope (the grey area on the K plot)
+    # hce(t) = the values, below which 97.5% of the K_perm[t] fall 
     hce  = np.percentile(K_perm,97.5,axis=0)
+    # lce(t) = the values, below which 2.5% of the K_perm[t] fall 
     lce  = np.percentile(K_perm, 2.5,axis=0)
-    # logging.getLogger().info("End Kest() returning K=%.2f K_p=%.2f K_z=%.2f K_pz=%.2f hce=%.2f lce=%.2f K_perm=%.2f"%
-    #   (K,K_p,K_z,K_pz,hce,lce,K_perm))
-    return K,K_p,K_z,K_pz,hce,lce,K_perm
-  else:
-    # logging.getLogger().info("End Kest() returning K=%s"%str(K))
+
+
+    LOGGER.info(
+      """End Kest() returning for t in (%d,%d):
+           K(t)=%s
+           K_p(t)=%s
+           K_z(t)=%s
+           K_pz=%s
+           hce(t)=%s
+           lce(t)=%s
+           K_perm.shape=%s"""%(
+             T[0],T[-1],
+             K,K_p,K_z,K_pz,hce,lce,K_perm.shape))
+    return K,permutations_K_average,permutations_K_std,K_p,K_z,K_pz,hce,lce,K_perm
+  else: # P = None, and this is the recursion result for one permutation, so quickly return that permuted K
     return K
+
 Kest.DT = []
 
 def qtprox(cands,qt,nwlb=8.,nwub=24.):
@@ -1038,73 +1191,152 @@ def qtprox(cands,qt,nwlb=8.,nwub=24.):
   qt = qt['qt'].values
   D = cdist(cands,coordinates)
   D[D==0] = np.inf # Do not scores residues using known values
-  NWv = qt * nw(D,lb=nwlb,ub=nwub)
+  NWv = qt * NeighborWeight(D,lower_bound=nwlb,upper_bound=nwub)
   # np.fill_diagonal(NWv,0.)
   cscores = np.nansum(NWv,axis=1)/np.nansum(qt)
   return list(cscores)
 
+
+def permutations_average_std_zscore(matrices):
+  """Return the zscores of the 0th (observed)
+     matrix in array of matrices.  Where standard
+     deviations are 0, return 0 - rather than div by 0 exception"""
+
+  # We do not use built in zscore is because
+  # we have legit cases where the standard deviation is 0
+  # (values are not distributed - as case of max_threshold
+  # where 
+  permutations_K_average = np.average(matrices,axis=0)
+  permutations_K_std = np.std(matrices,axis=0)
+
+  # This bool array will be true for std_matrix positions that are non-zero
+  non_zero_stds = ~np.all(matrices == matrices[0],axis=0)
+
+  zscores_or_0s = np.zeros(permutations_K_average.shape)
+
+  # zscore = (observation-average)/sigma
+  zscores_or_0s[non_zero_stds] = (matrices[0][non_zero_stds] - permutations_K_average[non_zero_stds]) / permutations_K_std[non_zero_stds]
+  return permutations_K_average,permutations_K_std,zscores_or_0s
+
+
 def pstats(Pmat):
-  """ Calculates p-values and z-scores for each distance threshold.
-      First row of the matrix should contain the observation. """
-  o = Pmat[0] # observed values
-  # Calculate the simulated z-score
-  o_z = zscore(Pmat)[0]
+  """ Calculates p-values and z-scores from the observation and
+      (large) array of permutations of each 
+      [Kpathogenic(t) - Kneutral(t)] matrix
+
+      The First column of the matrix must contain the observation.
+      Remaining (9999 etc) columns are the permutations
+ """
+  o = Pmat[0] # observed [Kpathogenic(t) - Kneutral(t)] matrix
+
+  # Calculate the simulated z-score for the observed Pmat[0]
+  _,_,o_z = permutations_average_std_zscore(Pmat)
+
+  # 2018 October - Chris Moth removed below because 
+  # the built in scipy zscore generates warnings on 
+  # standard deviations of 0.
+  # o_z = zscore(Pmat)[0]
+
   # Calculate one-sided permutation p-values
-  p = []
+
+  o_p = []
+  # Iterating over each Z(t)....
+  # Directly calculate the p value from all the permutations
   for i,z in enumerate(o_z):
-    if z>0:
-      p.append(min(1.,2*(1.-percentileofscore(Pmat[:,i],o[i],'strict')/100.)))
-    else:
-      p.append(min(1.,2*(1.-percentileofscore(-Pmat[:,i],-o[i],'strict')/100.)))
-  o_p = p
+    if z>0: # i.e. if o[i] > meanOfPermutations[i], consoder samples to left
+      # percentileofscore(series, observation) returns the percentage of 
+      # values in the array 'series' which are 'strictly' below the observed
+      # Kpathogenic(t) - Kneutral(t)]s
+      # We double the 1-percentileofscore because normal distributions are two-sided
+      # p values have max of 1, which should be rare given z test at outset
+      o_p.append(min(1.,2*(1.-percentileofscore(Pmat[:,i],o[i],'strict')/100.)))
+    else: # consider samples to right of observation
+      # percentileofscore(-series, -observation) returns the percentage of 
+      # values in the array 'series' which are 'strictly' above the observed
+      # Kpathogenic(t) - Kneutral(t)]s
+      # We double the 1-percentileofscore because normal distributions are two-sided
+      # p values have max of 1, which should be rare given z test at outset
+      o_p.append(min(1.,2*(1.-percentileofscore(-Pmat[:,i],-o[i],'strict')/100.)))
+
+  # o_pz = SurvivalFunction(o_z) = 1 - CumulativeDistributionFunction(o_z)
   o_pz = norm.sf(abs(o_z))*2. # two-sided simulated p-value
-  # Calculate the confidence envelope
+  # Calculate the confidence envelope (High and Low Confidence Envelope)
+  # hce(t) = the values, below which 97.5% of the Pmat[t] fall 
   hce = np.percentile(Pmat,97.5,axis=0)
+  # lce(t) = the values, above which 97.5% of the Pmat[t] fall 
   lce = np.percentile(Pmat,2.5, axis=0)
   return o_p,o_z,o_pz,hce,lce
 
-def k_plot(T,K,Kz,lce,hce,ax=None,w=False):
+def k_plot(T,K,K_average,K_std,Kz,lce,hce,ax=None,weights=False):
   if not ax:
     fig,ax = plt.subplots(1,1,figsize=(15,5))
-  # 95% Confidence
+  # The 95% Confidence is the interval [lce(t),hce(t)] and colored grey
   ax.fill_between(T,lce,hce,alpha=0.2,
                       edgecolor='k',facecolor='k',
                       interpolate=True,antialiased=True)
-  ax.scatter(T,K,s=50,color='darkred',edgecolor='white',lw=1,label=["Un-Weighted K","Weighted K"][w])
-  ax.set_xlabel("Distance Threshold (t)",fontsize=16)
-  ax.set_ylabel("K",fontsize=16,rotation=90)
-  ax.set_xlim([min(T),max(T)])
-  if any(K<0) or any(lce<0) or any(hce<0):
-    ax.set_ylim([-1.05,1.05])
-  else:
-    ax.set_ylim([-0.05,1.05])
+  ax.plot(T,K_average,label='Average permuted K(t)',color='black',linestyle='dashed',linewidth=2.0) 
+  ax.plot(T,K_average+K_std,label='+1 Std permuted K(t)',color='green',linestyle='dashed',linewidth=1.0) 
+  ax.plot(T,K_average+2*K_std,label='+2 Std permuted K(t)',color='yellow',linestyle='dashed',linewidth=1.0) 
+  ax.plot(T,K_average-K_std,label='-1 Std permuted K(t)',color='green',linestyle='dashed',linewidth=1.0) 
+  ax.scatter(T,K,s=50,color='darkred',edgecolor='white',lw=1,label=["Un-Weighted Kobs(t)","Weighted Kobs(t)"][weights])
+  # for t in range(K.shape[0]):
+  #  text = ax.annotate("Kobs(t)=%0.2f, Kz(t)=%0.1f"%(K[t],Kz[t]), (T[t],K[t]),color='darkred',horizontalalignment='center',verticalalignment='top')
+  #  text.set_rotation(+90.0)
+
+    
+  ax.set_xlabel("Distance Threshold t ($5000 \AA$)",fontsize=16)
+  ax.set_ylabel("K(t) = Percentage of Inter-residue Distances Within t",fontsize=16,rotation=90)
+
+
+  ax.set_xlim([T[0],T[-1]+0.5])
+  # if any(K<0) or any(lce<0) or any(hce<0):
+  #  ax.set_ylim([-1.05,1.05])
+  # else:
+  #  ax.set_ylim([-0.05,1.05])
+  ax.set_ylim([-0.25,1.05])
   # Add a vertical line a the most extreme threshold
   dK = np.nanmax(np.abs(Kz),axis=0)    # maximum Kz
   t  = np.nanargmax(np.abs(Kz),axis=0) # t where Kz is maximized
+  text = ax.annotate("Kobs(t)=%0.2f, Kz(t)=%0.1f"%(K[t],Kz[t]), (T[t],K[t]),color='darkred',horizontalalignment='right',verticalalignment='top')
   T,K = T[t],K[t]
   # ax.axhline(0,color='k',lw=1,ls="-")
+  # This vertical dashed line on the grap shows 
+  # the 't' on the X (i.e. T) axis where Kz is maximized
   ax.axvline(T,color='k',lw=2,ls="dashed",label="Most Significant K")
   return ax
 
-def saveKplot(T,K,Kz,lce,hce,label="",w=False):
+def saveKplot(T,K,K_average,K_std,Kz,lce,hce,label="",weights=False):
+  """Plot K(t) and its confidence envelope from
+
+    Parameters
+    ----------
+    T:      Distance thresholds, the X axis
+    K(t):   Ripley's K(t), fraction (probability) of residues with distance <= T(T)
+    K_average(t): The average of the K(t) for all the permutations
+    K_std(t): The standard deviation K(t) for all the permutations
+    Kz:     The t where the zscore of K(t) is maximal, the 
+    lce(t): Points above which 97.5% of the permuted K(t) were found
+    hce:    Points below which 97.5% of the permuted K(t) were found
+    label:  
+  """
   global sid
-  fig,ax = plt.subplots(1,1,figsize=(15,5))
-  k_plot(T,K,Kz,lce,hce,ax)
+  fig,ax = plt.subplots(1,1,figsize=(16,8))
+  k_plot(T,K,K_average,K_std,Kz,lce,hce,ax)
   sns.despine()
-  ax.set_title("Ripley's K",fontsize=16)
-  ax.legend(loc="lower right",fontsize=14)
+  ax.set_title("Ripley's Kobs(t)",fontsize=16)
+  ax.legend(loc="upper left",fontsize=14)
   plt.savefig("%s_%s_K_plot.pdf"%(args.label,label),dpi=300,bbox_inches='tight')
   plt.savefig("%s_%s_K_plot.png"%(args.label,label),dpi=300,bbox_inches='tight')
   plt.close(fig)
 
-def d_plot(T,D,Dz,lce,hce,ax=None,w=False):
+def d_plot(T,D,Dz,lce,hce,ax=None,weighted_flag=False):
   if not ax:
     fig,ax = plt.subplots(1,1,figsize=(15,5))
   # 95% Confidence
   ax.fill_between(T,lce,hce,alpha=0.2,
                       edgecolor='k',facecolor='k',
                       interpolate=True,antialiased=True)
-  ax.scatter(T,D,s=50,color='darkred',edgecolor='white',lw=1,label=["Un-Weighted D","Weighted D"][w])
+  ax.scatter(T,D,s=50,color='darkred',edgecolor='white',lw=1,label=["Un-Weighted D","Weighted D"][weighted_flag])
   ax.set_xlabel("Distance Threshold (t)",fontsize=16)
   ax.set_ylabel("D",fontsize=16,rotation=90)
   ax.set_xlim([min(T),max(T)])
@@ -1120,7 +1352,7 @@ def d_plot(T,D,Dz,lce,hce,ax=None,w=False):
   ax.axvline(T,color='k',lw=2,ls="dashed",label="Most Significant D")
   return ax
 
-def saveDplot(T,D,Dz,lce,hce,label="",w=False):
+def saveDplot(T,D,Dz,lce,hce,label="",weights=False):
   global sid
   fig,ax = plt.subplots(1,1,figsize=(15,5))
   d_plot(T,D,Dz,lce,hce,ax)
@@ -1131,123 +1363,198 @@ def saveDplot(T,D,Dz,lce,hce,label="",w=False):
   plt.savefig("%s_D_plot.png"%args.label,dpi=300,bbox_inches='tight')
   plt.close(fig)
 
-def uniK(D,y,P=9999,label="",w=False):
-  logging.getLogger().info("Begin uniK()  permutations=%d"%P)
-  # Distance thresholds to test
+def uniK_calc_and_plot(D,y,P=9999,label="",weights=False):
+  """ Univariate (i.e. neutral or pathogenic) K(t)
+  calculation, with plot, and final return of K statistics
+  of highest Z score.
+
+  Parameters:
+  -----------
+  D:the symmetric inter-residue distance matrix
+  for all pairs of residue centroids in the 3D structure,
+  regardless of neutral/pathogenic/mutation/quantitative
+  labels
+
+  y:labels specific residues of interest for K(t) calculation
+  If None, then all D residues are included in K(t) calculation
+
+  P:count of requested permutations to create the empirical 
+      null distribution
+  label:string for output on the final result plot filenames
+
+  Internally Computes and Plots:
+  ------------------------------
+     K(t):   Ripley's K statistic for residues
+
+     Kp(t):  P values for each K(t) relative to Empirical Null permutations.
+
+     max 
+
+
+  Returns:
+  --------
+  K
+
+  """
+  LOGGER.info("Begin uniK_calc_and_plot(%s)  permutations=%d"%(label,P))
+  # Get a list of Distance thresholds to test
   T = Trange(D,y.values)
 
-  # Univariate K analyses
-  K,Kp,Kz,Kzp,hce,lce,_ = Kest(D,y,T,P=P)
+  K,K_average,K_std,Kp,Kz,Kzp,hce,lce,_ = Kest(D,y,T,P=P)
 
   # Save the multi-distance K plot  
-  saveKplot(T,K,Kz,lce,hce,label,w=w)
+  saveKplot(T,K,K_average,K_std,Kz,lce,hce,label,weights=weights)
 
   # Determine the optimal K/T/p
-  K  = K[np.nanargmax( np.abs(Kz))]
-  T  = T[np.nanargmax( np.abs(Kz))]
-  P  = Kp[np.nanargmax(np.abs(Kz))]
-  Kz = Kz[np.nanargmax( np.abs(Kz))]
+  maxMagnitudeKzIndex = np.nanargmax(np.abs(Kz))
+  K_ofMaxKz  = K[maxMagnitudeKzIndex]
+  T_ofMaxKz  = T[maxMagnitudeKzIndex]
+  P_ofMaxKz  = Kp[maxMagnitudeKzIndex]
+  Kz_ofMaxKz = Kz[maxMagnitudeKzIndex]
 
-  logging.getLogger().info("Ending uniK() Returning K=%.2f Kz=%.2f T=%.2f P=%.2f"%(K,Kz,T,P))
+  LOGGER.info("Ending uniK_calc_and_plot(%s) Returning for t of MaxKzScore: K=%.2f Kz=%.2f T=%.2f P=%.2f"%(label,K_ofMaxKz,Kz_ofMaxKz,T_ofMaxKz,P_ofMaxKz))
 
-  return K,Kz,T,P
+  return T,K_ofMaxKz,Kz_ofMaxKz,T_ofMaxKz,P_ofMaxKz
 
-def biD(A,B,P=9999,label=""):
-  ## Pathogenic - Neutral Bivariate D
-  NA = A.shape[0]
-  NB = B.shape[0]
-  AB = np.concatenate((A,B))                      # AB coordinate matrix
-  MA = np.array([1]*NA+[0]*NB).reshape(NA+NB,1)   # A mask
-  MB = np.abs(1-MA)                               # B mask
-  D  = squareform(pdist(AB))                      # AB distance matrix
-  D[np.identity(D.shape[0],dtype=bool)] = np.nan  # Diagonal to NaN
+def biD(pathogenicCoordinates,neutralCoordinates,P=9999,label=""):
+  """Compute Pathogenic less Neutral Bivariate D
+  This is empirical null is calculated, via P permutations
+  Arguments:
+  array of (x,y,z) pathogenic variant residue centroids
+  array of (x,y,z) neutral variant residue centroids
+  P = number of permutations requested
+  label= text for plot
+  """
 
-  # Distance thresholds to test
-  T = Trange(D)
+  LOGGER.info("Starting biD() pathogenicCoordinates.shape=%s  neutralCoordinates.shape=%s  Permutations=%d",str(pathogenicCoordinates.shape),str(neutralCoordinates.shape),P)
+
+  # Counts of pathogenic and neutral variants
+  nPathogenic = pathogenicCoordinates.shape[0] # Pathogenic variants
+  nNeutral = neutralCoordinates.shape[0] # Neutral variants
+
+  # combine neutral and pathogenic for a complete set of x,y,z spactial coordinates
+  allCoordinates = np.concatenate((pathogenicCoordinates,neutralCoordinates))               
+
+  # Initially, we have 1s (later unmasked) for the first (pathogenic) varian rows, 
+  # 0s to later mask the neutrals
+  maskPathogenic = np.array([True]*nPathogenic+[False]*nNeutral,dtype=bool)
+  # Flip 0s to 1s, and vice versa so that 0=unmask
+
+  # Neutrals are simply an inverse mask
+  maskNeutral = ~maskPathogenic
+
+  # pdist returns a condensed distance matrix as vectir
+  allCoordinatesPdistVector = pdist(allCoordinates)  
+  # squareform expands pdist vector to symmetric full matrix
+  allCoordinatesDistanceMatrix  = squareform(allCoordinatesPdistVector)
+  np.fill_diagonal(allCoordinatesDistanceMatrix,np.nan);
+
+  # Importantly, the residue positions in the allCoordinates... will not change
+  # in this calculation.  Only the flags (masks) of whether residues are pathogenic
+  # or neutral are permuted
+
+  # Distance thresholds to test.  See references for more info on 'T'
+  T = TrangeCondensed(allCoordinatesPdistVector)
 
   ## Distance-dependent K derivatives
-  def biKest(D,T=[]):
+  # D is a compressed, masked, vector of inter-residue distances
+  def biKest(distancesMask,N,T=[]):
     """ Abbreviated K function for bivariate analyses """
-    N = np.sqrt(D.count()) # Number of non-masked rows
-    return np.array([(D<t).sum() for t in T],dtype=np.float64) / (N*(N-1))
-  KA  = biKest(np.ma.array(D, mask=1-MA*MA.T),T)
-  KB  = biKest(np.ma.array(D, mask=1-MB*MB.T),T)
-  DAB = KA - KB
+    # N = number of unmasked elements - was np.sqrt(D.count()) # qrt of Number of non-masked elements
+    maskedDistanceMatrix = allCoordinatesDistanceMatrix[np.ix_(distancesMask,distancesMask)]
+    return np.array([np.less(maskedDistanceMatrix[np.triu_indices(N,k=1)],t).sum() for t in T],dtype=np.float64) / (N*(N-1)//2)
 
-  # Random label shuffling permutation test
-  DABp = [DAB] # Initialize with observations
-  for MA in permute(MA,P):
-    MB = np.abs(1-MA)
+  np.warnings.filterwarnings('error')
+
+  KPathogenic  = biKest(maskPathogenic,nPathogenic,T)
+  KNeutral  = biKest(maskNeutral,nNeutral,T)
+  KPathogenicLessKNeutral = KPathogenic - KNeutral
+
+  # Random label (neutral vs pathogenic) shuffling permutation test
+  # .. which recalulates KPathogenic and KNeutral when entirely different residues
+  # are selected as the Pathogenic and Neutral ones
+  KPathogenicLessKNeutral_list = [KPathogenicLessKNeutral] # Initialize with observations
+
+  for maskPathogenic_p in permute(maskPathogenic,P):
+    maskNeutral_p = ~maskPathogenic_p
+
     # Calculate each multivariate K statistic
-    KA  = biKest(np.ma.array(D, mask=1-MA*MA.T),T)
-    KB  = biKest(np.ma.array(D, mask=1-MB*MB.T),T)
-    DAB = KA - KB
-    DABp.append(DAB)
+    # When mask entries are false that means that
+    # _are_ to be considered in the calculation
+    # Restated, False or 0 means "NOT masked out"
+    KPathogenic_p  = biKest(maskPathogenic_p, nPathogenic, T)
+    KNeutral_p  = biKest(maskNeutral_p, nNeutral, T)
+    KPathogenicLessKNeutral_list.append(KPathogenic_p - KNeutral_p)
 
   # Permutation matrices
-  DABp = np.array(DABp,dtype=np.float64)
+  KPathogenicLessKNeutral_matrices = np.array(KPathogenicLessKNeutral_list,dtype=np.float64)
 
-  # Recover the original observations
-  DAB = DABp[0]
+  # Distance-dependent p-values and z-scores
+  # The "two sided simulated p-value", DAB_zp, is not used further
+  K_PlN_pvalues, K_PlN_zscores, DAB_zp,  K_PlN_high_confidence_envelope, K_PlN_low_confidence_envelope = pstats(KPathogenicLessKNeutral_matrices)
 
-  ## Distance-dependent p-values and z-scores
-  DAB_p,DAB_z,DAB_zp,DAB_hce,DAB_lce = pstats(DABp)
-  saveDplot(T,DAB,DAB_z,DAB_lce,DAB_hce,label)
+  # Plot and save the plot to graphics fle.
+  saveDplot(T,KPathogenicLessKNeutral,K_PlN_zscores,K_PlN_low_confidence_envelope,K_PlN_high_confidence_envelope,label)
 
-  # Determine the optimal T
-  DAB_t = T[np.nanargmax(np.abs(DAB_z),axis=0)]
+  # nanargmax returns the index where the maxMagnutdeKZ is found
+  maxMagnitudeKzIndex = np.nanargmax(np.abs(K_PlN_zscores),axis=0)
 
-  # Determine the optimal D
-  DAB_k = DAB[np.nanargmax(np.abs(DAB_z),axis=0)]
-
-  # Determine the optimal p
-  DAB_p = DAB_p[np.nanargmax(np.abs(DAB_z),axis=0)]
-
-  # Determine the optimal Z
-  DAB_z = DAB_z[np.nanargmax(np.abs(DAB_z),axis=0)]
-
-  return DAB_k,DAB_z,DAB_t,DAB_p
+  LOGGER.info("Ending biD() max (optimal) KPathogenicLessKNeutral max Zscore=%f found at distance threshold=%1.1f Angstroms",K_PlN_zscores[maxMagnitudeKzIndex],T[maxMagnitudeKzIndex])
+  LOGGER.info("Also returning optimal KPathLessKNeutral[%1.1f A]=%.2f KPathLessKNeutral_pvalue[%1.1f A]=%1.2e",T[maxMagnitudeKzIndex],KPathogenicLessKNeutral[maxMagnitudeKzIndex],T[maxMagnitudeKzIndex],K_PlN_pvalues[maxMagnitudeKzIndex])
+  return T,KPathogenicLessKNeutral[maxMagnitudeKzIndex],K_PlN_zscores[maxMagnitudeKzIndex],T[maxMagnitudeKzIndex],K_PlN_pvalues[maxMagnitudeKzIndex]
 
 def ripley(sdf,permutations=9999):
   """ Handles Ripley's univariate K and bivariate D
       analyses using variant pathogenic and neutral
-      labels and the inter-residue distance matrix """
-  logging.getLogger().info("Begin ripley()  permutations=%d"%permutations)
-  # Distance matrix for all residues
+      labels and a constructed inter-residue distance matrix
+
+      Parameters
+      ----------
+      sdf: Structural dataframe contining x/y/z values and a dcode for each residue
+      """
+  LOGGER.info("Begin ripley()  permutations=%d"%permutations)
+  # Distance matrix for all residues, regardless of labeling
   D = squareform(pdist(sdf[['x','y','z']]))
-  D[np.identity(D.shape[0],dtype=bool)] = np.nan
+  # Set the diagnoal of the distance matrix to nans
+  np.fill_diagonal(D,np.nan)
+  # old way to do above lineD[np.identity(D.shape[0],dtype=bool)] = np.nan
   # Label vectors for pathogenic and neutral variants
   p = (sdf["dcode"]==1).astype(int)
   n = (sdf["dcode"]==0).astype(int)
-  pK,pKz,pKt,pKp = uniK(D,p,permutations,"pathogenic")
-  nK,nKz,nKt,nKp = uniK(D,n,permutations,"neutral")
+  pT,pK,pKz,pKt,pKp = uniK_calc_and_plot(D,p,permutations,"pathogenic")
+  nT,nK,nKz,nKt,nKp = uniK_calc_and_plot(D,n,permutations,"neutral")
+
+  LOGGER.info("Ending ripley().  Univariate K:")
+  LOGGER.info(" Neutral K:")
+  LOGGER.info("  Most significant T = %d Angstroms from threshold range[%2d .. %2d]",nKt,nT[0],nT[-1])
+  LOGGER.info("    where K = %.2f"%nK)
+  LOGGER.info("    where Z = %.2f"%nKz)
+  LOGGER.info("    where p = %g"%nKp)
+  LOGGER.info(" Pathogenic K:")
+  LOGGER.info("  Most significant T = %d Angstroms from threshold range[%2d .. %2d]",pKt,pT[0],pT[-1])
+  LOGGER.info("    where K = %.2f"%pK)
+  LOGGER.info("    where Z = %.2f"%pKz)
+  LOGGER.info("    where p = %g"%pKp)
 
   ## Bivariate D
   # Coordinate matrices for pathogenic and neutral variants
-  A = sdf.loc[sdf["dcode"]==1,['x','y','z']]
-  B = sdf.loc[sdf["dcode"]==0,['x','y','z']]
-  D,Dz,Dt,Dp    = biD(A,B,permutations,"pathogenic-neutral")
+  pathogenic_coordinates = sdf.loc[sdf["dcode"]==1,['x','y','z']]
+  neutral_coordinates = sdf.loc[sdf["dcode"]==0,['x','y','z']]
 
-  logging.getLogger().info("Ending ripley().  Univariate K:")
-  logging.getLogger().info(" Neutral K:")
-  logging.getLogger().info("  Most significant distance: %2d"%nKt)
-  logging.getLogger().info("  K = %.2f"%nK)
-  logging.getLogger().info("  Z = %.2f"%nKz)
-  logging.getLogger().info("  p = %g"%nKp)
-  logging.getLogger().info(" Pathogenic K:")
-  logging.getLogger().info("  Most significant distance: %2d"%pKt)
-  logging.getLogger().info("  K = %.2f"%pK)
-  logging.getLogger().info("  Z = %.2f"%pKz)
-  logging.getLogger().info("  p = %g"%pKp)
+  T,KPathogenicLessKNeutral_atMaxKzIndex,\
+  K_PathogenicLessKNeutral_zscore_atMaxKzIndex,\
+  T_atMaxKzIndex,\
+  K_PathogenicLessKNeutral_pvalue_atMaxKzIndex = biD(pathogenic_coordinates,neutral_coordinates,permutations,"pathogenic-neutral")
 
-  logging.getLogger().info("Bivariate D:")
-  logging.getLogger().info("  Most significant distance: %2d"%Dt)
-  logging.getLogger().info("  D = %.2f"%D)
-  logging.getLogger().info("  Z = %.2f"%Dz)
-  logging.getLogger().info("  p = %g"%Dp)
-  logging.getLogger().info("")
+  LOGGER.info("Bivariate D:")
+  LOGGER.info("  Most significant distance threshold, t, is: %d A from threshold range[%2d .. %2d]",T_atMaxKzIndex,T[0],T[-1])
+  LOGGER.info("    where PathProxScore[%d A] = %.2f",T_atMaxKzIndex,KPathogenicLessKNeutral_atMaxKzIndex)
+  LOGGER.info("    where Zscore[%d A] of PathProxScore[%d A] = %.2f",T_atMaxKzIndex,T_atMaxKzIndex,K_PathogenicLessKNeutral_zscore_atMaxKzIndex)
+  LOGGER.info("    and p[%d A] of PathProxScore = %1.2e",T_atMaxKzIndex,K_PathogenicLessKNeutral_pvalue_atMaxKzIndex)
 
-  return pK,pKz,pKt,nK,nKz,nKt,D,Dz,Dt
+  return  pK,pKz,pKt,\
+          nK,nKz,nKt,\
+          KPathogenicLessKNeutral_atMaxKzIndex,K_PathogenicLessKNeutral_zscore_atMaxKzIndex,T_atMaxKzIndex
 
 def move_to_outdir(outdir):
   # Create the output directory and determine output labels
@@ -1257,7 +1564,7 @@ def move_to_outdir(outdir):
     # Only timestamp if no output directory explicitly specified
     if not args.no_timestamp and timestamp not in outdir:
       outdir += "_%s"%timestamp
-  logging.getLogger().info("Output directory has been updated to %s"%outdir)
+  LOGGER.info("Output directory has been updated to %s"%outdir)
   cwd = os.getcwd()
   makedirs_capra_lab(outdir,'move_to_outdir')
 
@@ -1276,9 +1583,10 @@ if __name__ == "__main__":
   ## Parse Command Line Options ##
   import os,sys,argparse,ConfigParser
   from pdbmap import PDBMapModel
+  from psb_shared import psb_config,psb_progress
 
   # Setup the Command Line Argument Parser
-  cmdline_parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+  cmdline_parser = psb_config.create_default_argument_parser(__doc__,".")
 
   # Input parameters
   cmdline_parser.add_argument("entity",type=str,
@@ -1329,18 +1637,18 @@ if __name__ == "__main__":
 
   # Analysis parameters
   cmdline_parser.add_argument("--radius",type=str,default="NW",
-                      help="PathProx radius options: {'K','D','NW',<static radius e.g. 10>}")
+                      help="PathProx radius options: {'K'=Use Univariate 'max Kz' distance threshold,'D' use Ripley's bivariate 'max Kz','NW',<static radius e.g. 10>}")
   cmdline_parser.add_argument("--nwlb",type=float,default=8.,
                       help="Lower bound on the NeighborWeight function.")
   cmdline_parser.add_argument("--nwub",type=float,default=24.,
                       help="Upper bound on the NeighborWeight function")
   cmdline_parser.add_argument("--ripley",action='store_true',default=False,
-                      help="Perform univariate K and bivariate D analyses. True by default if --radius=[K,D].")
+                      help="Perform univariate K and bivariate D analyses. True by default if '--radius=K' or '--radius=D'.")
   cmdline_parser.add_argument("--permutations",type=int,default=9999,
                       help="Number of permutations for Ripley's K/D analyses")
 
   # Output parameters
-  cmdline_parser.add_argument("-d","--outdir",type=str,
+  cmdline_parser.add_argument("-o","--outdir",type=str,
                       help="Directory to use for output and results")
   cmdline_parser.add_argument("--uniquekey",type=str,required=True,
                       help="A gene/refseq/mutation/structure/chain/flavor unique identifer for this particular job")
@@ -1348,20 +1656,14 @@ if __name__ == "__main__":
                       help="Optional analysis label (overrides entity inference)")
   cmdline_parser.add_argument("--no-timestamp","-nt",action="store_true",default=False,
                       help="Disables output directory timestamping")
-  cmdline_parser.add_argument("--verbose",action="store_true",default=False,
-                      help="Verbose output flag")
   cmdline_parser.add_argument("--overwrite",action="store_true",default=False,
                       help="Overwrite previous results. Otherwise, exit with error")
 
   cmdline_parser.add_argument("--sqlcache",type=str,required=False,
                       help="Directory in which to cache pickled sql query returns, for fast repeat queries")
 
-  logging.getLogger().info("Command: %s"%' '.join(sys.argv))
+  LOGGER.info("Command: %s"%' '.join(sys.argv))
 
-  cmdline_parser.add_argument("-c","--config",
-  help="PDBMap configuration profile for database access", required=True,metavar="FILE")
-  cmdline_parser.add_argument("-u","--userconfig",
-  help="User specific settings and configuration profile overrides", required=True,metavar="FILE")
   # cmdline_parser.add_argument("collaboration",type=str,help="Collaboration ID (ex. UDN)")
   cmdline_parser.add_argument("mutation",nargs='?',type=str,default='',help="HGVS mutation string (ex S540A)")
 
@@ -1374,7 +1676,7 @@ if __name__ == "__main__":
     timestamp = strftime("%Y-%m-%d")
     if not args.no_timestamp and timestamp not in args.outdir:
       args.outdir += "_%s"%timestamp
-    logging.getLogger().info("The --outdir parameter is missing.  Set to %s"%args.outdir)
+    LOGGER.info("The --outdir parameter is missing.  Set to %s"%args.outdir)
 
   makedirs_capra_lab(args.outdir,'Main outdir creation')
        
@@ -1385,24 +1687,25 @@ if __name__ == "__main__":
   # if not os.path.exists(cache_dir):
   #  os.makedirs(cache_dir)
 
-  logging.getLogger().info("Log file is %s"%log_filename)
+  LOGGER.info("Log file is %s"%log_filename)
   needRoll = os.path.isfile(log_filename)
 
   fh = RotatingFileHandler(log_filename, maxBytes=(1048576*5), backupCount=7)
   # formatter = logging.Formatter('%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-  fh.setFormatter(log_formatter)
+  fh.setFormatter(PATHPROX_LOG_FORMATTER)
   fh.setLevel(logging.INFO)
-  logging.getLogger().addHandler(fh)
+  LOGGER.addHandler(fh)
 
   if needRoll:
     fh.doRollover()
 
-  logging.getLogger().info("Command: %s"%' '.join(sys.argv))
+  LOGGER.info("Command: %s"%' '.join(sys.argv))
 
   statusdir = os.path.join(args.outdir,"status")
-  logging.getLogger().info("Job status directory: %s"%statusdir)
+  LOGGER.info("Job status directory: %s"%statusdir)
   makedirs_capra_lab(statusdir,"Main statusdir creation")
 
+  # Remove any prior statusdir contents
   for the_file in os.listdir(statusdir):
     file_path = os.path.join(statusdir, the_file)
     try:
@@ -1410,7 +1713,7 @@ if __name__ == "__main__":
         os.unlink(file_path)
     except Exception as e:
       msg = "Unable to delete file %s from status directory"%file_path
-      logging.getLogger().exception(msg)
+      LOGGER.exception(msg)
       sys_exit_failure(msg)
 
   def __info_update(info):
@@ -1419,7 +1722,7 @@ if __name__ == "__main__":
       f.write(info + '\n')
     final_info_filename = os.path.join(statusdir,"info")
     os.rename(new_info_filename,final_info_filename)
-    logging.getLogger().info("%s now contains: %s"%(final_info_filename,info))
+    LOGGER.info("%s now contains: %s"%(final_info_filename,info))
 
   def sys_exit_failure(info):
     __info_update(info)
@@ -1430,7 +1733,7 @@ if __name__ == "__main__":
     # Mark this job as failed
     fail_filename = os.path.join(statusdir,"FAILED")
     open(fail_filename,'w').close()
-    logging.getLogger().critical("Creating FAILURE file %s"%fail_filename)
+    LOGGER.critical("Creating FAILURE file %s"%fail_filename)
     sys.exit(info)
 
   def statusdir_info(info):
@@ -1459,15 +1762,7 @@ if __name__ == "__main__":
     "swiss_dir",
     "swiss_summary"]
 
-  config = ConfigParser.SafeConfigParser()
-  config.read([args.config])
-  config_dict = dict(config.items("Genome_PDB_Mapper")) # item() returns a list of (name, value) pairs
-  if (args.userconfig):
-    userconfig = ConfigParser.SafeConfigParser() 
-    userconfig.read([args.userconfig])
-    config_dict.update(dict(userconfig.items("UserSpecific"))) # item() returns a list of (name, value) pairs
-
-  missingKeys = [name for name in required_config_items if name not in config_dict]
+  config,config_dict = psb_config.read_config_files(args,required_config_items)
 
   config_dict_reduced = {x:config_dict[x] for x in required_config_items}
 
@@ -1478,15 +1773,10 @@ if __name__ == "__main__":
   config_dict_shroud_password['dbpass'] = '*' * len(dbpass)
 
 
-  # logging.getLogger().info("Command Line Arguments")
+  # LOGGER.info("Command Line Arguments")
   # pprint.pprint(vars(args))
-  logging.getLogger().info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
-  logging.getLogger().info("Configuration File parameters:\n%s"%pprint.pformat(config_dict_shroud_password))
-
-  if (len(missingKeys)):
-    msg = 'Can\'t proceed without configuration file options set for: %s'%str(missingKeys)
-    logging.getLogger().critical(msg)
-    sys_exit_failure(msg)
+  LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
+  LOGGER.info("Configuration File parameters:\n%s"%pprint.pformat(config_dict_shroud_password))
 
   if args.sqlcache:
     cache_dir = args.sqlcache
@@ -1505,7 +1795,7 @@ if __name__ == "__main__":
       sys_exit_failure("Fatal: Can't create sqlcache at destination path %s" %cache_dir)
   set_capra_group_sticky(cache_dir)
 
-  logging.getLogger().info("SQL cache directory: %s"%cache_dir)
+  LOGGER.info("SQL cache directory: %s"%cache_dir)
 
   ## Parameter validity checks
   if not args.label:
@@ -1542,7 +1832,7 @@ if __name__ == "__main__":
     args.radius = float(args.radius)
     args.label += "_%.1f"%args.radius
 
-  logging.getLogger().info("Using analysis label: %s"%args.label)
+  LOGGER.info("Using analysis label: %s"%args.label)
 
   if args.use_residues:
     # Limit analysis to user-selected protein residues
@@ -1550,7 +1840,7 @@ if __name__ == "__main__":
       args.use_residues = tuple(args.use_residues.split('-'))
     except:
       msg = "Incorrect formatting for --use-residues. See help for details.\n"
-      logging.getLogger().critical(msg)
+      LOGGER.critical(msg)
       sys_exit_failure(msg)
   if args.radius not in ("K","D","NW"):
     # Check that a valid numeric radius was provided
@@ -1558,20 +1848,21 @@ if __name__ == "__main__":
       args.radius = float(args.radius)
     except:
       msg = "Invalid option for --radius. See help for details.\n"
-      logging.getLogger().critical(msg)
+      LOGGER.critical(msg)
       sys_exit_failure(msg)
   elif args.radius in ("K","D"):
     # Ripley's K/D analyses required for parameterization
+    LOGGER.info("Setting args.ripley=True because args.radius=%s",args.radius)
     args.ripley = True
 
   if args.verbose:
-    logging.getLogger().info("Active options:")
+    LOGGER.info("Active options:")
     for arg in vars(args):
       try:
-        logging.getLogger().info("  %15s:  %s"%(arg,getattr(args,arg).name))
+        LOGGER.info("  %15s:  %s"%(arg,getattr(args,arg).name))
       except:
-        logging.getLogger().info("  %15s:  %s"%(arg,getattr(args,arg)))
-    logging.getLogger().info("")
+        LOGGER.info("  %15s:  %s"%(arg,getattr(args,arg)))
+    LOGGER.info("")
 
   # Warn user to include specific EnsEMBL transcripts
   if args.fasta and not args.isoform and \
@@ -1584,16 +1875,17 @@ if __name__ == "__main__":
     msg += "    Are there multiple isoforms for this protein?\n"
     msg += "  Explictly declare isoform to avoid mis-alignments\n\n"
     msg += "!!!!===========================================!!!!\n\n"
-    logging.getLogger().warning(msg)
+    LOGGER.warning(msg)
 
   statusdir_info('Configured')
   #=============================================================================#
   ## Begin Analysis ##
 
-  # If requested, load database variant sets
+  # Prepare a database connection to load database variant sets, in case requested later
   io = PDBMapIO(config_dict['dbhost'],config_dict['dbuser'],config_dict['dbpass'],config_dict['dbname'])
 
-  # Load the summary information for ModBase 2013 and 2016
+  # Init PDBMap by load the summary information dictionaries that it will need to use:
+  LOGGER.info("Initializing PDBMAP by loading idmapping sec2prom, sprot, modbase, and swiss model meta dictionaries")
   PDBMapProtein.load_idmapping(config_dict['idmapping'])
   PDBMapProtein.load_sec2prim(config_dict['sec2prim'])
   PDBMapProtein.load_sprot(config_dict['sprot'])
@@ -1621,22 +1913,22 @@ if __name__ == "__main__":
       tlabel = olabel.split('_')
       tlabel.insert(1,sid)
       args.label = '_'.join(tlabel)
-      logging.getLogger().info("Sub-analysis label set to %s"%args.label)
+      LOGGER.info("Sub-analysis label set to %s"%args.label)
 
     # Check for existing results
     if os.path.exists("%s/.%s.complete"%(args.outdir,args.label)):
       # Do not overwrite unless specified by the user
       if not args.overwrite:
         msg = "\nStructure %s[%s] has been processed. Use --overwrite to overwrite.\n"%(sid,bio)
-        logging.getLogger().warning(msg); continue
+        LOGGER.warning(msg); continue
       else:
         # Remove the complete flag and reanalyze
         os.remove("%s/.%s.complete"%(args.outdir,args.label))
 
-    logging.getLogger().info("Processing %s[%s]..."%(sid,bio))
+    LOGGER.info("Processing %s[%s]..."%(sid,bio))
 
     # Read and renumber the coordinate file:
-    logging.getLogger().info("Reading coordinates from %s..."%cf)
+    LOGGER.info("Reading coordinates from %s..."%cf)
     s_renum,_,_,_    = read_coord_file(cf,sid,bio,chain=args.chain,
                                     fasta=args.fasta,residues=args.use_residues,
                                     renumber=True)
@@ -1645,14 +1937,14 @@ if __name__ == "__main__":
                                     fasta=args.fasta,residues=args.use_residues,
                                     renumber=False)
     if args.fasta:
-      logging.getLogger().info("UniProt AC derived from FASTA: %s"%unp)
+      LOGGER.info("UniProt AC derived from FASTA: %s"%unp)
     else:
-      logging.getLogger().info("UniProt AC: %s"%unp)
+      LOGGER.info("UniProt AC: %s"%unp)
 
     # Check that any user-specified chain is present in the structure
     if args.chain and args.chain not in chains:
       msg = "Biological assembly %s does not contain chain %s. Skipping\n"%(bio,args.chain)
-      logging.getLogger().warning(msg); continue
+      LOGGER.warning(msg); continue
 
     # Reduce the considered chains to the user-specified chain if present
     chains = chains if not args.chain else [args.chain]
@@ -1665,54 +1957,53 @@ if __name__ == "__main__":
     if args.quantitative: #FIXME: Necessary condition?
       q = [v+[qt] if len(v)==4 else v+[ch]+[qt] for v,qt in q for ch in chains]
 
-    logging.getLogger().info("User supplied variant counts:")
-    logging.getLogger().info(" Neutral:      %d"%len(n))
-    logging.getLogger().info(" Pathogenic:   %d"%len(p))
-    logging.getLogger().info(" Candidates:   %d"%len(c))
-    logging.getLogger().info(" Quantitative: %d"%len(q))
+    LOGGER.info("User supplied variant counts:")
+    LOGGER.info(" Neutral:      %d"%len(n))
+    LOGGER.info(" Pathogenic:   %d"%len(p))
+    LOGGER.info(" Candidates:   %d"%len(c))
+    LOGGER.info(" Quantitative: %d"%len(q))
 
-    logging.getLogger().info("Querying additional variants for %s (%s)..."%(sid,unp))
+    LOGGER.info("Querying additional variants for %s (%s)..."%(sid,unp))
 
     # Supplement with any requested variant datasets
     if args.add_1kg:
       n.extend(query_1kg(io,sid,unp,chains,indb))
     if args.add_exac:
-      logging.getLogger().info("Adding ExAC missense variants...")
+      LOGGER.info("Adding ExAC missense variants...")
       n.extend(query_exac(io,sid,unp,chains,indb))
     if args.add_gnomad:
-      logging.getLogger().info("Adding gnomAD missense variants...")
+      LOGGER.info("Adding gnomAD missense variants...")
       n.extend(query_gnomad(io,sid,unp,chains,indb))
     if args.add_benign:
-      logging.getLogger().info("Adding ClinVar benign variants...")
+      LOGGER.info("Adding ClinVar benign variants...")
       n.extend(query_benign(io,sid,unp,chains,indb))
     if args.add_pathogenic:
-      logging.getLogger().info("Adding ClinVar pathogenic variants...")
+      LOGGER.info("Adding ClinVar pathogenic variants...")
       p.extend(query_pathogenic(io,sid,unp,chains,indb))
     if args.add_drug:
-      logging.getLogger().info("Adding ClinVar drug-related variants...")
+      LOGGER.info("Adding ClinVar drug-related variants...")
       p.extend(query_drug(io,sid,unp,chains,indb))
     if args.add_cosmic:
-      logging.getLogger().info("Adding COSMIC recurrent variants...")
+      LOGGER.info("Adding COSMIC recurrent variants...")
       p.extend(query_cosmic(io,sid,unp,chains,indb))
     if args.add_tcga:
       p.extend(query_tcga(io,sid,unp,chains,indb))
 
-    logging.getLogger().info("Final supplied variant counts:")
-    logging.getLogger().info(" Neutral:      %d"%len(n))
-    logging.getLogger().info(" Pathogenic:   %d"%len(p))
-    logging.getLogger().info(" Candidates:   %d"%len(c))
-    logging.getLogger().info(" Quantitative: %d"%len(q))
+    LOGGER.info("Final supplied variant counts:")
+    LOGGER.info(" Neutral:      %d"%len(n))
+    LOGGER.info(" Pathogenic:   %d"%len(p))
+    LOGGER.info(" Candidates:   %d"%len(c))
+    LOGGER.info(" Quantitative: %d"%len(q))
 
     # Create (and move to) output directory
     args.outdir = move_to_outdir(args.outdir)
 
     # Annotate coordinate file with pathogenic, neutral, and candidate labels
-    # import pdb; pdb.set_trace()
     sdf   = var2coord(s,p,n,c,q)
 
     # On exit from above
     # sdf["dcode"] is 0 for neutral variants, 1 for pathogenic, -1 for our target variant(s) of interest
-    # and NaN for the q entires, which appear to be user-defined quantitative traits
+    # and NaN for the structural entries with no assignments
 
     # Check if there are enough variants to calculate neutral/pathogenic constraint
     nflag = (sdf["dcode"]==0).sum() > 2
@@ -1728,15 +2019,14 @@ if __name__ == "__main__":
     mapped_variant_count =  (sdf["dcode"] == -1).sum()
     # Check that candidate variants did not map to missing residues
     if args.variants and mapped_variant_count < 1:
-      logging.getLogger().info("All candidate variants were aligned to missing residues.")
+      LOGGER.info("All candidate variants were aligned to missing residues.")
       # Unset the variants argument for downstream processing
       args.variants = []
     elif mapped_variant_count == 1: # One variant is normal case for UDN
-      # import pdb;pdb.set_trace()
       df_variant = sdf[sdf["dcode"] == -1]      
       df_pathogenic = sdf[sdf["dcode"] == 1]      
       if len(df_pathogenic) < 1:
-        logging.getLogger().info("No pathogenic mutation points to calculate nearest-to-variant.")
+        LOGGER.info("No pathogenic mutation points to calculate nearest-to-variant.")
       else:
         #First, get the distance in 3-space
         variantCOM = df_variant[['x','y','z']].values
@@ -1744,7 +2034,6 @@ if __name__ == "__main__":
         distances_to_pathogenic = cdist(variantCOM,pathogenicCOMs)
         # Get nearest pathogenic position
         min_subscript = np.argmin(distances_to_pathogenic[0])
-        # import pdb; pdb.set_trace()
         pClosestPathogenicDistance = distances_to_pathogenic[0][min_subscript]
 
         df_pathogenic_nearest = df_pathogenic.iloc[min_subscript]
@@ -1768,7 +2057,7 @@ if __name__ == "__main__":
           df_pathogenic_nearest['ref'],int(df_pathogenic_nearest['unp_pos']),df_pathogenic_nearest['alt'])
         print "Sequence Nearest is %d %s %s"%(min_subscript,pNextPathogenicMutationPDB,pNextPathogenicMutationUNP)
     else:
-      logging.getLogger().info("%d variants were mapped.  Impossible to calculate nearest pathogenic residues."%mapped_variant_count)
+      LOGGER.info("%d variants were mapped.  Impossible to calculate nearest pathogenic residues."%mapped_variant_count)
 
     
 
@@ -1780,7 +2069,7 @@ if __name__ == "__main__":
     renumberedPDBfilenameSS = "%s_renumSS.pdb"%basePDBfilename
     originalPDBfilename = "%s.pdb"%basePDBfilename
 
-    logging.getLogger().info("Writing renumbered PDB to file %s"%renumberedPDBfilename)
+    LOGGER.info("Writing renumbered PDB to file %s"%renumberedPDBfilename)
     io.set_structure(s_renum)
     io.save(renumberedPDBfilename)
 
@@ -1792,24 +2081,24 @@ if __name__ == "__main__":
     if platform.system() == 'Darwin':
       cmd  = "TEMP=$PYTHONPATH; unset PYTHONPATH; chimera --silent --script %s; export PYTHONPATH=$TEMP"%script
     try:
-      logging.getLogger().info("Running Chimera script: %s"%cmd)
+      LOGGER.info("Running Chimera script: %s"%cmd)
       # status  = os.system(cmd)
       p = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
       (stdout, stderr) = p.communicate()
 
       if stdout and len(str(stdout)) > 0:
-        logging.getLogger().info("chimera stdout: %s"%str(stdout))
+        LOGGER.info("chimera stdout: %s"%str(stdout))
       if stderr and len(str(stderr)) > 0:
-        logging.getLogger().info("chimera stderr: %s"%str(stderr))
+        LOGGER.info("chimera stderr: %s"%str(stderr))
       if p.returncode != 0:
         raise Exception("Chimera process returned non-zero exit status.")
     except Exception as e:
-      logging.getLogger().exception("Chimera failed")
+      LOGGER.exception("Chimera failed")
       raise
 
 
     # Write the original structure to the output directory
-    logging.getLogger().info("Writing original PDB to file %s"%originalPDBfilename)
+    LOGGER.info("Writing original PDB to file %s"%originalPDBfilename)
     io.set_structure(s)
     io.save(originalPDBfilename)
 
@@ -1886,7 +2175,7 @@ if __name__ == "__main__":
 
     # If requested, run the univariate K and bivariate D analyses
     if nflag and pflag and args.ripley:
-      logging.getLogger().info("Calculating Ripley's univariate K and bivariate D...")
+      LOGGER.info("Neutral and Pathogenic residue counts are sufficient to calculate both Ripley's univariate K and bivariate D...")
       pK,pKz,pKt,nK,nKz,nKt,D,Dz,Dt = ripley(sdf,args.permutations)
       qK = qKz = qKt = qKp = np.nan
     # If only one dataset present, process the univariate K only
@@ -1896,64 +2185,73 @@ if __name__ == "__main__":
       D[np.identity(D.shape[0],dtype=bool)] = np.nan
       if nflag:
         n = (sdf["dcode"]==0).astype(int)
-        nK,nKz,nKt,nKp = uniK(D,n,args.permutations,"neutral")
+        nT,nK,nKz,nKt,nKp = uniK_calc_and_plot(D,n,args.permutations,"neutral")
         pK = pKz = pKt = np.nan
         qK = qKz = qKt = qKp = np.nan
       if pflag:
         p = (sdf["dcode"]==1).astype(int)
-        pK,pKz,pKt,pKp = uniK(D,p,args.permutations,"pathogenic")
+        pT,pK,pKz,pKt,pKp = uniK_calc_and_plot(D,p,args.permutations,"pathogenic")
         nK = nKz = nKt = np.nan
         qK = qKz = qKt = qKp = np.nan
-      logging.getLogger().info("Insufficient variant counts to perform Ripley's D analysis.")
-      logging.getLogger().info("Using default neighbor-weight parameters for PathProx.")
+      LOGGER.info("Insufficient variant counts to perform Ripley's D analysis.")
+      LOGGER.info("Using default neighbor-weight parameters for PathProx.")
       args.radius = "NW"
       D = Dz = Dt = np.nan
     elif qflag and args.ripley:
-      logging.getLogger().info("Calculating Ripley's univariate weighted K...")
+      LOGGER.info("Calculating Ripley's univariate weighted K...")
       D = squareform(pdist(sdf[['x','y','z']]))
       D[np.identity(D.shape[0],dtype=bool)] = np.nan
-      qK,qKz,qKt,qKp = uniK(D,sdf['qt'],w=True)
+      qT,qK,qKz,qKt,qKp = uniK_calc_and_plot(D,sdf['qt'],weights=True)
       pK = pKz = pKt = np.nan
       nK = nKz = nKt = np.nan
       D  = Dz  = Dt  = np.nan
     # If none of the datasets are populated, skip the Ripley analyses
     else:
       if args.ripley:
-        logging.getLogger().info("Insufficient variant counts to perform Ripley's K/D analyses.")
-        logging.getLogger().info("Using default neighbor-weight parameters for PathProx.")
+        LOGGER.info("Insufficient variant counts to perform Ripley's K/D analyses.")
+        LOGGER.info("Using default neighbor-weight parameters for PathProx.")
       # Set all Ripley's results to NaN
       pK = pKz = pKt = nK = nKz = nKt = qK = qKz = qKt = D = Dz = Dt = np.nan
       args.radius = "NW"
 
+    LOGGER.info("Phase 3 - Perform Pathprox cross-validation and report performance");
     # Run the PathProx cross-validation and report performance
-    A  = sdf.loc[sdf["dcode"]==1,['x','y','z']]     # Pathogenic
-    B  = sdf.loc[sdf["dcode"]==0,['x','y','z']]     # Neutral
+    pathogenic_coordinates  = sdf.loc[sdf["dcode"]==1,['x','y','z']]     # Pathogenic
+    neutral_coordinates  = sdf.loc[sdf["dcode"]==0,['x','y','z']]     # Neutral
     if not args.no_blosum:
-      Aw = sdf.loc[sdf["dcode"]==1,"blosum100"]
-      Bw = sdf.loc[sdf["dcode"]==0,"blosum100"]
+      LOGGER.info("Integrating blosum-100 weights for all pathogenic and neutral residue");
+      pathogenic_blosum100_weights = sdf.loc[sdf["dcode"]==1,"blosum100"]
+      neutral_blosum100_weights = sdf.loc[sdf["dcode"]==0,"blosum100"]
 
     # Determine the radius or NeighborWeight parameters
     if args.radius == "NW":
       nwlb,nwub = args.nwlb,args.nwub
+      LOGGER.info("args.radius='NW'.  NeighborWeight bounds set to args.nwlb=%f,args.nwub=%f",args.nwlb,args.nwub);
     elif args.radius == "K":
       nwlb = nwub = pKt
+      LOGGER.info("args.radius='K'. NeighborWeight() will return 1.0 for distances <= pKt=%f, 0 for distances > %f",nwlb,nwub);
     elif args.radius == "D":
       nwlb = nwub = Dt
+      LOGGER.info("args.radius='D'. NeighborWeight() will return 1.0 for distances <= Dt=%f, 0 for distances > %f",nwlb,nwub);
     else:
       nwlb = nwub = args.radius
+      LOGGER.info("args.radius=%s. NeighborWeight() will return 1.0 for distances <= %f, 0 for distances > %f",nwlb,nwub);
 
     # Measure the predictive performance of PathProx
     if nflag and pflag:
-      logging.getLogger().info("Measuring PathProx cross-validation performance...")
       if args.no_blosum:
-        ascores = pathprox(A,A,B,nwlb=nwlb,nwub=nwub,cv="P")
-        bscores = pathprox(B,A,B,nwlb=nwlb,nwub=nwub,cv="N")
+        LOGGER.info("args.no_blosum=%s Measuring unweighted PathProx cross-validation performance...",args.no_blosum)
+        pathogenic_cross_validation_scores = pathprox(pathogenic_coordinates,pathogenic_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub,cross_validation_flag="P")
+        neutral_cross_validation_scores = pathprox(neutral_coordinates,pathogenic_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub,cross_validation_flag="N")
       else:
-        ascores = pathprox(A,A,B,nwlb=nwlb,nwub=nwub,cv="P",w=(Aw,Aw,Bw))
-        bscores = pathprox(B,A,B,nwlb=nwlb,nwub=nwub,cv="N",w=(Bw,Aw,Bw))
-      fpr,tpr,roc_auc,prec,rec,pr_auc = calc_auc(ascores,bscores)
-      logging.getLogger().info("PathProx ROC AUC: %.2f"%roc_auc)
-      logging.getLogger().info("PathProx PR  AUC: %.2f"%pr_auc)
+        LOGGER.info("args.no_blosum=%s Measuring Blosum100-weighted PathProx cross-validation performance...",args.no_blosum)
+        pathogenic_cross_validation_scores = pathprox(pathogenic_coordinates,pathogenic_coordinates,neutral_coordinates,
+              nwlb=nwlb,nwub=nwub,cross_validation_flag="P",weights=(pathogenic_blosum100_weights,pathogenic_blosum100_weights,neutral_blosum100_weights))
+        neutral_cross_validation_scores = pathprox(neutral_coordinates,pathogenic_coordinates,neutral_coordinates,
+              nwlb=nwlb,nwub=nwub,cross_validation_flag="N",weights=(neutral_blosum100_weights,pathogenic_blosum100_weights,neutral_blosum100_weights))
+      fpr,tpr,roc_auc,prec,rec,pr_auc = calc_auc(pathogenic_cross_validation_scores,neutral_cross_validation_scores)
+      LOGGER.info("PathProx ROC AUC: %.2f"%roc_auc)
+      LOGGER.info("PathProx PR  AUC: %.2f"%pr_auc)
       # Plot the ROC and PR curves
       fig_roc = plot_roc(fpr,tpr,save=False)
       fig_pr  = plot_pr(rec,prec,pr_auc=pr_auc,save=False)
@@ -1963,31 +2261,31 @@ if __name__ == "__main__":
       np.savetxt("%s_pathprox_pr.txt.gz"%args.label,res,"%.4g",'\t')
       if args.radius in ("K","D"):
         nwlb,nwub = nKt,nKt
-      logging.getLogger().info("Measuring Neutral Constraint cross-validation performance...")
+      LOGGER.info("Measuring Neutral Constraint cross-validation performance...")
       if args.no_blosum:
-        ascores = uniprox(A,B,nwlb=nwlb,nwub=nwub)
-        bscores = uniprox(B,B,nwlb=nwlb,nwub=nwub)
+        ascores = uniprox(pathogenic_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub)
+        bscores = uniprox(neutral_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub)
       else:
-        ascores = uniprox(A,B,nwlb=nwlb,nwub=nwub)# ,w=(Aw,Bw)) DO NOT WEIGHT PATHOGENIC VARIANTS
-        bscores = uniprox(B,B,nwlb=nwlb,nwub=nwub,w=(Bw,Bw))
+        ascores = uniprox(pathogenic_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub)# ,w=(Aw,Bw)) DO NOT WEIGHT PATHOGENIC VARIANTS
+        bscores = uniprox(neutral_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub,weights=(neutral_blosum100_weights,neutral_blosum100_weights))
       fpr,tpr,roc_auc,prec,rec,pr_auc = calc_auc(list(1-np.array(ascores)),list(1-np.array(bscores)))
-      logging.getLogger().info("Neutral Constraint ROC AUC: %.2f"%roc_auc)
-      logging.getLogger().info("Neutral Constraint PR  AUC: %.2f"%pr_auc)
+      LOGGER.info("Neutral Constraint ROC AUC: %.2f"%roc_auc)
+      LOGGER.info("Neutral Constraint PR  AUC: %.2f"%pr_auc)
       # Plot the ROC and PR curves
       fig_roc = plot_roc(fpr,tpr,ax=fig_roc,save=False,label="Neutral Constraint",color="blue")
       fig_pr  = plot_pr(rec,prec,ax=fig_pr,pr_auc=pr_auc,save=False,label="Neutral Constraint",color="blue")
       if args.radius in ("K","D"):
         nwlb,nwub = pKt,pKt
-      logging.getLogger().info("Measuring Pathogenic Constraint cross-validation performance...")
+      LOGGER.info("Measuring Pathogenic Constraint cross-validation performance...")
       if args.no_blosum:
-        ascores = uniprox(A,A,nwlb=nwlb,nwub=nwub)
-        bscores = uniprox(B,A,nwlb=nwlb,nwub=nwub)
+        ascores = uniprox(pathogenic_coordinates,pathogenic_coordinates,nwlb=nwlb,nwub=nwub)
+        bscores = uniprox(neutral_coordinates,pathogenic_coordinates,nwlb=nwlb,nwub=nwub)
       else:
-        ascores = uniprox(A,A,nwlb=nwlb,nwub=nwub)# ,w=(Aw,Aw)) DO NOT WEIGHT PATHOGENIC VARIANTS
-        bscores = uniprox(B,A,nwlb=nwlb,nwub=nwub,w=(Bw,Aw))
+        ascores = uniprox(pathogenic_coordinates,pathogenic_coordinates,nwlb=nwlb,nwub=nwub)# ,w=(Aw,Aw)) DO NOT WEIGHT PATHOGENIC VARIANTS
+        bscores = uniprox(neutral_coordinates,pathogenic_coordinates,nwlb=nwlb,nwub=nwub,weights=(neutral_blosum100_weights,pathogenic_blosum100_weights))
       fpr,tpr,roc_auc,prec,rec,pr_auc = calc_auc(ascores,bscores)
-      logging.getLogger().info("Pathogenic Constraint ROC AUC: %.2f"%roc_auc)
-      logging.getLogger().info("Pathogenic Constraint PR  AUC: %.2f"%pr_auc)
+      LOGGER.info("Pathogenic Constraint ROC AUC: %.2f"%roc_auc)
+      LOGGER.info("Pathogenic Constraint PR  AUC: %.2f"%pr_auc)
       # Plot and save the ROC and PR curves
       fig_roc = plot_roc(fpr,tpr,ax=fig_roc,label="Pathogenic Constraint",color="red")
       fig_pr  = plot_pr(rec,prec,ax=fig_pr,pr_auc=pr_auc,label="Pathogenic Constraint",color="red")
@@ -1995,23 +2293,24 @@ if __name__ == "__main__":
       roc_auc = pr_auc = np.nan
 
     # Calculate PathProx scores for all residues
-    C  = sdf[['x','y','z']]
+    all_coordinates  = sdf[['x','y','z']]
     if nflag and pflag:
-      logging.getLogger().info("Calculating PathProx scores (and z-scores)...")
       if args.no_blosum:
+        LOGGER.info("Calculating unweighted PathProx scores (and z-scores)...")
         sdf["pathprox"] = pathprox(C,A,B,nwlb=nwlb,nwub=nwub)
       else:
-        Cw = sdf["blosum100"]
-        sdf["pathprox"] = pathprox(C,A,B,nwlb=nwlb,nwub=nwub,w=(Cw,Aw,Bw))
+        LOGGER.info("Calculating Blosum-100-weighted PathProx scores (and z-scores)...")
+        all_blosum100_weights= sdf["blosum100"]
+        sdf["pathprox"] = pathprox(all_coordinates,pathogenic_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub,weights=(neutral_blosum100_weights,pathogenic_blosum100_weights,neutral_blosum100_weights))
     # Calculate neutral constraint scores for all residues
     if nflag:
-      logging.getLogger().info("Calculating neutral constraint scores (and z-scores)...")
+      LOGGER.info("Calculating neutral constraint scores (and z-scores)...")
       # Now calculate for all residues
       if args.no_blosum:
-        sdf["neutcon"] = 1-np.array(uniprox(C,B,nwlb=nwlb,nwub=nwub))
+        sdf["neutcon"] = 1-np.array(uniprox(all_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub))
       else:
-        Cw= sdf["blosum100"]
-        sdf["neutcon"] = 1-np.array(uniprox(C,B,nwlb=nwlb,nwub=nwub,w=(Cw,Bw)))
+        all_blosum100_weights= sdf["blosum100"]
+        sdf["neutcon"] = 1-np.array(uniprox(all_coordinates,neutral_coordinates,nwlb=nwlb,nwub=nwub,weights=(all_blosum100_weights,neutral_blosum100_weights)))
       # nneut = (sdf["dcode"]==0).sum()
       # pneutcon = [uniprox(sdf[['x','y','z']],
       #                     sdf.ix[np.random.choice(sdf.index,nneut),['x','y','z']],
@@ -2020,12 +2319,12 @@ if __name__ == "__main__":
       # sdf["neutcon_z"] = np.nan_to_num(zscore(pneutcon)[0])
     # Calculate pathogenic constraint scores for all residues
     if pflag:
-      logging.getLogger().info("Calculating pathogenic constraint scores (and z-scores)...")
+      LOGGER.info("Calculating pathogenic constraint scores (and z-scores)...")
       # Now calculate for all residues
       if args.no_blosum:
-        sdf["pathcon"] = uniprox(C,A,nwlb=nwlb,nwub=nwub)
+        sdf["pathcon"] = uniprox(all_coordinates,pathogenic_coordinates,nwlb=nwlb,nwub=nwub)
       else:
-        sdf["pathcon"] = uniprox(C,A,nwlb=nwlb,nwub=nwub)# ,w=(Cw,Aw)) DO NOT WEIGHT PATHOGENIC VARIANTS
+        sdf["pathcon"] = uniprox(all_coordinates,pathogenic_coordinates,nwlb=nwlb,nwub=nwub)# ,w=(Cw,Aw)) DO NOT WEIGHT PATHOGENIC VARIANTS
       # npath = (sdf["dcode"]==1).sum()
       # ppathcon = [uniprox(sdf[['x','y','z']],
       #                     sdf.ix[np.random.choice(sdf.index,npath),['x','y','z']],
@@ -2034,7 +2333,7 @@ if __name__ == "__main__":
       # sdf["pathcon_z"] = np.nan_to_num(zscore(ppathcon)[0])
     # Calculate quantitative trait constraint scores for all residues
     if qflag:
-      logging.getLogger().info("Calculating quantitative trait constraint scores (and z-scores)...")
+      LOGGER.info("Calculating quantitative trait constraint scores (and z-scores)...")
       if args.radius in ("K","D"):
         nwlb,nwub = qKt,qKt
       sdf["qtprox"] = qtprox(sdf[['x','y','z']],sdf[['x','y','z','qt']],nwlb=nwlb,nwub=nwub)
@@ -2129,25 +2428,25 @@ if __name__ == "__main__":
 
     # Report PathProx/constraint scores for candidate variants
     if args.variants and qflag:
-      logging.getLogger().info("Quantitative constraint scores for candidate missense variants:")
-      logging.getLogger().info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","qtprox"]].sort_values( \
+      LOGGER.info("Quantitative constraint scores for candidate missense variants:")
+      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","qtprox"]].sort_values( \
             by=["qtprox","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
     elif args.variants:
-      logging.getLogger().info("Neutral constraint scores for candidate missense variants:")
-      logging.getLogger().info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","neutcon"]].sort_values( \
+      LOGGER.info("Neutral constraint scores for candidate missense variants:")
+      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","neutcon"]].sort_values( \
             by=["neutcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
-      logging.getLogger().info("Pathogenic constraint scores for candidate missense variants:")
-      logging.getLogger().info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
+      LOGGER.info("Pathogenic constraint scores for candidate missense variants:")
+      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
             by=["pathcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
-      logging.getLogger().info("PathProx scores for candidate missense variants:")
-      logging.getLogger().info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
+      LOGGER.info("PathProx scores for candidate missense variants:")
+      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
             by=["pathprox","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
 
     # Write summary results to file
     # Ripley's K/D results
     head = ["Kz_path","Kt_path","Kz_neut","Kt_neut","Dz","Dt","Kz_quant","Kt_quant"]
     vals = [pKz,pKt,nKz,nKt,Dz,Dt,qKz,qKt]
-    # PathProx CV ROC and PR
+    # PathProx Cross Validation, ROC and PR
     head.extend(["roc_auc","pr_auc"])
     vals.extend([roc_auc,pr_auc])
     # Extract VUS names
@@ -2175,7 +2474,6 @@ if __name__ == "__main__":
     if (pClosestPathogenicMutationPDB or pNextPathogenicMutationPDB or 
         pClosestPathogenicMutationUNP or pNextPathogenicMutationUNP or
         pClosestPathogenicDistance or pNextPathogenicSeqDelta):
-      # import pdb; pdb.set_trace()
       head.extend(["ClosestPDB","ClosestUNP","ClosestDistance"])
       vals.extend([pClosestPathogenicMutationPDB,pClosestPathogenicMutationUNP,pClosestPathogenicDistance])
       head.extend(["NextPDB","NextUNP","SeqDelta"])
@@ -2183,14 +2481,17 @@ if __name__ == "__main__":
 
     # Write all results to file
     summary_filename = "%s_summary.csv"%args.label
-    logging.getLogger().info("Writing summary to %s"%summary_filename)
+    summary_strings = []
+    for summary_tuple in zip(head,vals):
+      summary_strings.append("  %-15.15s %s"%(summary_tuple[0],summary_tuple[1]))
+    LOGGER.info("Writing summary of pathprox results to %s:\n%s",summary_filename,'\n'.join(summary_strings))
     with open(summary_filename,'wb') as fout:
       writer = csv.writer(fout,delimiter='\t')
       writer.writerow(head)
       writer.writerow(vals)
 
     # Generating structural images
-    logging.getLogger().info("Visualizing with Chimera (this may take a while)...")
+    LOGGER.info("Visualizing with Chimera (this may take a while)...")
     params = [args.label,sid,str(bio)]
     # Run the Chimera visualization script
     script = '"%s/pathvis.py %s"'%(script_dir,' '.join(params))
@@ -2199,22 +2500,21 @@ if __name__ == "__main__":
     if platform.system() == 'Darwin':
       cmd  = "TEMP=$PYTHONPATH; unset PYTHONPATH; chimera --silent --script %s; export PYTHONPATH=$TEMP"%script
     try:
-      logging.getLogger().info("Running Chimera script: %s"%cmd)
+      LOGGER.info("Running Chimera script: %s"%cmd)
       # status  = os.system(cmd)
       p = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
       (stdout, stderr) = p.communicate()
 
       if stdout and len(str(stdout)) > 0:
-        logging.getLogger().info("chimera stdout: %s"%str(stdout))
+        LOGGER.info("chimera stdout: %s"%str(stdout))
       if stderr and len(str(stderr)) > 0:
-        logging.getLogger().info("chimera stderr: %s"%str(stderr))
+        LOGGER.info("chimera stderr: %s"%str(stderr))
       if p.returncode != 0:
         raise Exception("Chimera process returned non-zero exit status.")
     except Exception as e:
-      logging.getLogger().exception("Chimera failed")
+      LOGGER.exception("Chimera failed")
       raise
 
-    # import pdb; pdb.set_trace()
     # Generate a dictionary of information that psb_rep.py can use to create a robust ngl viewer 
     # experience for users.  Javascript format is human readable, and opens possibility for integration with javascript
     json_filename = "%s_ResiduesOfInterest.json"%args.label
@@ -2231,7 +2531,6 @@ if __name__ == "__main__":
     neutral_residues = []
     pathogenic_residues = []
     attribute_residues = []
-    # import pdb; pdb.set_trace()
     for i,r in sdf.iterrows():
       residue_tuple = (r["unp_pos"],r["chain"])
       if r['dcode'] == 0:
@@ -2251,7 +2550,7 @@ if __name__ == "__main__":
 
     with open(json_filename,'w') as f:
          json.dump(residuesOfInterest, f)
-    logging.getLogger().info("%d variants, %d neutral, %d pathogenic, and %d user_attributes recorded to %s"%(
+    LOGGER.info("%d variants, %d neutral, %d pathogenic, and %d user_attributes recorded to %s"%(
       len(residuesOfInterest['variants']),
       len(residuesOfInterest['neutrals']),
       len(residuesOfInterest['pathogenics']),
@@ -2264,4 +2563,4 @@ if __name__ == "__main__":
     # Mark this analysis as complete
     open(os.path.join(statusdir,"complete"),'w').close()
 
-  logging.getLogger().info("All analyses complete.")
+  LOGGER.info("All analyses complete.")
