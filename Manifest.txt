@@ -17,7 +17,8 @@ pip install MySQL-python
 pip install mysqlclient
 pip install --upgrade pip
 pip install argparse
-pip install WeasyPrint
+# WeasyPrint no longer supports Python 2
+pip install WeasyPrint==0.42.3
 pip install PyVCF
 
 # Newer versions of networkx have incompatible data file formats
