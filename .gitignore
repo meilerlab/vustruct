@@ -12,7 +12,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+# build/ Actually, we have build directories in 2 javascript libs that we want to check in
 develop-eggs/
 dist/
 [dD]ownloads/
