@@ -4,7 +4,7 @@ echo
 if [[ $0 != $BASH_SOURCE ]]; then
 PIPELINE_ROOT=$(readlink -f `dirname $BASH_SOURCE`)
 echo "Script in $PIPELINE_ROOT was correctly sourced"
-if [[ $PIPELINE_ROOT = '$PIPELINE_ROOT' ]]; then
+if [[ $PIPELINE_ROOT = '/dors/capra_lab/users/psbadmin' ]]; then
 isProduction=true
 else
 isProduction=false
