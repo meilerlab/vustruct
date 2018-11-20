@@ -37,7 +37,7 @@ import sys
 # 
 # xml_human_file = defaults['interpro_dir'] + 'match_humanonly.xml'
 
-class Cxml2json():
+class Cxml2json(object):
   __tree = None
   __root = None
   def __init__(self,xml_human_filename):

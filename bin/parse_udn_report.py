@@ -33,29 +33,18 @@ def remove_unicode_control_characters(s):
 def remove_ascii_control_characters(s):
     return ''.join(c for c in s if (ord(c) >= 32 and ord(c) < 128))
   
-
-default_global_config=os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),"config","global.config")
-
-cmdline_parser = argparse.ArgumentParser(description=__doc__)
-cmdline_parser.add_argument("-c","--config",
-help="PDBMap configuration profile for database access", required=False,metavar="FILE",default=default_global_config)
-cmdline_parser.add_argument("-u","--userconfig",
-help="User specific settings and configuration profile overrides", required=True,metavar="FILE")
-cmdline_parser.add_argument("project",type=str,help="Project ID (ex. UDN124356)")
+from psb_shared import psb_config
+cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
+cmdline_parser.add_argument("project",type=str,help="Project ID (ex. UDN124356)",default=os.path.basename(os.getcwd()),nargs='?')
 
 # parser.add_argument("udn_excel",type=str,help="Raw input UDN patient report (format: xls/xlsx)")
 # parser.add_argument("udn_csv",type=str,help="Parsed output pipeline filename (e.g. filename.csv)")
 
 args = cmdline_parser.parse_args()
 
-config = ConfigParser.SafeConfigParser(allow_no_value=True)
-config.read([args.config])
-config_dict = dict(config.items("Genome_PDB_Mapper")) # item() returns a list of (name, value) pairs
+required_items = ['output_rootdir','collaboration']
 
-if args.userconfig:
-  userconfig = ConfigParser.SafeConfigParser() 
-  userconfig.read([args.userconfig])
-  config_dict.update(dict(userconfig.items("UserSpecific"))) # item() returns a list of (name, value) pairs
+config,config_dict = psb_config.read_config_files(args,required_items)
 
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory,args.project)
@@ -92,9 +81,8 @@ PDBMapProtein.load_idmapping(idmappingFilename)
 
 GeneWordEncountered = False
 if df.columns.values[0].strip() == 'Gene':
-  logging.critical('Sorry - do not know how to interpret this spreadsheet.  Could be a .csv file')
+  logging.critical('The word "Gene" must not be in the top left header of the spreadsheet.  It must appear later, after the initial row which includes a case name.')
   sys.exit(1)
-  GeneWordEncountered = True
 
 # The strings Gene, Chr, Change, Effect, Proband, Mother, Father 
 # Will likely be the "headers" for the gene dictionary.
@@ -109,7 +97,7 @@ while i < dfRows:
   # import pdb; pdb.set_trace()
   row = df.iloc[i]
   # print i, row[0]
-  if GeneWordEncountered:
+  if GeneWordEncountered: # Until we see "Gene" - we just keep looping
     try:
       possible_gene = row[0].strip().encode('utf-8')
     except:
@@ -157,15 +145,13 @@ while i < dfRows:
       gene = possible_gene_split[0].translate(None,string.punctuation)
 
     # Skip out if our gene is common text that we immediately recognize as uninteresting
-    if gene in ['Gene','Secondary','Heterozygous','Homozygous','Compound','None','Structural','DeNovo', 'De', 'Medically', 'Primary', 'Primary/Diagnostic','Table']:
+    if gene in ['Gene','Secondary','Heterozygous','Homozygous','Compound','None','Structural','DeNovo', 'De', 'Medically', 'Primary', 'Primary/Diagnostic','PrimaryDiagnostic','Table']:
       i += 1
       continue
 
-
-
-    logger.info("Gene Candidate %s",gene)
+    # logger.info("Gene Candidate %s",gene)
     if not PDBMapProtein.ishgnc(gene):
-      logger.info("Row %d: Gene %s is not a recognized human gene"%(i,gene))
+      logger.info("Row %3d: %-8s is not a recognized human gene"%(i,gene))
     else: 
       effect = row[3];
       if isinstance(effect,str):
@@ -190,7 +176,7 @@ while i < dfRows:
             genes[gene][rel].append(status)
 
       if not "missense" in effect.lower():
-        logger.info("Row %d: Skipping %s non mis-sense mutation(%s)"%(i,gene,effect.replace('\n','')))
+        logger.info("Row %3d: %-8s skipped, non mis-sense mutation(%s)"%(i,gene,effect.replace('\n','')))
         i += 2
         continue
       if len(possible_gene_split) > 1:
@@ -227,7 +213,7 @@ while i < dfRows:
         raw_mut = df.iloc[i+2][2]
         mut = raw_mut.replace("p.","")
       except:
-        logger.warning("Row %d: Could not read mutation info for gene %s from spreadsheet"%(i,gene))
+        logger.warning("Row %3d: %-8s  Could not read mutation info from spreadsheet"%(i,gene))
         i += 2
         continue
 
@@ -239,12 +225,12 @@ while i < dfRows:
         try:
           mut = ''.join([longer_names[mut[:3].upper()],mut[3:-3],longer_names[mut[-3:].upper()]])
         except:
-          logger.warning("Row %d: Failed to parse mutation %s for gene %s"%(i,raw_mut,gene))
+          logger.warning("Row %3d: %-8s  Failed to parse mutation %s"%(i,gene,raw_mut))
           i += 2
           continue # Do not add this mutation
 
       mutation_info = [gene,refseq,mut,unp]
-      logger.info("Row %d: Adding %s"%(i," ".join([str(x) for x in mutation_info])))
+      logger.info("Row %3d: %-8s Adding %s"%(i,gene," ".join([str(x) for x in mutation_info])))
       csv_rows.append(mutation_info)
         
       i += 1

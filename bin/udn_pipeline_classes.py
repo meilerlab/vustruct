@@ -24,8 +24,8 @@ class NullHandler(logging.Handler):
   def emit(self, record):
     pass
 
-logger = logging.getLogger(__name__)
-logger.addHandler(NullHandler())
+LOGGER = logging.getLogger(__name__)
+LOGGER.addHandler(NullHandler())
 
 sys.path.insert(0, '/dors/meilerlab/home/sliwosgr/gregit/')
 from prepare import cleaner,query_modres
@@ -135,7 +135,7 @@ class predict_ss(object):
 
         if len(mutations)>1:
             print "Warning, predict_ss currently only supports 1 mutation, using only first mutation (%s)" % "".join(str(x) for x in self._mutation)
-        logger.info("predict_ss.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
+        LOGGER.info("predict_ss.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
         
     def failure(self, message):
         print message
@@ -322,7 +322,7 @@ class ddg_monomer(object):
         self._applications = ['minimize_with_cst.default.linuxgccrelease','per_residue_energies.linuxgccrelease','ddg_monomer.linuxgccrelease','score_jd2.linuxgccrelease']
         self._timers = ['minimize','rescore','ddg_monomer']
         self._to_pdb = []
-        logger.info("ddg_mmonomer.__init__ completed after setting:\n%s"%pprint.pformat(self.__dict__))
+        LOGGER.info("ddg_mmonomer.__init__ completed after setting:\n%s"%pprint.pformat(self.__dict__))
 #        with open(self._pdb) as infile:
 #            self._pdblines = infile.readlines()
                 
@@ -359,10 +359,10 @@ class ddg_monomer(object):
             outfile.write("\n")
             
     def failure(self, dumps, message):
-        print message
+        LOGGER.warning(message)
         if dumps is not None:
             for item in dumps:
-                print "Dumping %s to %s" % (item[0],item[1])
+                LOGGER.warning("Dumping %s to %s",item[0],item[1])
                 with open(item[1],'w') as outfile:
                     outfile.write(item[2])
         #self.log_failure(message)
@@ -393,9 +393,8 @@ class ddg_monomer(object):
                     outfile.write("\n".join(wt_files+mut_files))
                     outfile.write("\n")
             command = "score_jd2.linuxgccrelease -l %s -score:weights talaris2014 -out:file:scorefile %s" % (modellist,rescorefile)
-            print self._break
-            print "Scoring all ddg models with command:"
-            print "%s/%s" % (self._rosetta,command)
+            LOGGER.info("self._break = %s",self._break)
+            LOGGER.info("Scoring all ddg models with command:\n%s/%s" , self._rosetta,command)
             runscore = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             (scout,scerr) = runscore.communicate()
             try:
@@ -758,7 +757,7 @@ class interface_analyzer(object):
         self._applications = ['minimize_with_cst.default.linuxgccrelease','residue_energy_breakdown.default.linuxgccrelease']
         self._index = ['resi1','resi2','total']
         self._topdb = []
-        logger.info("interface_analyzer.__init__ completed after setting:\n%s"%pprint.pformat(self.__dict__))
+        LOGGER.info("interface_analyzer.__init__ completed after setting:\n%s"%pprint.pformat(self.__dict__))
 
     def log_success(self,times):
         mutationtext = ",".join("".join(str(x) for x in y) for y in self._mutations)
@@ -963,7 +962,7 @@ class dssp(object):
                            "P":143, "S":122, "T":146, "W":259, "Y":229, "V":160}
         self._success = "/dors/meilerlab/home/sliwosgr/udn_pipeline/dssp/history/success_log.tab"
         self._fail = "/dors/meilerlab/home/sliwosgr/udn_pipeline/dssp/history/fail_log.tab"
-        logger.info("dssp.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
+        LOGGER.info("dssp.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
         
     def log_success(self):
         mutationtext = ",".join("".join(str(x) for x in y) for y in self._mutations)
@@ -1188,7 +1187,7 @@ class ligands(object):
         self._timers = ['total_time']
         self.residues = {}
         self.ligands = {}
-        logger.info("ligands.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
+        LOGGER.info("ligands.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
         
     def log_success(self,times):
         mutationtext = ",".join("".join(str(x) for x in y) for y in self._mutations)
@@ -1365,7 +1364,7 @@ class uniprot(object):
         self._gene = gene
         self._mutations = mutations
         self._fasta = {}
-        logger.info("uniprot.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
+        LOGGER.info("uniprot.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
     
     def check_aa(self,unp):
         warnings = []

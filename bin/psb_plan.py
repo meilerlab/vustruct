@@ -36,19 +36,6 @@ print "%s: Pipeline execution plan generator.  -h for detailed help"%__file__
 import logging,os,pwd,sys,grp,stat
 from logging.handlers import RotatingFileHandler
 from logging import handlers
-capra_group = grp.getgrnam('capra_lab').gr_gid
-
-def set_capra_group_sticky(dirname):
-  try:
-    os.chown(dirname, -1, capra_group)
-  except:
-    pass
-
-  # Setting the sticky bit on directories also fantastic
-  try:
-    os.chmod(dirname, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | stat.S_ISGID);
-  except:
-    pass
 
 sh = logging.StreamHandler()
 logger = logging.getLogger()
@@ -65,6 +52,7 @@ sh.setFormatter(log_formatter)
 
 
 import pandas as pd
+pd.options.mode.chained_assignment = 'raise'
 pd.set_option("display.max_columns",100)
 pd.set_option("display.width",1000)
 import numpy as np
@@ -79,24 +67,17 @@ import shutil
 import warnings
 # from jinja2 import Environment, FileSystemLoader
 
-default_global_config=os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),"config","global.config")
+from psb_shared import psb_config
 
-cmdline_parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-cmdline_parser.add_argument("-c","--config",
-help="PDBMap configuration profile for database access", required=False,metavar="FILE",default=default_global_config)
-cmdline_parser.add_argument("-u","--userconfig",
-help="User specific settings and configuration profile overrides", required=True,metavar="FILE")
-cmdline_parser.add_argument("-v","--verbose",
-help="Include routine info log entries on stderr", action = "store_true")
-cmdline_parser.add_argument("-d","--debug",
-help="Include routine info AND 'debug' log entries on stderr", action = "store_true")
+cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
+
 cmdline_parser.add_argument("-m","--maybe",type=int,default=10,metavar='maybe_threshold',
 help='Sequence distance "outside of structure" threshold, below which structures which lack coverage are marked as coverage="Maybe" instead of "No"')
 # cmdline_parser.add_argument("collaboration",type=str,help="Collaboration ID (ex. UDN)")
-cmdline_parser.add_argument("project",type=str,help="Project ID (ex. UDN124356)")
+cmdline_parser.add_argument("project",type=str,help="Project ID (ex. UDN124356)",default=os.path.basename(os.getcwd()),nargs='?')
 cmdline_parser.add_argument("entity",nargs='?',type=str,help="Omit or Gene ID or SwissProt AC (ex. TTN)")
 cmdline_parser.add_argument("refseq",nargs='?',type=str,help="Omit OR NM_... refseq transcript identifier")
-cmdline_parser.add_argument("mutation",nargs='?',type=str,default='',help="Omit OR HGVS mutation string (ex S540A)")
+cmdline_parser.add_argument("mutation",nargs='?',type=str,help="Omit OR HGVS mutation string (ex S540A)")
 args,remaining_argv = cmdline_parser.parse_known_args()
 
 infoLogging = False
@@ -124,35 +105,25 @@ required_config_items = ["dbhost","dbname","dbuser","dbpass",
   "swiss_dir",
   "swiss_summary"]
 
-config = ConfigParser.SafeConfigParser()
-config.read([args.config])
-config_dict = dict(config.items("Genome_PDB_Mapper")) # item() returns a list of (name, value) pairs
-if (args.userconfig):
-  userconfig = ConfigParser.SafeConfigParser() 
-  userconfig.read([args.userconfig])
-  config_dict.update(dict(userconfig.items("UserSpecific"))) # item() returns a list of (name, value) pairs
+# parser.add_argument("udn_excel",type=str,help="Raw input UDN patient report (format: xls/xlsx)")
+# parser.add_argument("udn_csv",type=str,help="Parsed output pipeline filename (e.g. filename.csv)")
 
-  missingKeys = [name for name in required_config_items if name not in config_dict]
+config,config_dict = psb_config.read_config_files(args,required_config_items)
 
-if (len(missingKeys)):
-  logger.error('Can\'t proceed without configuration file options set for: %s'%str(missingKeys))
-  sys.exit(1)
-
+from psb_shared import psb_perms
+psb_permissions = psb_perms.PsbPermissions(config_dict)
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory,args.project)
-if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
-  os.makedirs(collaboration_dir)
+psb_permissions.makedirs(collaboration_dir)
 collaboration_log_dir = os.path.join(collaboration_dir,"log")
 
 # Whether we made it above or not, we want our main directory for this run to be group capra_lab and sticky!
-set_capra_group_sticky(collaboration_dir)
+psb_permissions.set_dir_group_and_sticky_bit(collaboration_dir)
 
-if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
-  os.makedirs(collaboration_log_dir)
-  set_capra_group_sticky(collaboration_dir)
+psb_permissions.makedirs(collaboration_log_dir)
 
 logger.info("Loading UniProt ID mapping...")
 
@@ -388,13 +359,9 @@ def plan_one_mutation(entity,refseq,mutation):
     unp,gene = detect_entity(io,entity)
   
   mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(gene,refseq,mutation))
-  if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter...
-    os.makedirs(mutation_dir)
-    set_capra_group_sticky(mutation_dir)
-  mutation_log_dir = mutation_dir # os.path.join(mutation_dir,"log")
-  if not os.path.exists(mutation_log_dir):  # python 3 has exist_ok parameter...
-    os.makedirs(mutation_log_dir)
-    set_capra_group_sticky(mutation_log_dir)
+  psb_permissions.makedirs(mutation_dir)
+  mutation_log_dir = mutation_dir
+  psb_permissions.makedirs(mutation_log_dir)
 
   # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
   log_filename = os.path.join(mutation_log_dir,"psb_plan.log")
@@ -453,9 +420,9 @@ def plan_one_mutation(entity,refseq,mutation):
 
   # Funny bug - but if df_pdbs is empty, the pd.concat turns all the second dF_modbase_swiss columns from ints to floats
   if len(df_pdbs) == 0:
-    df = df_modbase_swiss
+    df = df_modbase_swiss.copy()
   elif len(df_modbase_swiss) == 0:
-    df = df_pdbs
+    df = df_pdbs.copy()
   else:
     df = pd.concat([df_pdbs,df_modbase_swiss],ignore_index = True)
 
@@ -467,12 +434,15 @@ def plan_one_mutation(entity,refseq,mutation):
   
   # Add in Swiss-model quality metrics from the REMARK 3 entries of the model file
   # This probably should be moved off to tables from load-time
-  for i,row in df.iterrows():
+  # logger.warning("DF columns = %s"%str(df.columns))
+
+  for i in range(len(df)):
+    row = df.iloc[i]
     if row['Label'] == 'pdb':
-      df.set_value(i,'Seq Identity',float('nan'))
+      df.iat[i,df.columns.get_loc('Seq Identity')] = float('nan')
     elif row['Label'] == 'swiss':
       remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(row['Structure ID'])
-      df.set_value(i,'Seq Identity',float(remark3_metrics['sid']))
+      df.iat[i,df.columns.get_loc('Seq Identity')] = float(remark3_metrics['sid'])
       
   # Add the canonical sequence position for this mutation
   df["Transcript Pos"] = mut_pos
@@ -511,7 +481,7 @@ def plan_one_mutation(entity,refseq,mutation):
     def drop_df_row(k,reason,keeping = -1):
       global df_dropped
       if keeping >= 0: # Add the other structure ID being kept, to the reason text, if asked 
-        reason += ' vs %s'%df.iloc[keeping]['Structure ID']
+        reason += ' vs %s.%s'%(df.iloc[keeping]['Structure ID'],df.iloc[keeping]['Chain'])
       logger.info( "Dropping df duplicate row %d because %s %s"%(k,df.iloc[k]['Structure ID'],reason))
  
       # Record the removed model for the drop report
@@ -574,7 +544,10 @@ def plan_one_mutation(entity,refseq,mutation):
                 if row_i_resolution > row_j_resolution:
                   drop_df_row(i,"is lower resolution",j)
                   break
-                elif row_j_resolution >= row_i_resolution:
+                elif row_j_resolution == row_i_resolution:
+                  drop_df_row(i,"is same resolution",j)
+                  break
+                elif row_j_resolution > row_i_resolution:
                   drop_df_row(j,"is lower resolution",i)
                   break
               elif ((row_i_len > row_j_len) 
@@ -627,36 +600,53 @@ def plan_one_mutation(entity,refseq,mutation):
           if (row_i_template == row_j_template): # If both models use same template, we need to drop one of them
             # If both are ENSP models, then we need to just get rid of the 2013 one, and keep the 2016 one containing a period
             if row_i['Label'] == 'modbase' and row_j['Label'] == 'modbase':
-              if '.' in row_i['Structure ID']: # Then row_i is Modbase2016 - so drop row_j
-                drop_df_row(j,"is modbase13")
+              if (('.' in row_i['Structure ID'] and '.' in row_j['Structure ID']) or # if Both structures modbase16
+                  ('.' not in row_i['Structure ID'] and '.' not in row_j['Structure ID'])): # or if Both structures modbase13
+                row_i_len = int(row_i['Seq End'] or 0) - int(row_i['Seq Start'] or 0)
+                row_j_len = int(row_j['Seq End'] or 0) - int(row_j['Seq Start'] or 0)
+                if row_i_len > row_j_len:
+                  drop_df_row(j,"is shorter modbase",i)
+                elif row_j_len > row_i_len:
+                  drop_df_row(i,"is shorter modbase",j)
+                else: # The two modbase models are on the same structure - but must be two different chains
+                  # The Modbase Structure ID has the chain after the final . in the name
+                  row_i_chain = row_i['Structure ID'].split('.')[-1].upper()
+                  row_j_chain = row_j['Structure ID'].split('.')[-1].upper()
+                  if (row_i_chain > row_j_chain):
+                    drop_df_row(i,"is same length, but greater chain ID",j)
+                  else:
+                    drop_df_row(j,"is same length, but greater than or same chain ID",i)
+                break;
+              elif '.' in row_i['Structure ID']: # Then row_i is Modbase2016 - so drop row_j
+                drop_df_row(j,"is modbase13",i)
                 break
               elif '.' in row_j['Structure ID']: # Then row_j is Modbase2016 - so drop row_i
-                drop_df_row(i,"is modbase13")
+                drop_df_row(i,"is modbase13",j)
                 break
             # If one of the same-template models is swiss, other modebase
             # Kepp swiss
             elif row_i['Label'] == 'swiss' and row_j['Label'] == 'modbase':
-              drop_df_row(j,"is modbase (keeping swiss)")
+              drop_df_row(j,"is modbase (keeping swiss)",i)
               break
             elif row_i['Label'] == 'modbase' and row_j['Label'] == 'swiss':
-              drop_df_row(i,"is modbase (keeping swiss)")
+              drop_df_row(i,"is modbase (keeping swiss)",j)
               break
             # If they are both swiss, then keep the longer chain... or lower chain ID if same length chains
             elif row_i['Label'] == 'swiss' and row_j['Label'] == 'swiss':
               row_i_len = int(row_i['Seq End'] or 0) - int(row_i['Seq Start'] or 0)
               row_j_len = int(row_j['Seq End'] or 0) - int(row_j['Seq Start'] or 0)
               if row_i_len > row_j_len:
-                drop_df_row(j,"is shorter swissmodel")
+                drop_df_row(j,"is shorter swissmodel",i)
               elif row_j_len > row_i_len:
-                drop_df_row(i,"is shorter swissmodel")
+                drop_df_row(i,"is shorter swissmodel",j)
               else: # The two swiss models are on the same structure - but must be two different chains
                 # The Swiss Structure ID has the chain after the final . in the name
                 row_i_chain = row_i['Structure ID'].split('.')[-1].upper()
                 row_j_chain = row_j['Structure ID'].split('.')[-1].upper()
                 if (row_i_chain > row_j_chain):
-                  drop_df_row(i,"is same length, but greater chain ID")
+                  drop_df_row(i,"is same length, but greater chain ID",j)
                 else:
-                  drop_df_row(j,"is same length, but greater than or same chain ID")
+                  drop_df_row(j,"is same length, but greater than or same chain ID",i)
               break;
         # end of dup drops in models
   
@@ -841,13 +831,9 @@ def plan_casewide_work():
 
   casewideString = "casewide"
   casewide_dir = os.path.join(collaboration_dir,casewideString);
-  if not os.path.exists(casewide_dir):  # python 3 has exist_ok parameter...
-    os.makedirs(casewide_dir)
-    set_capra_group_sticky(casewide_dir)
+  psb_permissions.makedirs(casewide_dir)
   casewide_log_dir = casewide_dir # os.path.join(casewide_dir,"log")
-  if not os.path.exists(casewide_log_dir):  # python 3 has exist_ok parameter...
-    os.makedirs(casewide_log_dir)
-    set_capra_group_sticky(casewide_log_dir)
+  psb_permissions.makedirs(casewide_log_dir)
 
   # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
   log_filename = os.path.join(casewide_log_dir,"psb_plan.log")
@@ -925,17 +911,34 @@ else:
   # Now plan the per-mutation jobs
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
   print "Retrieving project mutations from %s"%udn_csv_filename
-  df_all_mutations = pd.DataFrame.from_csv(udn_csv_filename,sep=',')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None)
   print "Work for %d mutations will be planned"%len(df_all_mutations)
+
+  ui_final_table = pd.DataFrame()
   for index,row in df_all_mutations.iterrows():
     print "Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???")
+    ui_final = {}
+    for f in ['gene','refseq','mutation','unp']:
+      ui_final[f] = row[f]
+    
     df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'])
     fulldir, filename = os.path.split(log_filename)
     fulldir, mutation_dir = os.path.split(fulldir)
     fulldir, project_dir = os.path.split(fulldir)
     print " %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s"%(len(df_structures),len(df_dropped),len(df_all_jobs),os.path.join(project_dir,mutation_dir,filename))
+    ui_final['retained'] = len(df_structures)
+    ui_final['dropped'] = len(df_dropped)
+    ui_final['jobs'] = len(df_all_jobs)
+    ui_final['planfile'] = os.path.join(mutation_dir,filename)
+    ui_final_table = ui_final_table.append(ui_final,ignore_index=True)
 
-  print "***** REMINDER THAT SQL COMPLETE FLAG THING IS DISABLED FOR NOW *****" 
+  myLeftJustifiedGene = lambda x: '%-8s'%x
+  myLeftJustifiedRefseq = lambda x: '%-14s'%x
+  myLeftJustifiedPlanfile = lambda x: '%-40s'%x
+  myLeftJustifiedUNP = lambda x: '%-9s'%x
+  print "%s"%ui_final_table.to_string(columns=['gene','refseq','mutation','unp','retained','dropped','jobs','planfile'],float_format="%1.0f",justify='center',
+         formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq,'unp': myLeftJustifiedUNP, 'planfile': myLeftJustifiedPlanfile})
+
   # It is so easy to forget to create this phenotypes file - so remind user again!
   if not os.path.exists(phenotypes_filename):
     logger.critical("Reminder: File %s was not created from the UDN report."%phenotypes_filename)

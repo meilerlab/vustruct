@@ -31,16 +31,16 @@ import pprint
 from logging.handlers import RotatingFileHandler
 from logging import handlers
 sh = logging.StreamHandler()
-logger = logging.getLogger()
-logger.addHandler(sh)
+LOGGER = logging.getLogger()
+LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
 
-logger.setLevel(logging.DEBUG)
-sh.setLevel(logging.WARNING)
+LOGGER.setLevel(logging.DEBUG)
+sh.setLevel(logging.INFO)
 sh.setFormatter(log_formatter)
 
 rootdir_log_filename = "psb_rep.root.log"
@@ -49,7 +49,7 @@ rootdir_fh = RotatingFileHandler(rootdir_log_filename, backupCount=7)
 formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',datefmt="%H:%M:%S")
 rootdir_fh.setFormatter(formatter)
 rootdir_fh.setLevel(logging.INFO)
-logger.addHandler(rootdir_fh)
+LOGGER.addHandler(rootdir_fh)
 
 if needRoll:
   rootdir_fh.doRollover()
@@ -69,21 +69,16 @@ from xml2json import Cxml2json
 from subprocess import Popen, PIPE
 from weasyprint import HTML,CSS
 
-default_global_config=os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),"config","global.config")
+from psb_shared import psb_config
 
-cmdline_parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-cmdline_parser.add_argument("-c","--config",
-help="PDBMap configuration profile for database access\n(default: %(default)s)", required=False,metavar="FILE",default=default_global_config)
-cmdline_parser.add_argument("-u","--userconfig",
-help="User specific settings and configuration profile overrides", required=True,metavar="FILE")
-cmdline_parser.add_argument("-v","--verbose",
-help="Include routine info log entries on stderr", action = "store_true")
+cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
+
+
 cmdline_parser.add_argument("-s","--slurm",
-help="Create a slurm file to launch all the reports", action = "store_true")
-cmdline_parser.add_argument("-d","--debug",
-help="Include routine info AND 'debug' log entries on stderr", action = "store_true")
-cmdline_parser.add_argument("projectORstructures",type=str,help="The project ID UDN123456 to report on all mutations.  Else, a specific structures file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_structure_report.csv")
-args,remaining_argv = cmdline_parser.parse_known_args()
+                            help="Create a slurm file to launch all the reports", action = "store_true")
+cmdline_parser.add_argument("projectORstructures",type=str,
+                             help="The project ID UDN123456 to report on all mutations.  Else, a specific structures file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_structure_report.csv",
+                             default= os.path.basename(os.getcwd()),nargs='?')
 cmdline_parser.add_argument("workstatus",nargs='?',type=str,help="Blank for all mutations, or specific output file from psb_monitor.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv")
 args,remaining_argv = cmdline_parser.parse_known_args()
 
@@ -102,52 +97,32 @@ elif args.verbose:
 # Load the structure details of all jobs that were not dropped
 
 # print "Command Line Arguments"
-logger.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
+LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
 
 if not os.path.exists(args.config):
-  logger.critical("Global config file not found: " + args.config)
+  LOGGER.critical("Global config file not found: " + args.config)
   sys,exit(1)
 
-config = ConfigParser.SafeConfigParser(allow_no_value=True)
-configFilesRead = config.read([args.config,args.userconfig])
-if len(configFilesRead) == 0:
-  logger.critical("Unable to open config files: %s or %s  Exiting"%(args.config,args.userconfig))
-  sys.exit(1)
-logger.info("Successful read of config files: %s"%str(configFilesRead))
-config_dict = dict(config.items("Genome_PDB_Mapper")) # item() returns a list of (name, value) pairs
-# Init all the user config dictionaries to empty
-SlurmParametersReport = {}  
-userSlurmParametersAll = userSlurmParametersReport = {}
+required_config_items = ['output_rootdir','collaboration']
 
-if args.slurm:
-  try:
-    globalSlurmParametersAll = dict(config.items("SlurmParametersAll"))
-  except Exception as ex:
-    globalSlurmParametersAll = {}
+config,config_dict = psb_config.read_config_files(args,required_config_items)
+config_dict_shroud_password = {x:config_dict[x] for x in required_config_items}
+dbpass = config_dict.get('dbpass','?')
+config_dict_shroud_password['dbpass'] = '*' * len(dbpass)
+LOGGER.info("Configuration File parameters:\n%s"%pprint.pformat(config_dict_shroud_password))
 
-  try:
-    globalSlurmParametersReport = dict(config.items("SlurmParametersReport"))
-  except Exception as ex:
-    globalSlurmParametersReport = {}
+try:
+  slurmParametersAll = dict(config.items("SlurmParametersAll"))
+except Exception as ex:
+  slurmParametersAll = {}
 
-if args.userconfig:
-  userconfig = ConfigParser.SafeConfigParser() 
-  userconfig.read([args.userconfig])
-  config_dict.update(dict(userconfig.items("UserSpecific"))) # item() returns a list of (name, value) pairs
-  
-  try:
-    userSlurmParametersReport = dict(userconfig.items("SlurmParametersReport"))
-  except:
-    pass
+import copy
+slurmParametersReport = copy.deepcopy(slurmParametersAll)
 
-if args.slurm:
-  SlurmParametersReport.update(globalSlurmParametersAll)
-  SlurmParametersReport.update(userSlurmParametersAll)
-  SlurmParametersReport.update(globalSlurmParametersReport)
-  SlurmParametersReport.update(userSlurmParametersReport)
-
-
-
+try:
+  slurmParametersReport.update(dict(config.items("SlurmParametersReport")))
+except Exception as ex:
+  pass
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
@@ -167,7 +142,7 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
         with open(genepair_dict_file,'r') as fd:
     	    genepair_dict = json.load(fd)
     except:
-        logger.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genepair_dict_file)
+        LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genepair_dict_file)
         return None,None,None,None
        
     genes_filename = os.path.join(case_root,"%s_genes.txt"%case)
@@ -175,7 +150,7 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
         with open(genes_filename) as fd:
     	      unstripped_genes = fd.readlines()
     except:
-        logger.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genes_filename)
+        LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genes_filename)
         return None,None,None,None
 
     geneInteractions = {}
@@ -244,14 +219,15 @@ def report_one_mutation(structure_report,workstatus):
   df_all_jobs_status = pd.read_csv(workstatus,'\t',keep_default_na = False,na_filter=False,dtype=str)
   msg = "%d rows read from work status file %s"%(len(df_all_jobs_status),workstatus)
   if len(df_all_jobs_status) < 1:
-    logger.critical(msg)
+    LOGGER.critical(msg)
     return None;
   else:
     if not infoLogging:
       print msg
-    logger.info(msg)
+    LOGGER.info(msg)
 
   row0 = df_all_jobs_status.iloc[0]
+  # import pdb; pdb.set_trace()
   gathered_info = {col: row0[col] for col in ['project','unp','gene','refseq','mutation']}
   template_vars = gathered_info.copy()
 
@@ -266,7 +242,7 @@ def report_one_mutation(structure_report,workstatus):
   
   udn_sequence_annotation_jobs = ((df_all_jobs_status['flavor'] == 'SequenceAnnotation'))
   if udn_sequence_annotation_jobs.sum() > 0:
-    logger.info("Dropping %d rows where jobs are UDN SequenceAnnotation"%udn_sequence_annotation_jobs.sum())
+    LOGGER.info("Dropping %d rows where jobs are UDN SequenceAnnotation"%udn_sequence_annotation_jobs.sum())
     df_all_jobs_status = df_all_jobs_status[~udn_sequence_annotation_jobs]
 
 
@@ -274,33 +250,33 @@ def report_one_mutation(structure_report,workstatus):
   # if programs exit without leaving a trail of info 
   if not 'ExitCode' in df_all_jobs_status.columns: 
     gathered_info['Error'] = "'ExitCode' column missing."
-    logger.error(gathered_info['Error'] + "in " + workstatus)
+    LOGGER.error(gathered_info['Error'] + "in " + workstatus)
     return gathered_info
 
   failed_jobs = df_all_jobs_status['ExitCode'] > '0'
   if failed_jobs.sum() > 0:
-    logger.info("Dropping %d rows for jobs that failed (ExitCode > '0')."%failed_jobs.sum())
+    LOGGER.info("Dropping %d rows for jobs that failed (ExitCode > '0')."%failed_jobs.sum())
     df_all_jobs_status = df_all_jobs_status[~failed_jobs]
 
   incomplete_jobs = df_all_jobs_status['ExitCode'] != '0'
   if incomplete_jobs.sum() > 0:
-    logger.info("Dropping %d rows for incomplete jobs (ExitCode missing)."%incomplete_jobs.sum())
+    LOGGER.info("Dropping %d rows for incomplete jobs (ExitCode missing)."%incomplete_jobs.sum())
     df_all_jobs_status = df_all_jobs_status[~incomplete_jobs]
     if len(df_all_jobs_status) < 1:
       gathered_info['Error'] = "All jobs are marked incomplete."
-      logger.error(gathered_info['Error'] + "  Be sure to run pdb_monitr.py before this script")
+      LOGGER.error(gathered_info['Error'] + "  Be sure to run pdb_monitr.py before this script")
       return gathered_info
 
   if len(df_all_jobs_status) < 1:
       gathered_info['Error'] = "No completed PathProx or ddG jobs."
-      logger.warning(gathered_info['Error'] + " in " + workstatus)
+      LOGGER.warning(gathered_info['Error'] + " in " + workstatus)
       return gathered_info
 
   # Sanity check - make sure mutation is same in all rows!
   test_count = len(df_all_jobs_status.groupby('mutation'))
   if test_count != 1:
     gathered_info['Error'] = "%s  may be coreupted, has some rows which lack the same mutation"%workstatus
-    logger.error(gathered_info['Error'])
+    LOGGER.error(gathered_info['Error'])
     gathered_info['Error'] = "corrupted = see log file"
     return gathered_info
 
@@ -320,7 +296,7 @@ def report_one_mutation(structure_report,workstatus):
   mutation_log_dir = mutation_dir # os.path.join(mutation_dir,"log")
   if not os.path.exists(mutation_log_dir):  # python 3 has exist_ok parameter...
     errorMsg = "%s log directory should have been created by psb_plan.py. Terminating"%mutation_log_dir
-    logger.critical(errorMsg)
+    LOGGER.critical(errorMsg)
     sys.stderr.write(errorMsg)
     sys.exit(1)
 
@@ -330,13 +306,13 @@ def report_one_mutation(structure_report,workstatus):
   if oneMutationOnly:
     sys.stderr.write("psb_rep log file is %s\n"%log_filename)
   else:
-    logger.info("additionally logging to file %s"%log_filename)
+    LOGGER.info("additionally logging to file %s"%log_filename)
   needRoll = os.path.isfile(log_filename)
   local_fh = RotatingFileHandler(log_filename, backupCount=7)
   formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',datefmt="%H:%M:%S")
   local_fh.setFormatter(formatter)
   local_fh.setLevel(logging.INFO)
-  logger.addHandler(local_fh)
+  LOGGER.addHandler(local_fh)
 
   if needRoll:
     local_fh.doRollover()
@@ -346,7 +322,7 @@ def report_one_mutation(structure_report,workstatus):
   nan_values = ['-1.#IND', '1.#QNAN', '1.#IND', '-1.#QNAN', '#N/A','N/A', '#NA', 'NULL', 'NaN', '-NaN', 'nan', '-nan']
   df_structure_report = pd.read_csv(structure_report,'\t',keep_default_na=False,na_values = nan_values,dtype={'Resolution': float, 'Seq Identity': float})
   # import pdb; pdb.set_trace()
-  logger.info("%d rows read from structure_report file %s"%(len(df_structure_report),structure_report))
+  LOGGER.info("%d rows read from structure_report file %s"%(len(df_structure_report),structure_report))
   df_structure_report.set_index(["Method","Structure ID","Chain"],inplace = True)
   
   # For final report directory, trim that last directory from the structure-specific one
@@ -402,11 +378,11 @@ def report_one_mutation(structure_report,workstatus):
     ddG_summary_file =  "%s/%s_ddg.results"%(output_flavor_directory,ddGPrefix)
     if os.path.exists(ddG_summary_file):
       summary = pd.read_csv(ddG_summary_file,sep='\t')
-      logger.debug('We got the file %s'%ddG_summary_file)
+      LOGGER.debug('We got the file %s'%ddG_summary_file)
       structure['ddG'] = summary['ddG']
       return structure,summary
 
-    logger.debug('Unable to open %s'%ddG_summary_file)
+    LOGGER.debug('Unable to open %s'%ddG_summary_file)
 
     return structure,None
 
@@ -453,6 +429,8 @@ def report_one_mutation(structure_report,workstatus):
       # For this read below, we expect occasional meaningful Nans
       summary = pd.read_csv(pathprox_summary_file,sep='\t',header=0)
       summary["Mutation"] = gathered_info['mutation']
+      summary["Gene"] = gathered_info['gene']
+      summary["Protein"] = gathered_info['unp']
       # Dummy code coverage-dependent columns if missing
       if "%s_pathprox"%mutation not in summary.columns:
         summary["%s_pathprox"%mutation] = np.nan
@@ -523,7 +501,7 @@ def report_one_mutation(structure_report,workstatus):
     if os.path.exists(json_filename):
       with open(json_filename) as f:
         residuesOfInterest = json.load(f)
-        logger.info('Loaded %d variants, %d neutrals, %d pathogenic from %s'%(
+        LOGGER.info('Loaded %d variants, %d neutrals, %d pathogenic from %s'%(
           len(residuesOfInterest['variants']),
           len(residuesOfInterest['neutrals']),
           len(residuesOfInterest['pathogenics']),
@@ -598,7 +576,7 @@ def report_one_mutation(structure_report,workstatus):
       c.close()
   
     except Exception as ex:
-     logger.exception('Failed to get JSON string from pfam.xfam.org')
+     LOGGER.exception('Failed to get JSON string from %s: %s'%(url,str(ex)))
      return None
   
     JSONstr= buffer.getvalue()
@@ -640,7 +618,7 @@ def report_one_mutation(structure_report,workstatus):
     elif 'ddG' == row['flavor']: 
       thestruct['ddG'] = row.to_dict()
     else:
-      logger.critical("flavor in row is neither COSMIC nor Clinvar nor ddG - cannot continue:\n%s",str(row))
+      LOGGER.critical("flavor in row is neither COSMIC nor Clinvar nor ddG - cannot continue:\n%s",str(row))
       sys.exit(1)
     # This will often reassign over prior assignments - That's OK
     struct_dict[key_tuple] = thestruct
@@ -697,7 +675,7 @@ def report_one_mutation(structure_report,workstatus):
     msg = "Summarizing results from %d ClinVar PathProx analyses..."%len(cln_sum)
     if not infoLogging:
       print msg
-    logger.info(msg)
+    LOGGER.info(msg)
     # Fancy way to compete the average for all the aggcols 
     cln_sum = cln_sum.groupby("Mutation")[aggcols].aggregate(np.nanmedian)
     cln_auc = cln_sum["ROC AUC"].values[0]
@@ -711,7 +689,7 @@ def report_one_mutation(structure_report,workstatus):
     msg = "Summarizing results from %d COSMIC PathProx analyses..."%len(csm_sum)
     if not infoLogging:
       print msg
-    logger.info(msg)
+    LOGGER.info(msg)
     # Fancy way to compete the average for all the aggcols 
     csm_sum = csm_sum.groupby("Mutation")[aggcols].aggregate(np.nanmedian)
     csm_auc = csm_sum["ROC AUC"].values[0]
@@ -726,10 +704,10 @@ def report_one_mutation(structure_report,workstatus):
     msg = "Summarizing results from %d ddg runs..."%len(ddG_sum)
     if not infoLogging:
       print msg
-    logger.info(msg)
+    LOGGER.info(msg)
 
   # import pdb;pdb.set_trace()
-  logger.warn("REminder: DATABASE IS NOT BEING UPDATED")
+  LOGGER.warn("REminder: DATABASE IS NOT BEING UPDATED")
  
   """ 
   # Upload results to the database
@@ -775,17 +753,26 @@ def report_one_mutation(structure_report,workstatus):
   domainGraphicsJSONstr = None
   if gathered_info['unp']: # Fetch the JSON - wait up to 20 seconds
     xmlHandle = Cxml2json(config_dict['interpro_dir'] + 'match_humanonly.xml')
-    if not xmlHandle.isCanonical(gathered_info['unp']): # Then we need to manually create the xml ourselves
+    if xmlHandle.isCanonical(gathered_info['unp']): # Then we need to manually create the xml ourselves
+      # Go for the web link because this is a canonical UNP - however that _can_ fail.
+      graphicsLegend = "Downloaded Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
+      domainGraphicsJSONstr = unp2PfamDomainGraphicString(gathered_info['unp'],20)
+      if not domainGraphicsJSONstr:
+        graphicsLegend = "Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
+    else:
+      import pdb; pdb.set_trace()
       graphicsLegend = "Pfam Domain Graphic for Non-canonical Isoform %s"%gathered_info['unp']
+
+    # _Either_ communications failure OR non-canonical isoform
+    # So we create our own graphic from our local xml database
+    if not domainGraphicsJSONstr: # _Either_ communications failure OR non-canonical (no communication)
+      LOGGER.info("Creating Domain Graphic for %s from xml",gathered_info['unp']);
       nonCanonicalGraphicsJSON = xmlHandle.PFAMgraphicsJSONfromUnp(gathered_info['unp'])
       domainGraphicsJSONstr = json.dumps(nonCanonicalGraphicsJSON)
-    else:
-      graphicsLegend = "Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
-      domainGraphicsJSONstr = unp2PfamDomainGraphicString(gathered_info['unp'],20)
       # Not sure why - but graphics string from web is a list (inside outer [])
       # Removed this - did not work: domainGraphicsJSONstr = domainGraphicsJSONstr[0]
   
-    if (domainGraphicsJSONstr != None):
+    if domainGraphicsJSONstr:
       domainGraphicsDict = json.loads(domainGraphicsJSONstr)
       # Add our mutation point of interest to this
       mutationSiteDict = {u'colour': u'#e469fe',\
@@ -897,7 +884,7 @@ def report_one_mutation(structure_report,workstatus):
   # where this file, psb_rep.py, is located 
   src =  os.path.join(os.path.dirname(os.path.realpath(__file__)),"html")
   dest = "%s/html"%final_report_directory
-  logger.info("Copying supporting javascript and html from %s to %s"%(src,dest))
+  LOGGER.info("Copying supporting javascript and html from %s to %s"%(src,dest))
 
   
   try:
@@ -917,10 +904,10 @@ def report_one_mutation(structure_report,workstatus):
   if len(src_file_list) == len(dest_file_list):
     infostr = "Copy of %d html support files succeeded"%len(src_file_list)
     print infostr
-    logger.info(infostr)
+    LOGGER.info(infostr)
     # print '\n'.join(src_file_list)
   else:
-    logger.critical("FAILURE to cp html support files (%d source files,%d dest files)"%(len(src_file_list),len(dest_file_list)))
+    LOGGER.critical("FAILURE to cp html support files (%d source files,%d dest files)"%(len(src_file_list),len(dest_file_list)))
     sys.exit(1)
   
   # Now give read access to everyone, read-write to group, execute on directories
@@ -949,7 +936,7 @@ def report_one_mutation(structure_report,workstatus):
   os.chdir(final_report_directory);
   
   # WE ARE NOW OPERATING FROM ..../UDN/CaseName target directory
-  logger.info("Now working in %s",final_report_directory)
+  LOGGER.info("Now working in %s",final_report_directory)
 
   html_fname = base_fname%"html"
   with open(html_fname,"w") as html_f:
@@ -962,12 +949,12 @@ def report_one_mutation(structure_report,workstatus):
   wkhtmltopdf_fname = base_fname%"wkhtml.pdf"
   print "\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(final_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname)
 
-  logger.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
+  LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
 
   logging.disable(sys.maxint)
   HTML(string=html_out).write_pdf(pdf_fname,stylesheets=["./html/css/typography.css"])#,CSS(string="@page { size: A3 landscape; }")])
   logging.disable(logging.NOTSET)
-  logger.warning("weasyprint write_pdf() has returned.  Restoring logging")
+  LOGGER.warning("weasyprint write_pdf() has returned.  Restoring logging")
      
   
   # Write out another .pdf using the wkhtmltopdf tool
@@ -976,7 +963,7 @@ def report_one_mutation(structure_report,workstatus):
   process = Popen(wkhtml_command_list, stdout = PIPE,stderr = PIPE)
   (output,err) = process.communicate()
 
-  # So unfortunately, the stderr from wkhtmltopdf is full of ==================\r things, which are a mess for the logger.  Get rid of stuff that ends in \r  Keep all other lines and ending in \r
+  # So unfortunately, the stderr from wkhtmltopdf is full of ==================\r things, which are a mess for the LOGGER.  Get rid of stuff that ends in \r  Keep all other lines and ending in \r
   # import pdb; pdb.set_trace()
   err_nl_array = err.split('\n')
   err_legit_list = []
@@ -993,16 +980,16 @@ def report_one_mutation(structure_report,workstatus):
   # ContentNotFound really just info - not warning 
   if (process.returncode != 0) and ("Exit with code 1 due to network error: ContentNotFoundError" not in err):
     print "Unable to complete %s exitstatus=%d due to error %s\n  output: %s\n"%(str(wkhtml_command_list),process.returncode,err_legit,output)
-    logger.warning("wkhtmltopdf stderr:\n%s",err_legit)
+    LOGGER.warning("wkhtmltopdf stderr:\n%s",err_legit)
   else:
-    logger.info("wkhtmltopdf stderr:\n%s",err_legit)
+    LOGGER.info("wkhtmltopdf stderr:\n%s",err_legit)
   
   # WE HAVE NOW RETURNED TO the psb_pipeline/bin directory
   os.chdir(save_cwd);
   # Close out the local log file for this mutation
   local_fh.flush()
   local_fh.close()
-  logger.removeHandler(local_fh)
+  LOGGER.removeHandler(local_fh)
   gathered_info['final_report_directory'] = final_report_directory
   gathered_info['html_fname'] = html_fname
   return gathered_info # End of function report_one_mutation()
@@ -1011,7 +998,7 @@ def report_one_mutation(structure_report,workstatus):
 # directly from a single mutation output file of psb_plan.py
 if oneMutationOnly:
   if args.slurm:
-    logger.warning("--slurm option is ignored when only one report is requested")
+    LOGGER.warning("--slurm option is ignored when only one report is requested")
   template_vars = report_one_mutation(args.projectORstructures,args.workstatus)
   if template_vars: # The usual case, we had some Pathprox outputs
     print "Single mutation report saved to %s/.pdf/.wkhtml.pdf"%template_vars['html_fname']
@@ -1022,7 +1009,7 @@ else:
   msg = "Retrieving project mutations from %s"%udn_csv_filename
   if not infoLogging:
     print msg
-  logger.info(msg)
+  LOGGER.info(msg)
   df_all_mutations = pd.DataFrame.from_csv(udn_csv_filename,sep=',')
 
   if args.slurm:
@@ -1039,7 +1026,7 @@ else:
     msg = "Reporting on all %d project %s mutations"%(len(df_all_mutations),args.projectORstructures)
   if not infoLogging:
     print msg
-  logger.info(msg)
+  LOGGER.info(msg)
 
   mutation_summaries = []
   slurm_array = []
@@ -1047,10 +1034,10 @@ else:
     msg = "%s %-10s %-10s %-6s"%("Generating slurm entry for" if args.slurm else "Reporting on", row['gene'],row['refseq'],row['mutation'])
     if not infoLogging:
       print msg
-    logger.info(msg)
+    LOGGER.info(msg)
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
-      logger.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem.")
+      LOGGER.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem.")
       sys.exit(1)
 
     gene_refseq_mutation = "%s_%s_%s"%(row['gene'],row['refseq'],row['mutation'])
@@ -1069,7 +1056,7 @@ else:
           msg = "%s %s %s report saved to %s/.pdf/.wkhtml.pdf"%(row['gene'],row['refseq'],row['mutation'],gathered_info['html_fname'])
           if not infoLogging:
             print msg
-          logger.info(msg)
+          LOGGER.info(msg)
         gathered_info['Gene Mutation'] = "%-9.9s %-10.10s %-10.10s %-7.7s"%(row['gene'],row['refseq'],row['unp'],row['mutation'])
         gathered_info['Gene Hit Generic'] = ''
         mutation_summaries.append(gathered_info)
@@ -1077,7 +1064,7 @@ else:
         msg = "Due to lack of pathprox or ddG outputs, %s %s %s has no html (or pdf) report"%(row['gene'],row['refseq'],row['mutation'])
         if not infoLogging:
           print msg
-        logger.info(msg)
+        LOGGER.info(msg)
 
   if args.slurm:
     with open(slurm_file,"w") as slurmf:
@@ -1099,7 +1086,7 @@ else:
 # Slurm Parameters
 """%(slurm_file,__file__,args.projectORstructures,str(datetime.datetime.now())))
 
-      slurmDict = SlurmParametersReport
+      slurmDict = slurmParametersReport
       slurmDict['output'] = os.path.join(slurm_stdout_directory,"%s_%%A_%%a_psb_rep.out"%args.projectORstructures)
       slurmDict['job-name'] = "%s_psb_reps"%args.projectORstructures
 
@@ -1157,7 +1144,7 @@ fi
         slurmf.write("esac\n")
     msg = "Created slurm script to launch all psb_rep.py processes for this case: %s"%slurm_file   
     if args.verbose:
-      logger.info(msg);
+      LOGGER.info(msg);
     else:
       print(msg)
        
@@ -1198,7 +1185,7 @@ fi
   print ""
 
   if args.verbose:
-    logger.info(lastmsg);
+    LOGGER.info(lastmsg);
   else:
     print(lastmsg)
 
@@ -1206,7 +1193,7 @@ fi
   # where this file, psb_rep.py, is located 
   src =  os.path.join(os.path.dirname(os.path.realpath(__file__)),"html")
   dest = "%s/html"%collaboration_dir
-  logger.info("Copying supporting javascript and html from %s to %s"%(src,dest))
+  LOGGER.info("Copying supporting javascript and html from %s to %s"%(src,dest))
   
   try:
     shutil.rmtree(dest,ignore_errors=True)

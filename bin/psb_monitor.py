@@ -37,15 +37,15 @@ import pprint
 from logging.handlers import RotatingFileHandler
 from logging import handlers
 sh = logging.StreamHandler()
-mylogger = logging.getLogger()
-mylogger.addHandler(sh)
+LOGGER = logging.getLogger()
+LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
 
-mylogger.setLevel(logging.DEBUG)
+LOGGER.setLevel(logging.DEBUG)
 sh.setLevel(logging.WARNING)
 sh.setFormatter(log_formatter)
 
@@ -56,17 +56,17 @@ from jinja2 import Environment, FileSystemLoader
 
 from slurm import SlurmJob,slurm_scontrol_show_job,slurm_jobstate_isfinished
 
-default_global_config=os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),"config","global.config")
 cmdline_parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-cmdline_parser.add_argument("-c","--config",
-help="PDBMap configuration profile for database access", required=False,metavar="FILE",default=default_global_config)
-cmdline_parser.add_argument("-u","--userconfig",
-help="User specific settings and configuration profile overrides", required=True,metavar="FILE")
-cmdline_parser.add_argument("-v","--verbose",
-help="Include routine info log entries on stderr", action = "store_true")
-cmdline_parser.add_argument("-d","--debug",
-help="Include routine info AND 'debug' log entries on stderr", action = "store_true")
-cmdline_parser.add_argument("projectORworkstatus",type=str,help="Project ID (ex. UDN123456) or single workstatus.csv output file from psb_launch.py (or previous psb_monitor.py)  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv")
+
+from psb_shared import psb_config
+
+cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
+cmdline_parser.add_argument("projectORworkstatus",type=str,
+                   help="Project ID (ex. UDN123456) or single workstatus.csv output file from psb_launch.py (or previous psb_monitor.py)  Example: ......$UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv",
+                   default = os.path.basename(os.getcwd()),nargs='?')
+cmdline_parser.add_argument("-r","--relaunch",
+help="Relaunch jobs, ignoring any results in a previously generated workstatus.csv file", action = "store_true", default = False)
+
 args,remaining_argv = cmdline_parser.parse_known_args()
 
 infoLogging = False
@@ -84,33 +84,12 @@ elif args.verbose:
 # directly from a single mutation output file of psb_launch.py
 oneMutationOnly = '.' in args.projectORworkstatus
 
-config = ConfigParser.SafeConfigParser(allow_no_value=True)
-config.read([args.config])
-config_dict = dict(config.items("Genome_PDB_Mapper")) # item() returns a list of (name, value) pairs
-try:
-  globalSlurmParametersAll = dict(config.items("SlurmParametersAll"))
-except Exception as ex:
-  globalSlurmParametersAll = {}
+required_config_items = ['output_rootdir','collaboration']
 
-try:
-  globalSlurmParametersPathProxClinvar = dict(config.items("SlurmParametersPathProxClinvar"))
-except Exception as ex:
-  globalSlurmParametersPathProxClinvar = {}
-
-try:
-  globalSlurmParametersPathProxCOSMIC = dict(config.items("SlurmParametersPathProxCOSMIC"))
-except Exception as ex:
-  globalSlurmParametersPathProxCOSMIC = {}
-
-if (args.userconfig):
-  userconfig = ConfigParser.SafeConfigParser() 
-  userconfig.read([args.userconfig])
-  config_dict.update(dict(userconfig.items("UserSpecific"))) # item() returns a list of (name, value) pairs
+config,config_dict = psb_config.read_config_files(args,required_config_items)
 
 # print "Command Line Arguments"
-logging.getLogger().info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
-
-
+LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
@@ -121,13 +100,13 @@ else:
   collaboration_dir = os.path.join(udn_root_directory,args.projectORworkstatus)
 
 if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
-  os.makedirs(collaboration_dir)
+  logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_dir)
+  sys.exit(1)
+
 collaboration_log_dir = os.path.join(collaboration_dir,"log")
 if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
   logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
   sys.exit(1)
-
-
 
 def monitor_one_mutation(workstatus):
   slurmInfoColumns = (['scontrolTimestamp','JobState','ExitCode','RunTime','TimeLimit',
@@ -139,11 +118,11 @@ def monitor_one_mutation(workstatus):
   # Load the schedule of jobs that was created by psb_launch.py (or previous run of psb_monitor.py)
   # keep_default_na causes empty strings to come is as such, and non pesky nan floats
   df_all_jobs_status = pd.read_csv(workstatus,'\t',dtype=str,keep_default_na=False)
-  logging.getLogger().info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus))
+  LOGGER.info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus))
  
   df_all_jobs_status.set_index('uniquekey',inplace=True)
   if len(df_all_jobs_status) < 1:
-    logging.getLogger().warning("No rows in work status file %s.  No jobs to monitor."%workstatus)
+    LOGGER.warning("No rows in work status file %s.  No jobs to monitor."%workstatus)
     return pd.DataFrame()
 
   df_all_jobs_original_status = df_all_jobs_status.copy()
@@ -155,10 +134,12 @@ def monitor_one_mutation(workstatus):
 
   mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(gene,refseq,mutation))
   if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter...
-    os.makedirs(mutation_dir)
+    logging.error("%s not found.  It should have been created by psb_plan.py"%mutation_dir)
+    sys.exit(1)
   mutation_log_dir = mutation_dir # os.path.join(mutation_dir,"log")
   if not os.path.exists(mutation_log_dir):  # python 3 has exist_ok parameter...
-    os.makedirs(mutation_log_dir)
+    logging.error("%s not found.  It should have been created by psb_plan.py"%mutation__log_dir)
+    sys.exit(1)
 
 
   # Life is easiest if we do not set the index until we are ready to update the df_all_jobs_status at
@@ -181,7 +162,7 @@ def monitor_one_mutation(workstatus):
     interesting_info['uniquekey'] = uniquekey
     interesting_info['jobid'] = jobid
     if ('ExitCode' in row) and row['ExitCode'] and (len(row['ExitCode']) >= 1):
-      logging.getLogger().info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(row['ExitCode'])))
+      LOGGER.info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(row['ExitCode'])))
       continue
     # The most reliable source of Exit=0 is the arrival of a completed file in the status director
     # import pdb; pdb.set_trace()
@@ -203,23 +184,23 @@ def monitor_one_mutation(workstatus):
       pass
 
     if os.path.exists("%s/complete"%statusdir):
-      logging.getLogger().info("%15s:%-20s Found `complete` file.  Recording success"%(jobid,uniquekey))
+      LOGGER.info("%15s:%-20s Found `complete` file.  Recording success"%(jobid,uniquekey))
       interesting_info['ExitCode'] = '0'
       interesting_info['jobprogress'] = 'Completed' # For now, we will overwrite memory on happy exit - need to think
       interesting_info['jobinfo'] = 'Completed'
     elif os.path.exists("%s/FAILED"%statusdir):
-      logging.getLogger().info("%15s:%-20s Found `FAILED` file.  Recording failure"%(jobid,uniquekey))
+      LOGGER.info("%15s:%-20s Found `FAILED` file.  Recording failure"%(jobid,uniquekey))
       interesting_info['ExitCode'] = '1'
     else: # Try to grab updated progress info from the output files.  No worries if nothing there
       pass # We no longer call "scontrol show job" - it just takes way too long      
       """scontrol_info = slurm_scontrol_show_job(jobid)
       if (not scontrol_info) or (scontrol_info.get('JobState','') == 'UNKNOWN') :
-        logging.getLogger().info("%15s:%-20s Nothing returned from scontrol"%(jobid,uniquekey))
+        LOGGER.info("%15s:%-20s Nothing returned from scontrol"%(jobid,uniquekey))
         continue
       # We don't want _everything_ from the scontrol call - but as much as we can get
       else:
         interesting_info.update({k: scontrol_info.get(k,'') for k in slurmInfoColumns})
-        logging.getLogger().info("%15s:%-20s JobState=%s"%(jobid,uniquekey,interesting_info['JobState']))
+        LOGGER.info("%15s:%-20s JobState=%s"%(jobid,uniquekey,interesting_info['JobState']))
         interesting_info['scontrolTimestamp'] = datetime.datetime.now()
         # Don't update the ExitCode _unless_ the job is clearly finished
         if not slurm_jobstate_isfinished(interesting_info['JobState']):
@@ -284,7 +265,7 @@ def monitor_one_mutation(workstatus):
       # If we cannot save the new csv file, then we must (attempt to!) restore the old one!
       os.remove(workstatus)
       os.rename(workstatus,previous_workstatus_filename)
-      logging.getLogger().exception("Serious failure saving new updated file %s.  Prior file restored"%workstatus)
+      LOGGER.exception("Serious failure saving new updated file %s.  Prior file restored"%workstatus)
       sys.exit(1)
   
   if len(df_incomplete) == 0:
@@ -308,7 +289,7 @@ if oneMutationOnly:
 else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkstatus) # The argument is an entire project UDN124356
   print "Retrieving project mutations from %s"%udn_csv_filename
-  df_all_mutations = pd.DataFrame.from_csv(udn_csv_filename,sep=',')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
   print "Monitoring all jobs for %d mutations"%len(df_all_mutations)
   for index,row in df_all_mutations.iterrows():
     # print without a newline - monitor_one_mutation will add one

@@ -12,23 +12,14 @@
 #=============================================================================#
 
 """\
-Launch jobs on a SLURM cluster given 
-   -c global.config file
-   -u user.config overrides
-   --verbose Log all info to screen in addition to the logfile
-   --debug As --verbose, but additionally logs python 'debug' level information
-   workplan.csv previously output from psb_plan.py
-
-   --relaunch  Launch all jobs for mutation(s) regardless of their workstatus after a prior launch
-               Without this flag (normal case), then jobs that have never been launched before,
-               or which failed in prior launch will be launched
+Launch jobs on a SLURM cluster given the UDN case ID
+   or a specific workplan.csv previously output from psb_plan.py 
 """
 
 print "%s: Pipeline launcher.  Run after psb_plan.py.   -h for detailed help"%__file__
 
 import logging,os,pwd,sys,grp,stat
 import time, datetime
-import argparse,ConfigParser
 import pprint
 from logging.handlers import RotatingFileHandler
 from logging import handlers
@@ -48,15 +39,15 @@ def set_capra_group_sticky(dirname):
     pass
 
 sh = logging.StreamHandler()
-logger = logging.getLogger()
-logger.addHandler(sh)
+LOGGER = logging.getLogger()
+LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
 
-logger.setLevel(logging.DEBUG)
+LOGGER.setLevel(logging.DEBUG)
 sh.setLevel(logging.WARNING)
 sh.setFormatter(log_formatter)
 
@@ -65,21 +56,15 @@ import pandas as pd
 
 from slurm import slurm_submit
 
-default_global_config=os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),"config","global.config")
+from psb_shared import psb_config
 
-cmdline_parser = argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
 
-cmdline_parser.add_argument("-c","--config",
-help="PDBMap configuration profile for database access", required=False,metavar="FILE",default=default_global_config)
-cmdline_parser.add_argument("-u","--userconfig",
-help="User specific settings and configuration profile overrides", required=True,metavar="FILE")
-cmdline_parser.add_argument("projectORworkplan",type=str,help="Project ID (ex. 123456) or single output file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_workplan.csv")
-cmdline_parser.add_argument("-v","--verbose",
-help="Include routine info log entries on stderr", action = "store_true")
+cmdline_parser.add_argument("projectORworkplan",type=str,
+                   help="Project ID (ex. UDN123456) or single output file from psb_plan.py  Example: ......$UDN/UDN123456/GeneName_NM_12345.1_S123A_workplan.csv",
+                   default = os.path.basename(os.getcwd()),nargs='?')
 cmdline_parser.add_argument("-r","--relaunch",
 help="Relaunch jobs, ignoring any results in a previously generated workstatus.csv file", action = "store_true")
-cmdline_parser.add_argument("-d","--debug",
-help="Include routine info AND 'debug' log entries on stderr", action = "store_true")
 
 args,remaining_argv = cmdline_parser.parse_known_args()
 
@@ -97,139 +82,83 @@ elif args.verbose:
 # directly from a single mutation output file of psb_plan.py
 oneMutationOnly = '.' in args.projectORworkplan
 
+required_config_items = ['output_rootdir','collaboration']
 
-config = ConfigParser.SafeConfigParser(allow_no_value=True)
-config.read([args.config])
-config_dict = dict(config.items("Genome_PDB_Mapper")) # item() returns a list of (name, value) pairs
-try:
-  globalSlurmParametersAll = dict(config.items("SlurmParametersAll"))
-except Exception as ex:
-  globalSlurmParametersAll = {}
+config,config_dict = psb_config.read_config_files(args,required_config_items)
+
+LOGGER.info("Command: %s"%' '.join(sys.argv))
 
 try:
-  globalSlurmParametersPathProx = dict(config.items("SlurmParametersPathProx"))
+  slurmParametersAll = dict(config.items("SlurmParametersAll"))
 except Exception as ex:
-  globalSlurmParametersPathProx = {}
+  slurmParametersAll = {}
+
+import copy
+slurmParametersPathProx = copy.deepcopy(slurmParametersAll)
+slurmParametersUDNStructure = copy.deepcopy(slurmParametersAll)
+slurmParametersUDNSequence = copy.deepcopy(slurmParametersAll)
+slurmParametersMakeGeneDictionaries = copy.deepcopy(slurmParametersAll)
 
 try:
-  globalSlurmParametersUDNStructure = dict(config.items("SlurmParametersUDNStructure"))
+  slurmParametersPathProx.update(dict(config.items("SlurmParametersPathProx")))
 except Exception as ex:
-  globalSlurmParametersUDNStructure = {}
+  pass
 
 try:
-  globalSlurmParametersUDNSequence = dict(config.items("SlurmParametersUDNSequence"))
+  slurmParametersUDNStructure.update(dict(config.items("SlurmParametersUDNStructure")))
 except Exception as ex:
-  globalSlurmParametersUDNSequence = {}
+  pass
 
 try:
-  globalSlurmParametersMakeGeneDictionaries = dict(config.items("SlurmParametersMakeGeneDictionaries"))
+  slurmParametersUDNSequence.update(dict(config.items("SlurmParametersUDNSequence")))
 except Exception as ex:
-  globalSlurmParametersMakeGeneDictionaries = {}
+  pass
 
-# Init all the user config dictionaries to empty
-
-if (args.userconfig):
-  userconfig = ConfigParser.SafeConfigParser() 
-  userconfig.read([args.userconfig])
-  config_dict.update(dict(userconfig.items("UserSpecific"))) # item() returns a list of (name, value) pairs
-
-  # import pdb; pdb.set_trace()
-  try:
-    userSlurmParametersAll = dict(userconfig.items("SlurmParametersAll"))
-  except:
-    userSlurmParametersAll = {}
-
-  try:
-    userSlurmParametersPathProx = dict(userconfig.items("SlurmParametersPathProx"))
-  except:
-    userSlurmParametersPathProx = {}
-
-  try:
-    userSlurmParametersUDNSequence = dict(userconfig.items("SlurmParametersUDNSequence"))
-  except:
-    userSlurmParametersUDNSequence = {}
-
-  try:
-    userSlurmParametersUDNStructure = dict(userconfig.items("SlurmParametersUDNStructure"))
-  except:
-    userSlurmParametersUDNStructure = {}
-
-  try:
-    userSlurmParametersMakeGeneDictionaries = dict(userconfig.items("SlurmParametersMakeGeneDictionaries"))
-  except:
-    userSlurmParametersMakeGeneDictionaries = {}
-
-# slurm settings for pathprox2.py with --clinvar
-SlurmParametersPathProx = {}
-SlurmParametersPathProx.update(globalSlurmParametersAll)
-SlurmParametersPathProx.update(userSlurmParametersAll)
-SlurmParametersPathProx.update(globalSlurmParametersPathProx)
-SlurmParametersPathProx.update(userSlurmParametersPathProx)
-
-# for udn_sequence.py in sequence analysis mode
-SlurmParametersUDNSequence = {}
-SlurmParametersUDNSequence.update(globalSlurmParametersAll)
-SlurmParametersUDNSequence.update(userSlurmParametersAll)
-SlurmParametersUDNSequence.update(globalSlurmParametersUDNSequence)
-SlurmParametersUDNSequence.update(userSlurmParametersUDNSequence)
-
-# for udn_sequence.py in ddG mode
-SlurmParametersUDNStructure = {}
-SlurmParametersUDNStructure.update(globalSlurmParametersAll)
-SlurmParametersUDNStructure.update(userSlurmParametersAll)
-SlurmParametersUDNStructure.update(globalSlurmParametersUDNStructure)  
-SlurmParametersUDNStructure.update(userSlurmParametersUDNStructure)  
-
-# for psb_genedicts.py
-SlurmParametersMakeGeneDictionaries = {}
-SlurmParametersMakeGeneDictionaries.update(globalSlurmParametersAll)
-SlurmParametersMakeGeneDictionaries.update(userSlurmParametersAll)
-SlurmParametersMakeGeneDictionaries.update(globalSlurmParametersMakeGeneDictionaries)  
-SlurmParametersMakeGeneDictionaries.update(userSlurmParametersMakeGeneDictionaries)  
-
-args,remaining_argv = cmdline_parser.parse_known_args()
-
-logger.info("Command: %s"%' '.join(sys.argv))
+try:
+  slurmParametersMakeGeneDictionaries.update(dict(config.items("SlurmParametersMakeGeneDictionaries")))
+except Exception as ex:
+  pass
 
 slurm_required_settings = ['mem', 'account', 'ntasks', 'time']
-for slurmSettingsDesc,slurmSettings in [('SlurmParametersPathProx',SlurmParametersPathProx), ('SlurmParametersUDNStructure',SlurmParametersUDNStructure),('SlurmParametersUDNSequence',SlurmParametersUDNSequence),('SlurmParametersMakeGeneDictionaries',SlurmParametersMakeGeneDictionaries)]:
+for slurmSettingsDesc,slurmSettings in [('slurmParametersPathProx',slurmParametersPathProx), ('slurmParametersUDNStructure',slurmParametersUDNStructure),('slurmParametersUDNSequence',slurmParametersUDNSequence),('slurmParametersMakeGeneDictionaries',slurmParametersMakeGeneDictionaries)]:
   for req in slurm_required_settings:
     if not req in slurmSettings:
-      logger.error("Can't launch jobs because you have not provided the required\nslurm setting [%s] for section %s (or SlurmParametersAll)\n in either file %s or %s\n"%
+      LOGGER.error("Can't launch jobs because you have not provided the required\nslurm setting [%s] for section %s (or slurmParametersAll)\n in either file %s or %s\n"%
          (req,slurmSettingsDesc,args.config,args.userconfig))
       sys.exit(1)
 
 # print "Command Line Arguments"
-logger.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
-logger.info("SlurmParametersPathProx:\n%s"%pprint.pformat(SlurmParametersPathProx))
-logger.info("SlurmParametersUDNSequence:\n%s"%pprint.pformat(SlurmParametersUDNSequence))
-logger.info("SlurmParametersUDNStructure:\n%s"%pprint.pformat(SlurmParametersUDNStructure))
-logger.info("SlurmParametersMakeGeneDictionaries:\n%s"%pprint.pformat(SlurmParametersMakeGeneDictionaries))
+LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
+LOGGER.info("slurmParametersPathProx:\n%s"%pprint.pformat(slurmParametersPathProx))
+LOGGER.info("slurmParametersUDNSequence:\n%s"%pprint.pformat(slurmParametersUDNSequence))
+LOGGER.info("slurmParametersUDNStructure:\n%s"%pprint.pformat(slurmParametersUDNStructure))
+LOGGER.info("slurmParametersMakeGeneDictionaries:\n%s"%pprint.pformat(slurmParametersMakeGeneDictionaries))
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
 if oneMutationOnly:
-  collaboration_dir = os.path.dirname(os.path.dirname(args.projectORworkplan))
+  # Get the parent directory above the workplan
+  collaboration_dir = os.path.dirname(os.path.dirname(os.path.abspath(args.projectORworkplan)))
 else:
   collaboration_dir = os.path.join(udn_root_directory,args.projectORworkplan)
 
-if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
-  os.makedirs(collaboration_dir)
+from psb_shared import psb_perms
+psb_permissions = psb_perms.PsbPermissions(config_dict)
+psb_permissions.makedirs(collaboration_dir)
 
-set_capra_group_sticky(collaboration_dir)
 collaboration_log_dir = os.path.join(collaboration_dir,"log")
 if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
-  logger.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
+  LOGGER.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
   sys.exit(1)
 
 def launch_one_mutation(workplan):
   # Load the schedule of jobs that was created by psb_plan.py
   df_all_jobs = pd.read_csv(workplan,sep='\t',keep_default_na = False,na_filter=False)
-  logger.info("%d rows read from work plan file %s"%(len(df_all_jobs),workplan))
+  LOGGER.info("%d rows read from work plan file %s"%(len(df_all_jobs),workplan))
 
   if len(df_all_jobs) < 1:
-    logger.warning("No rows in work plan file %s.  No jobs will be launched."%workplan)
+    LOGGER.warning("No rows in work plan file %s.  No jobs will be launched."%workplan)
     return pd.DataFrame(),workplan
 
   # Let's take care to not relaunch jobs that are already running, or complete, unless --relaunch flag is active
@@ -272,14 +201,14 @@ def launch_one_mutation(workplan):
   if oneMutationOnly:
     sys.stderr.write("psb_launch log file is %s\n"%log_filename)
   else:
-    logger.info("additionally logging to file %s"%log_filename)
+    LOGGER.info("additionally logging to file %s"%log_filename)
   needRoll = os.path.isfile(log_filename)
 
   local_fh = RotatingFileHandler(log_filename, backupCount=7)
   formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',datefmt="%H:%M:%S")
   local_fh.setFormatter(formatter)
   local_fh.setLevel(logging.INFO)
-  logger.addHandler(local_fh)
+  LOGGER.addHandler(local_fh)
 
   if needRoll:
     local_fh.doRollover()
@@ -301,7 +230,6 @@ def launch_one_mutation(workplan):
       return "%s_%s_%s_%s"%(row['gene'],row['refseq'],row['mutation'],row['flavor'])
 
   df_all_jobs['gene_refseq_mutation_flavor'] = df_all_jobs.apply(build_gene_refseq_mutation_flavor, axis=1)
-  # import pdb; pdb.set_trace()
   
   def build_slurm_file(row):
     return "%s/%s.slurm"%(row['slurm_directory'],row['gene_refseq_mutation_flavor'])
@@ -316,11 +244,10 @@ def launch_one_mutation(workplan):
   statusdir_list = []
  
   # Build the slurm file if we are launching anew
-  # import pdb; pdb.set_trace()
   allrows_cwd = None
   for index,row in df_all_jobs.iterrows():
     if (not df_prior_success.empty) and (row['uniquekey'] in df_prior_success.index):
-      logger.info("Job %s was successful previously.  Slurm file will not be recreated"%row['uniquekey'])
+      LOGGER.info("Job %s was successful previously.  Slurm file will not be recreated"%row['uniquekey'])
     else:
       assert( allrows_cwd == None or allrows_cwd == row['cwd'])
       allrows_cwd = row['cwd']
@@ -349,12 +276,12 @@ def launch_one_mutation(workplan):
     
       for the_file in os.listdir(statusdir):
         file_path = os.path.join(statusdir, the_file)
-        logger.info('Deleting old file %s'%file_path)
+        LOGGER.info('Deleting old file %s'%file_path)
         try:
           if os.path.isfile(file_path):
             os.unlink(file_path)
         except Exception as e:
-          logger.exception("Unable to delete file in status directory")
+          LOGGER.exception("Unable to delete file in status directory")
           sys.exit(1)
       # Well, we have not _actually_ submitted it _quite_ yet - but just do it
       statusdir_list.append(statusdir)
@@ -369,7 +296,7 @@ def launch_one_mutation(workplan):
 
   for index,row in df_all_jobs.iterrows():
     if (not df_prior_success.empty) and (row['uniquekey'] in df_prior_success.index):
-      logger.info("Job %s was successful previously.  Prior results will be copied to new workstatus file"%row['uniquekey'])
+      LOGGER.info("Job %s was successful previously.  Prior results will be copied to new workstatus file"%row['uniquekey'])
       prior_success = df_prior_success.loc[row['uniquekey']]
       jobinfo[row['uniquekey']] = prior_success['jobinfo']
       jobprogress[row['uniquekey']] = prior_success['jobprogress']
@@ -377,13 +304,12 @@ def launch_one_mutation(workplan):
       arrayids[row['uniquekey']] = prior_success['arrayid'] if ('arrayid' in prior_success) else 0
       exitcodes[row['uniquekey']] = prior_success['ExitCode']
 
-    # import pdb; pdb.set_trace()
 
   for subdir in ['PathProx', 'ddG', 'SequenceAnnotation','MakeGeneDictionaries']:
     if len(launch_strings[subdir]) == 0:
       # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
       if (gene == 'casewide' and subdir == 'MakeGeneDictionaries') or (gene != 'casewide' and subdir != 'MakeGeneDictionaries'):
-        logger.info("No %s jobs will be run for %s %s %s"%(subdir,gene,refseq,mutation))
+        LOGGER.info("No %s jobs will be run for %s %s %s"%(subdir,gene,refseq,mutation))
     else:
       slurm_directory = build_slurm_dir(subdir)
       if not os.path.exists(slurm_directory):  # python 3 has exist_ok parameter...
@@ -396,7 +322,7 @@ def launch_one_mutation(workplan):
       set_capra_group_sticky(slurm_stdout_directory)
 
       slurm_file = os.path.join(slurm_directory,"%s_%s.slurm"%(geneRefseqMutation_OR_casewideString,subdir))
-      logger.info("Creating: %s"%slurm_file)
+      LOGGER.info("Creating: %s"%slurm_file)
   
 
       with open(slurm_file,'w') as slurmf:
@@ -420,13 +346,13 @@ def launch_one_mutation(workplan):
         slurmf.write("\n")
         # It is important to make shallow copies of the default dictionaries, else mutations #7 can pick up dictionary entries set by mutation #4
         if "PathProx" in subdir:
-          slurmDict = dict(SlurmParametersPathProx)
+          slurmDict = dict(slurmParametersPathProx)
         elif subdir == "ddG":
-          slurmDict = dict(SlurmParametersUDNStructure)
+          slurmDict = dict(slurmParametersUDNStructure)
         elif subdir == "SequenceAnnotation":
-          slurmDict = dict(SlurmParametersUDNSequence)
+          slurmDict = dict(slurmParametersUDNSequence)
         elif subdir == "MakeGeneDictionaries":
-          slurmDict = dict(SlurmParametersMakeGeneDictionaries)
+          slurmDict = dict(slurmParametersMakeGeneDictionaries)
         else:
           print "I don't know what flavor(subdir) is: ",subdir
           sys.exit(1)
@@ -461,13 +387,13 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 """)
 
         slurmf.write("""
-source /dors/capra_lab/users/psbadmin/psb_prep.bash
+source %s
 cd %s
 if [ $? != 0 ]; then
 echo Failure at script launch: Unable to change to directory %s
 exit 1
 fi
-"""%(allrows_cwd,allrows_cwd))
+"""%(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),"psb_prep.bash"),allrows_cwd,allrows_cwd))
        
 
         if jobCount == 1:
@@ -486,7 +412,7 @@ fi
             # end the case tag
             slurmf.write("\n;;\n\n")
           slurmf.write("esac\n")
-      logger.info("Slurm file created: %s",slurm_file)
+      LOGGER.info("Slurm file created: %s",slurm_file)
       jobid = slurm_submit(['sbatch',slurm_file])
       # jobid = 999 # slurm_submit(['sbatch',slurm_file])
       for uniquekey_launchstring in launch_strings[subdir]:
@@ -501,9 +427,8 @@ fi
           f.write('Submitted')
 
   # Now create a new workstatus file
-  print "Recording all jobids to %s"%workstatus_filename
+  print "Recording %d jobids to %s"%(len(jobids),workstatus_filename)
  
-  # import pdb; pdb.set_trace() 
   df_running_jobs = df_all_jobs.merge(pd.DataFrame(list(jobids.iteritems()),columns=['uniquekey','jobid']),on='uniquekey',how='left')
   df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(arrayids.iteritems()),columns=['uniquekey','arrayid']),on='uniquekey',how='left')
   df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(jobinfo.iteritems()),columns=['uniquekey','jobinfo']),on='uniquekey',how='left')
@@ -520,13 +445,13 @@ if oneMutationOnly:
 else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkplan) # The argument is an entire project UDN124356
   print "Retrieving project mutations from %s"%udn_csv_filename
-  df_all_mutations = pd.DataFrame.from_csv(udn_csv_filename,sep=',')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
   print "Launching all jobs for %d mutations"%len(df_all_mutations)
   for index,row in df_all_mutations.iterrows():
     print "Launching %-10s %-10s %-6s"%(row['gene'],row['refseq'],row['mutation'])
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
-      logger.critical("The specific mutation directory %s should have been created by psb_plan.py.  Fatal problem.")
+      LOGGER.critical("The specific mutation directory %s should have been created by psb_plan.py.  Fatal problem.")
       sys.exit(1)
        
     workplan_filename = "%s/%s_%s_%s_workplan.csv"%(mutation_dir,row['gene'],row['refseq'],row['mutation'])
