@@ -1,5 +1,6 @@
-# PSB Pipeline V2.1  2018-11-26 update
-## Use after README.md and performing setups in the Manifest.txt file
+# PSB Pipeline V2.1,  2018-11-26 update
+### Use this documentation after README.md and performing setups in the Manifest.txt file
+
 ## Quick Rampup
 ### Prep, Parse, Plan, Launch, Monitor, Report  
 
