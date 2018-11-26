@@ -14,7 +14,7 @@ source /dors/capra_lab/users/psbadmin/psb_prep.bash
 
 The modified environment settings will be shown, and your prompt changes to a distinctive blue:
 
-![Blue Prompt Indicates Pipeline prehttps://www.structbio.vanderbilt.edu/~mothcw/BashPipelineBluePrompt.pngp'd](https://www.structbio.vanderbilt.edu/~mothcw/BashPipelineBluePrompt.png "Blue Prompt Indicates Pipeline prep'd")
+![Blue Prompt Indicates Pipeline prep'd](https://github.com/CapraLab/psbadmin/blob/development/doc/BashPipelineBluePrompt.png "Blue Prompt Indicates Pipeline prep'd")
 
 Note the convenient $UDN variable, the root directory for all our cases. Currently, for production work, we set $UDN to /dors/capra_lab/projects/psb_collab/UDN
 
