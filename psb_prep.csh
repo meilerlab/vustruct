@@ -37,19 +37,15 @@ if (! $?PERL5LIB) then
 endif
 setenv PERL5LIB $newPERL5LIB\:$PERL5LIB
 echo
-# setenv newPYTHONPATH /dors/capra_lab/users/psbadmin/pdbmap\:/dors/capra_lab/psbadmin/bin
-setenv newPYTHONPATH /dors/capra_lab/users/psbadmin/pdbmap
-set newPYTHONPATH=/dors/capra_lab/users/psbadmin/pdbmap
+set newPYTHONPATH=/dors/capra_lab/users/psbadmin/pdbmap:/dors/capra_lab/users/psbadmin/bin
 echo -n "Prepending to PYTHONPATH:\n\t"
 echo $newPYTHONPATH | sed 's/:/\n\t/g'
 if (! $?PYTHONPATH) then
   setenv PYTHONPATH ''
 endif
 setenv PYTHONPATH $newPYTHONPATH\:$PYTHONPATH
-set PYTHONPATH=$newPYTHONPATH\:$PYTHONPATH
 
 echo
-setenv UDN /dors/capra_lab/projects/psb_collab/UDN
 set UDN=/dors/capra_lab/projects/psb_collab/UDN
 echo \$UDN set to $UDN
 
