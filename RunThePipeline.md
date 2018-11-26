@@ -1,5 +1,5 @@
-# PSB Pipeline V2.1
-### 2018-11-26 Documentation Update
+# PSB Pipeline V2.1  2018-11-26 update
+## Use after README.md and performing setups in the Manifest.txt file
 ## Quick Rampup
 ### Prep, Parse, Plan, Launch, Monitor, Report  
 
@@ -40,19 +40,19 @@ Compare both the created .csv file of missense mutations, and the gene list, to 
 
 5) Plan the work (jobs to be run for each mutation, based on available structures)
 ```
-psb_plan.py -u yourUserId.config UDN123456  
+psb_plan.py 
 ```
 6) Launch the jobs
 ```
-psb_plan.py -u yourUserId.config UDN123456
+psb_plan.py
 ```
 7) Monitor progress at intervals
 ```
-psb_monitor.py -u yourUserId.config UDN123456
+psb_monitor.py
 ```
 8) When Pathprox jobs have completed, run the final reports.  Ddg results will be included as they are available
 ```
-psb_rep.py -u yourUserId.config UDN123456
+psb_rep.py
 ```
 
 # Detailed Instructions
@@ -138,11 +138,12 @@ time = 1:00:00
 mem = 3GB  
 
 
-User-specific parameter overrides are essential for configuration of slurm emails, and to use test data sets.  
-You should create a user-specific config file as shown below, and place it (alone for starters) in your pipeline working directory.
+User-specific parameter overrides are essential for configuration of slurm emails, and to use test data sets.
+You should create a user-specific config file as shown below, and place it in your pipeline working directory.
+By default, pipeline modules look for this file in the parent directory of the case, typically $UDN.  
+However, you may override this default with the -u command line option.
 
-% mkdir ~/psbwork
-% cd ~/psbwork
+% cd $UDN
 ...... Create the file as you like...
 % cat mothcw.config
 [UserSpecific]
@@ -195,12 +196,12 @@ Each row contains an index value (ignored), a gene name, a refseq identifier, a 
 
 ## Pipeline step 1: Create a work plan from the csv file
 
-**(Don't stress over remembering commands.  Use the standard '-h' option for a helpful reminder of required inputs)**
+**(Don't stress over remembering command line arguments.  Use the standard '-h' option for a helpful reminder of the default inputs)**
 
 Be sure to specify the global and local config files, as well as your job name.  Your command sequence will look like:  
 
 % cd ~/psbwork
-$ psb_plan.py UDN123456 -u mothcw.config 
+$ psb_plan.py
 
 Here is what I see on my system with the above command:
 
