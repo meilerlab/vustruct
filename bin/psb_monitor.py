@@ -125,11 +125,13 @@ def monitor_one_mutation(workstatus):
 
   df_all_jobs_original_status = df_all_jobs_status.copy()
 
+
+  """
+  These variables are not relevant to pdb_monitor.py: monitor_one_mutation
   row0 = df_all_jobs_status.iloc[0]
   gene = row0['gene']
   refseq = row0['refseq']
   mutation = row0['mutation']
-
   mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(gene,refseq,mutation))
   if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter...
     logging.error("%s not found.  It should have been created by psb_plan.py"%mutation_dir)
@@ -138,6 +140,7 @@ def monitor_one_mutation(workstatus):
   if not os.path.exists(mutation_log_dir):  # python 3 has exist_ok parameter...
     logging.error("%s not found.  It should have been created by psb_plan.py"%mutation__log_dir)
     sys.exit(1)
+  """
 
 
   # Life is easiest if we do not set the index until we are ready to update the df_all_jobs_status at
