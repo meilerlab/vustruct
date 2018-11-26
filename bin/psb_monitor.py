@@ -64,8 +64,6 @@ cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirna
 cmdline_parser.add_argument("projectORworkstatus",type=str,
                    help="Project ID (ex. UDN123456) or single workstatus.csv output file from psb_launch.py (or previous psb_monitor.py)  Example: ......$UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv",
                    default = os.path.basename(os.getcwd()),nargs='?')
-cmdline_parser.add_argument("-r","--relaunch",
-help="Relaunch jobs, ignoring any results in a previously generated workstatus.csv file", action = "store_true", default = False)
 
 args,remaining_argv = cmdline_parser.parse_known_args()
 
@@ -82,7 +80,7 @@ elif args.verbose:
 
 # A period in the argument means the user wants to monitor one mutation only,
 # directly from a single mutation output file of psb_launch.py
-oneMutationOnly = '.' in args.projectORworkstatus
+oneMutationOnly = ('.' in args.projectORworkstatus and os.path.isfile(args.projectORworkstatus))
 
 required_config_items = ['output_rootdir','collaboration']
 

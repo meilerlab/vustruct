@@ -84,7 +84,7 @@ args,remaining_argv = cmdline_parser.parse_known_args()
 
 # A period in the argument means the user wants to monitor one mutation only,
 # directly from a single mutation output file of psb_launch.py
-oneMutationOnly = ('.' in args.projectORstructures) and args.workstatus != None
+oneMutationOnly = ('.' in args.projectORstructures and os.path.isfile(args.projectORstructures) and args.workstatus != None)
 infoLogging = False
 
 if args.debug:

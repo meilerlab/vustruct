@@ -80,7 +80,7 @@ elif args.verbose:
 
 # A period in the argument means the user wants to launch one mutation only,
 # directly from a single mutation output file of psb_plan.py
-oneMutationOnly = '.' in args.projectORworkplan
+oneMutationOnly = ('.' in args.projectORworkplan and os.path.isfile(args.projectORworkplan))
 
 required_config_items = ['output_rootdir','collaboration']
 
@@ -147,10 +147,10 @@ from psb_shared import psb_perms
 psb_permissions = psb_perms.PsbPermissions(config_dict)
 psb_permissions.makedirs(collaboration_dir)
 
-collaboration_log_dir = os.path.join(collaboration_dir,"log")
-if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
-  LOGGER.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
-  sys.exit(1)
+# collaboration_log_dir = os.path.join(collaboration_dir,"log")
+# if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
+#   LOGGER.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
+#  sys.exit(1)
 
 def launch_one_mutation(workplan):
   # Load the schedule of jobs that was created by psb_plan.py
