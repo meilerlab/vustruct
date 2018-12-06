@@ -760,7 +760,6 @@ def report_one_mutation(structure_report,workstatus):
       if not domainGraphicsJSONstr:
         graphicsLegend = "Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
     else:
-      import pdb; pdb.set_trace()
       graphicsLegend = "Pfam Domain Graphic for Non-canonical Isoform %s"%gathered_info['unp']
 
     # _Either_ communications failure OR non-canonical isoform
