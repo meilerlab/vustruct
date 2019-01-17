@@ -1,4 +1,4 @@
-echo "Preparing PDB Pipeline PATH and environment settings"
+e ho "Preparing PDB Pipeline PATH and environment settings"
 echo "This file should only be sourced from a bash or sh shell"
 echo
 if [[ $0 != $BASH_SOURCE ]]; then
@@ -20,13 +20,18 @@ echo "Script cannot be run as you invoked it.  You must instead 'source $(readli
 exit
 fi
 
+# PERL binaries, and Ensembl are NOT copied to
+# the development environment.  Not worth trouble
+PSBADMIN_PERL_ROOT=/dors/capra_lab/users/psbadmin
+
 # Directories that must be added to your path
 newPATH=$PIPELINE_ROOT/anaconda2/bin
+newPATH=$newPATH:$PSBADMIN_PERL_ROOT/localperl/bin
 newPATH=$newPATH:$PIPELINE_ROOT/bin
 newPATH=$newPATH:$PIPELINE_ROOT/pdbmap
 newPATH=$newPATH:$PIPELINE_ROOT/pathprox
 newPATH=$newPATH:/dors/capra_lab/opt/ensembl-tools-release-87/scripts/variant_effect_predictor
-newPATH=$newPATH:/dors/capra_lab/opt/ensembl-tools/release-87/scripts/id_history_converter
+newPATH=$newPATH:/dors/capra_lab/opt/ensembl-tools-release-87/scripts/id_history_converter
 newPATH=$newPATH:/dors/capra_lab/bin/vcftools/bin
 newPATH=$newPATH:/dors/capra_lab/bin/vcftools/perl
 newPATH=$newPATH:/dors/capra_lab/bin/wkhtmltox/bin
@@ -49,11 +54,13 @@ echo "Perl 5 detected"
 # Configure the perl environment for the Ensembl API and the Variant Effect Predictor
 OPT=/dors/capra_lab/opt
 newPERL5LIB=$OPT/vcftools_0.1.12b/perl
-newPERL5LIB=$newPERL5LIB:$OPT/bioperl-live
-newPERL5LIB=$newPERL5LIB:$OPT/src/ensembl/modules
-newPERL5LIB=$newPERL5LIB:$OPT/src/ensembl-compara/modules
-newPERL5LIB=$newPERL5LIB:$OPT/src/ensembl-variation/modules
-newPERL5LIB=$newPERL5LIB:$OPT/src/ensembl-funcgen/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-variation/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-compara/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-funcgen/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-tools/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/bioperl-1.2.3
+unset OPT
 echo -ne "Prepending to PERL5LIB:\n\t"
 echo $newPERL5LIB | sed 's/:/\n\t/g'
 export PERL5LIB=$newPERL5LIB:${PERL5LIB}
@@ -64,6 +71,13 @@ newPYTHONPATH=$PIPELINE_ROOT/pdbmap:$PIPELINE_ROOT/bin
 echo -ne "Prepending to PYTHONPATH:\n\t"
 echo $newPYTHONPATH | sed 's/:/\n\t/g'
 export PYTHONPATH=$newPYTHONPATH:$PYTHONPATH
+
+
+# Prevent loading of an individual users ~/.local type python - really a mess for pipeline!
+export PYTHONNOUSERSITE=x
+
+# Don't buffer output, to get better errors if things go south
+export PYTHONUNBUFFERED=x
 
 echo
 
