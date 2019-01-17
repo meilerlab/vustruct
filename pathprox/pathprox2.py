@@ -34,7 +34,7 @@ import inspect # For status updates
 
 ## Package Dependenecies ##
 # Standardction with a given name return the same logger instance. This means that logger instances never need to be passed between d
-import sys,os,shutil,gzip,csv,platform,grp,stat
+import sys,os,shutil,gzip,csv,platform,grp,stat,commands
 import string
 import subprocess as sp
 from time import strftime
@@ -279,15 +279,19 @@ def default_var_query():
 def sequence_var_query():
   """ Alternate string for custom protein models """
   s  = "SELECT distinct protein_pos,ref_amino_acid,alt_amino_acid FROM GenomicConsequence b "
-  w  = "WHERE label=%s and consequence LIKE '%%missense_variant%%' "
-  w += "AND uniprot=%s"
+  w  = "WHERE label=%s and consequence LIKE '%%missense_variant%%' and length(ref_amino_acid)=1 and length(alt_amino_acid)=1 "
   if args.isoform:
-    w += " AND transcript='%s'"%args.isoform
-  elif not args.fasta:
-    msg  = "\nWARNING: Reference isoform was not specified. \n"
-    msg  = "       : Are there multiple isoforms for this protein?\n"
-    msg += "       : Explictly declare isoform to avoid mis-alignments\n\n"
-    LOGGER.warning(msg)
+    LOGGER.info("Querying GenomicConsequence for transcript=%s",args.isoform)
+    w += "AND transcript='%s'"%args.isoform
+  else:
+    LOGGER.warning("No --isoform  Querying GenomicConsequence for non-specific uniprot ID=%s",args.unp)
+    w += "AND uniprot=%s"%args.unp
+
+    if not args.fasta:
+      msg  = "\nWARNING: Reference isoform was not specified with --fasta. \n"
+      msg  = "       : Are there multiple isoforms for this protein?\n"
+      msg += "       : Explictly declare isoform to avoid mis-alignments\n\n"
+      LOGGER.warning(msg)
   return s,w
 
 def query_1kg(io,sid,refid=None,chains=None,indb=False):
@@ -312,20 +316,21 @@ def query_1kg(io,sid,refid=None,chains=None,indb=False):
     # res = [[None]+r for r in res]
   return res
 
-def query_exac(io,sid,refid=None,chains=None,indb=False):
+def query_exac(io,sid,unp=None,chains=None,indb=False):
   """ Query natural variants (ExAC) from PDBMap """
+  # import pdb; pdb.set_trace()
   if indb:
     LOGGER.info("Known structure, querying pre-intersected variants...")
     s,w = default_var_query()
     if chains:
       w += "AND chain in (%s) "%','.join(["'%s'"%c for c in chains])
     f   = ("exac",sid)
-    c   = ["unp_pos","ref","alt","chain"]
+    # c   = ["unp_pos","ref","alt","chain"]
   else:
-    LOGGER.info("Unknown structure, querying all variants for %s..."%refid)
+    LOGGER.info("Unknown structure, querying all variants for %s..."%unp)
     s,w = sequence_var_query()
-    f   = ("exac",refid)
-    c   = ["unp_pos","ref","alt"]
+    f   = ["exac"]
+    # c   = ["unp_pos","ref","alt"]
   q   = s+w
   res = [list(r) for r in io.secure_cached_query(cache_dir,q,f,cursorclass="Cursor")]
   # If user-specified model...
@@ -346,7 +351,7 @@ def query_gnomad(io,sid,refid=None,chains=None,indb=False):
     c   = ["unp_pos","ref","alt","chain"]
   else:
     s,w = sequence_var_query()
-    f   = ("gnomad",refid)
+    f   = ["gnomad"]
     c   = ["unp_pos","ref","alt"]
   q   = s+w
   res = [list(r) for r in io.secure_cached_query(cache_dir,q,f,cursorclass="Cursor")]
@@ -393,7 +398,7 @@ def query_pathogenic(io,sid,refid=None,chains=None,indb=False):
     c   = ["unp_pos","ref","alt","chain"]
   else:
     s,w = sequence_var_query()
-    f   = ("clinvar",refid)
+    f   = ["clinvar"]
     c   = ["unp_pos","ref","alt"]
   s  += "INNER JOIN clinvar d "
   s  += "ON b.chr=d.chr and b.start=d.start "
@@ -435,6 +440,7 @@ def query_drug(io,sid,refid=None,chains=None,indb=False):
 
 def query_cosmic(io,sid,refid=None,chains=None,indb=False):
   """ Query somatic variants (COSMIC) from PDBMap """
+  # import pdb; pdb.set_trace()
   if indb:
     s,w = default_var_query()
     if chains:
@@ -443,7 +449,7 @@ def query_cosmic(io,sid,refid=None,chains=None,indb=False):
     c   = ["unp_pos","ref","alt","chain"]
   else:
     s,w = sequence_var_query()
-    f   = ("cosmic",refid)
+    f   = ["cosmic"]
     c   = ["unp_pos","ref","alt"]
   m   = "INNER JOIN cosmic d "
   m  += "ON b.chr=d.chr and b.start=d.start "
@@ -515,19 +521,25 @@ def get_coord_files(entity,io):
       LOGGER.critical(msg);
       sys_exit_failure(msg)
 
-def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumber=False):
+def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumber=False,AAseq=None):
   """ Reads the coordinate file into a PDBMapStructure object """
   # If no fasta provided, query Uniprot AC and alignment
+  indb = False
+
+  unp = None
+  seq = AAseq
   if fasta:
     aln = {}
     unp,refid,seq = read_fasta(fasta)
   else:
-    if bio < 0:
-      msg = "FASTA files must be provided for user-defined protein models\n"
-      LOGGER.critical(msg); 
-      sys_exit_failure(msg)
+    if bio < 0 and not seq:
+        msg = "FASTA files or ENST... transcript id required for user-defined protein models\n"
+        LOGGER.critical(msg)
+        sys_exit_failure(msg)
+    # if not seq:
     unp,aln = query_alignment(sid)
-    refid = seq = None
+    indb = (unp != None)
+    refid = None
 
   with gzip.open(coord_filename,'rb') if coord_filename.split('.')[-1]=="gz" else open(coord_filename,'rb') as fin:
     filterwarnings('ignore',category=PDBConstructionWarning)
@@ -601,7 +613,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
         if (args.use_residues[0] and r.id[1] < args.use_residues[0]) or \
             (args.use_residues[1] and r.id[1] > args.use_residues[1]):
           c.detach_child(r.id)
-  return s,refid is None,unp,[c.id for c in s.get_chains()]
+  return s,indb,unp,[c.id for c in s.get_chains()]
 
 def chain_match(io,unp,sid,bio):
   """ Identifies which chains are associated with a UniProt AC """
@@ -900,6 +912,7 @@ def var2coord(s,p,n,c,q=[]):
   # These new columns are initialized to np.nan and only change from nan
   # If they are loaded from known path/neutral/candidate/variants
   vdf = pd.DataFrame(columns=["unp_pos","ref","alt","chain","dcode","qt"])
+  # import pdb; pdb.set_trace()
 
   if p: # List of pathogenic variants
     pdf = pd.DataFrame(p,columns=["unp_pos","ref","alt","chain"])
@@ -1632,6 +1645,8 @@ if __name__ == "__main__":
                       help="Limit the analysis to a particular chain")
   cmdline_parser.add_argument("--isoform",type=str,
                       help="Explicit declaration of the reference isoform (ENST)")
+  cmdline_parser.add_argument("--unp",type=str,
+                      help="Explicit declaration of the reference uniprot id")
   cmdline_parser.add_argument("--use-residues",type=str,
                       help="Specify a range of residues to analyze in the form: `-500` or `1-500` or `500-`")
 
@@ -1667,7 +1682,7 @@ if __name__ == "__main__":
   # cmdline_parser.add_argument("collaboration",type=str,help="Collaboration ID (ex. UDN)")
   cmdline_parser.add_argument("mutation",nargs='?',type=str,default='',help="HGVS mutation string (ex S540A)")
 
-  args,remaining_argv = cmdline_parser.parse_known_args()
+  args = cmdline_parser.parse_args()
   if not args.outdir:
     if args.uniquekey:
        args.outdir = args.uniquekey
@@ -1734,7 +1749,7 @@ if __name__ == "__main__":
     fail_filename = os.path.join(statusdir,"FAILED")
     open(fail_filename,'w').close()
     LOGGER.critical("Creating FAILURE file %s"%fail_filename)
-    sys.exit(info)
+    sys_exit_failure(info)
 
   def statusdir_info(info):
     __info_update(info)
@@ -1864,6 +1879,20 @@ if __name__ == "__main__":
         LOGGER.info("  %15s:  %s"%(arg,getattr(args,arg)))
     LOGGER.info("")
 
+  AAseq = None
+  if args.isoform and not args.fasta:
+    # Query the Ensembl API for the transcript
+    cmd = "transcript_to_AAseq.pl %s"%args.isoform
+    LOGGER.info("Executing: %s"%cmd)
+    status, stdout_stderr =  commands.getstatusoutput(cmd)
+    if status > 0:
+      LOGGER.critical("Exit Code of %d from perl %s stdout:\n%s"%(status,cmd,stdout_stderr))
+      sys.exit(1)
+    else:
+      AAseq = stdout_stderr.rstrip()
+      LOGGER.info("%s -> %s",args.isoform,AAseq);
+ 
+
   # Warn user to include specific EnsEMBL transcripts
   if args.fasta and not args.isoform and \
           (args.add_gnomad or args.add_pathogenic or args.add_cosmic or \
@@ -1907,6 +1936,7 @@ if __name__ == "__main__":
     q = parse_qt(args.quantitative)
     p = parse_variants("Pathogenic",args.pathogenic)
     n = parse_variants("Neutral",args.neutral)
+    # import pdb; pdb.set_trace()
     c = parse_variants("Candidate",args.variants)
 
     if unp_flag:
@@ -1931,17 +1961,20 @@ if __name__ == "__main__":
     LOGGER.info("Reading coordinates from %s..."%cf)
     s_renum,_,_,_    = read_coord_file(cf,sid,bio,chain=args.chain,
                                     fasta=args.fasta,residues=args.use_residues,
-                                    renumber=True)
+                                    renumber=True,AAseq=AAseq)
+
+    unp = None
     # Read the coordinate file, align, etc. Do not renumber
     s,indb,unp,chains = read_coord_file(cf,sid,bio,chain=args.chain,
                                     fasta=args.fasta,residues=args.use_residues,
-                                    renumber=False)
+                                    renumber=False,AAseq=AAseq)
     if args.fasta:
       LOGGER.info("UniProt AC derived from FASTA: %s"%unp)
     else:
       LOGGER.info("UniProt AC: %s"%unp)
 
     # Check that any user-specified chain is present in the structure
+    # import pdb; pdb.set_trace()
     if args.chain and args.chain not in chains:
       msg = "Biological assembly %s does not contain chain %s. Skipping\n"%(bio,args.chain)
       LOGGER.warning(msg); continue
@@ -2527,6 +2560,7 @@ if __name__ == "__main__":
     # pdb_rep.py will point ngl to the psb with HELIX and SHEET information (Secondary Structure)
     residuesOfInterest['pdbSSfilename'] =  os.path.join(args.outdir,renumberedPDBfilenameSS)
 
+    # import pdb; pdb.set_trace()
     variant_residues = []
     neutral_residues = []
     pathogenic_residues = []
