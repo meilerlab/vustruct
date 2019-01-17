@@ -56,6 +56,10 @@ if needRoll:
 
 sys.stderr.write("Root (case) directory log file is %s\n"%rootdir_log_filename)
 
+# As report is generated, build up a list of just the files needed to make a portable website
+# This list omits the intermediate files left behind in the calculation
+website_filelist=['html/']
+
 
 import shutil
 import numpy as np
@@ -66,7 +70,8 @@ import pycurl
 import json
 from xml2json import Cxml2json
 
-from subprocess import Popen, PIPE
+import subprocess
+# from subprocess import Popen, PIPE
 from weasyprint import HTML,CSS
 
 from psb_shared import psb_config
@@ -127,10 +132,58 @@ except Exception as ex:
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
+
 if oneMutationOnly:
-  collaboration_dir = os.path.dirname(os.path.dirname(args.projectORstructures))
+  collaboration_absolute_dir = os.path.dirname(os.path.dirname(args.projectORstructures))
 else:
-  collaboration_dir = os.path.join(udn_root_directory,args.projectORstructures)
+  collaboration_absolute_dir = os.path.join(udn_root_directory,args.projectORstructures)
+
+collaboration_dir = os.path.relpath(os.getcwd(),collaboration_absolute_dir)
+LOGGER.info("Relative to cwd=%s, collaboration_directory= %s",os.getcwd(),collaboration_dir)
+
+def copy_html_css_javascript():
+  # The source html directory, and it's large set of supporting files, is located beneath the directory
+  # where this file, psb_rep.py, is located.  All mutations share this one large html/css/javascript
+  # sourcee directory
+  src =  os.path.join(os.path.dirname(os.path.realpath(__file__)),"html")
+  dest = "%s/html"%collaboration_dir
+  LOGGER.info("Copying supporting javascript and html from %s to %s"%(src,dest))
+  
+  try:
+    shutil.rmtree(dest,ignore_errors=True)
+    shutil.copytree(src,dest)
+  except Exception as err:
+    print err
+    print "REMINDER: Need to exit"
+    sys.exit(1)
+
+  # Make sure 
+  src_file_list = [os.path.join(root,name) for root,dirs,files in os.walk(src) for name in files]
+  
+  dest_file_list = [os.path.join(root,name) for root,dirs,files in os.walk(dest) for name in files]
+  if len(src_file_list) == len(dest_file_list):
+    infostr = "Copy of %d html support files succeeded"%len(src_file_list)
+    print infostr
+    LOGGER.info(infostr)
+    # print '\n'.join(src_file_list)
+  else:
+    LOGGER.critical("FAILURE to cp html support files (%d source files,%d dest files)"%(len(src_file_list),len(dest_file_list)))
+    sys.exit(1)
+  
+  # Now give read access to everyone, read-write to group, execute on directories
+  capra_group = grp.getgrnam('capra_lab').gr_gid
+
+  os.chmod(dest,0o775) 
+  os.chown(dest, -1, capra_group)
+  
+  for root,dirs, files in os.walk(dest):
+    for d in dirs:
+      os.chmod(os.path.join(root,d),0o775) 
+      os.chown(os.path.join(root, d), -1, capra_group)
+    for f in files:
+      fname = os.path.join(root, f)
+      os.chmod(fname,0o664)
+      os.chown(os.path.join(fname), -1, capra_group)
 
 # Return a dictionary of "generic Interactions" that can flow into the summary report
 # Return an html table that can be placed at end of summary report
@@ -226,8 +279,9 @@ def report_one_mutation(structure_report,workstatus):
       print msg
     LOGGER.info(msg)
 
+  web_dir=os.path.dirname(structure_report)
+
   row0 = df_all_jobs_status.iloc[0]
-  # import pdb; pdb.set_trace()
   gathered_info = {col: row0[col] for col in ['project','unp','gene','refseq','mutation']}
   template_vars = gathered_info.copy()
 
@@ -238,8 +292,6 @@ def report_one_mutation(structure_report,workstatus):
   gathered_info['csm_pp'] = gathered_info['cln_pp'] = None
 
 
-  # import pdb; pdb.set_trace()
-  
   udn_sequence_annotation_jobs = ((df_all_jobs_status['flavor'] == 'SequenceAnnotation'))
   if udn_sequence_annotation_jobs.sum() > 0:
     LOGGER.info("Dropping %d rows where jobs are UDN SequenceAnnotation"%udn_sequence_annotation_jobs.sum())
@@ -321,7 +373,9 @@ def report_one_mutation(structure_report,workstatus):
 # Load the structure details of all jobs that were not dropped
   nan_values = ['-1.#IND', '1.#QNAN', '1.#IND', '-1.#QNAN', '#N/A','N/A', '#NA', 'NULL', 'NaN', '-NaN', 'nan', '-nan']
   df_structure_report = pd.read_csv(structure_report,'\t',keep_default_na=False,na_values = nan_values,dtype={'Resolution': float, 'Seq Identity': float})
-  # import pdb; pdb.set_trace()
+  df_structure_report['Structure ID'].replace("^(.*)\.pdb$",r"\1", regex=True,inplace=True)
+
+
   LOGGER.info("%d rows read from structure_report file %s"%(len(df_structure_report),structure_report))
   df_structure_report.set_index(["Method","Structure ID","Chain"],inplace = True)
   
@@ -332,7 +386,6 @@ def report_one_mutation(structure_report,workstatus):
   
   # project = 'TestJED' # MUST FIX THIS ERROR
   # unp = 'Q9NY15-1' # MUST FIX THIS ERROR
-  # import pdb; pdb.set_trace() 
   df_all_jobs_status.set_index('uniquekey',inplace=True)
   
   df_complete_jobs = df_all_jobs_status[df_all_jobs_status['ExitCode'] == '0'].copy()
@@ -359,7 +412,6 @@ def report_one_mutation(structure_report,workstatus):
     struct_detail_columns = (["Analyzable?","Distance to Boundary","Seq Identity","PDB Pos","PDB Template","Residues",
              "Resolution (PDB)","Seq Start","Seq End","Transcript Pos"])
     dfT = df_structure_report_onerow.to_frame().transpose()[struct_detail_columns]
-    # import pdb;pdb.set_trace()
     if df_structure_report_onerow['Label'] == 'pdb':
       dfT['Seq Identity'] = 100.0
     # dfT[['Seq Identity']] = dfT[['Seq Identity']].astype('float')
@@ -407,9 +459,13 @@ def report_one_mutation(structure_report,workstatus):
   
     df_row = thestruct[Clinvar_or_COSMIC]
   
+    save_cwd = os.getcwd();
+    os.chdir(os.path.dirname(df_row['outdir']))
+
+
     # Define directory prefixes
     # This is where we'll search for those final pathprox .pdb files, etc 
-    output_flavor_directory = os.path.join(df_row['outdir'],df_row['flavor'])
+    output_flavor_directory = os.path.join(os.path.basename(df_row['outdir']),df_row['flavor'])
   
     PathProxPrefix = "%s_%s_%s_exac_D"%(thestruct['pdbid'],thestruct['chain'],clinvar_or_cosmic)
   
@@ -469,17 +525,22 @@ def report_one_mutation(structure_report,workstatus):
     # Use  root-relative pathnames as inputs to the structure[] diction that flows into the html creation
     # vus_var and exac_var should be populated from either Clinvar or COSMIC calculations.  Get them we don't
     # have them yet
-    if not "vus_var" in structure and os.path.exists("%s/%s_structure.png"%(output_flavor_directory,PathProxPrefix)):
-      structure["vus_var"]    = "%s/%s_structure.png"%(output_flavor_directory,PathProxPrefix)
+
+    # If an image file is in the filesystem, great, else return empty string  
+    def check_existence_add_to_website(plot_png):
+      if os.path.exists(plot_png):
+        website_filelist.append(os.path.join(web_dir,plot_png))
+        return plot_png
+      LOGGER.info("Graphic png file %s not found",plot_png)
+      return 0 
+
+    if not "vus_var" in structure:
+      structure["vus_var"]  = check_existence_add_to_website("%s/%s_structure.png"%(output_flavor_directory,PathProxPrefix))
   
-    if not "exac_var" in structure and os.path.exists("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix)):
-      structure["exac_var"] = "%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix)
+    if not "exac_var" in structure:
+      structure["exac_var"] = check_existence_add_to_website("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix))
  
-    cln_or_csmPathogenicPNGfile = "%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix)
-    if os.path.exists(cln_or_csmPathogenicPNGfile):
-      structure["%s_var"%cln_or_csm]    = cln_or_csmPathogenicPNGfile
-    else:
-      structure["%s_var"%cln_or_csm]    = 0
+    structure["%s_var"%cln_or_csm] = check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix))
 
     # Where pathprox has left us ngl viewer variant setups, incorporate those into the final report
     # As with the static .png im
@@ -501,6 +562,10 @@ def report_one_mutation(structure_report,workstatus):
     if os.path.exists(json_filename):
       with open(json_filename) as f:
         residuesOfInterest = json.load(f)
+        if 'pdbSSfilename' in residuesOfInterest:
+          pdbSSbasename = os.path.basename(residuesOfInterest['pdbSSfilename'])
+          pdbSSdirname = os.path.dirname(residuesOfInterest['pdbSSfilename'])
+          residuesOfInterest['pdbSSfilename'] = os.path.join(os.path.relpath(pdbSSdirname,final_report_directory),pdbSSbasename)
         LOGGER.info('Loaded %d variants, %d neutrals, %d pathogenic from %s'%(
           len(residuesOfInterest['variants']),
           len(residuesOfInterest['neutrals']),
@@ -511,6 +576,7 @@ def report_one_mutation(structure_report,workstatus):
       residuesOfInterest['%s_pathogenics'%cln_or_csm] = residuesOfInterest['pathogenics']
       del residuesOfInterest['pathogenics']
       structure.update(residuesOfInterest)
+      website_filelist.append(os.path.join(web_dir,structure['pdbSSfilename']))
       structure['ngl_variant_residue_count'] = len(residuesOfInterest['variants'])
       structure['ngl_variant_residues'] = residue_list_to_ngl(residuesOfInterest['variants'])
       structure['ngl_neutral_residue_count'] = len(residuesOfInterest['neutrals'])
@@ -526,32 +592,31 @@ def report_one_mutation(structure_report,workstatus):
     if not "exac_ngl_html" in structure:
       html_filename =  "%s/%s_neutral.ngl.html"%(output_flavor_directory,PathProxPrefix)
       if os.path.exists(html_filename):
+        website_filelist.append(os.path.join(web_dir,html_filename))
         with open("%s/%s_neutral.ngl.html"%(output_flavor_directory,PathProxPrefix),"rb") as ngl_html_file:
           structure["exac_ngl_html"] = ngl_html_file.read()
 
-    if os.path.exists("%s/%s_pathogenic.ngl.html"%(output_flavor_directory,PathProxPrefix)):
-      with open("%s/%s_pathogenic.ngl.html"%(output_flavor_directory,PathProxPrefix),"rb") as ngl_html_file:
+    pathogenic_ngl_html_filename = "%s/%s_pathogenic.ngl.html"%(output_flavor_directory,PathProxPrefix)
+    if os.path.exists(pathogenic_ngl_html_filename):
+      website_filelist.append(os.path.join(web_dir,pathogenic_ngl_html_filename))
+      with open( pathogenic_ngl_html_filename ,"rb") as ngl_html_file:
         structure["%s_ngl_html"%cln_or_csm]    = ngl_html_file.read()
 
     # Load the Ripley's K results for ClinVar and COSMIC
 
-    # If an image file is in the filesystem, great, else return empty string  
-    def checkf(plot_png):
-      if os.path.exists(plot_png):
-        return plot_png
-      return ""
-
     # Don't re-do exac_K graphic if already loaded from the other directory
     if (not "exac_K" in structure) or len(structure["exac_K"]) == 0:
-      structure["exac_K"]   = checkf("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix))
+      structure["exac_K"]   = check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix))
 
-    structure["%s_K"%cln_or_csm]      = checkf("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix))
+    structure["%s_K"%cln_or_csm]      = check_existence_add_to_website("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix))
     # Load the Ripley's D results for ClinVar and COSMIC
-    structure["%s_D"%cln_or_csm]      = checkf("%s/%s_D_plot.png"%(output_flavor_directory,PathProxPrefix))
+    structure["%s_D"%cln_or_csm]      = check_existence_add_to_website("%s/%s_D_plot.png"%(output_flavor_directory,PathProxPrefix))
     # Load the PathProx Mapping and Performance for ClinVar
-    structure["%s_pp"%cln_or_csm]     = checkf("%s/%s_pathprox.png"%(output_flavor_directory,PathProxPrefix))
-    structure["%s_roc"%cln_or_csm]    = checkf("%s/%s_pathprox_roc.png"%(output_flavor_directory,PathProxPrefix))
-    structure["%s_pr"%cln_or_csm]     = checkf("%s/%s_pathprox_pr.png"%(output_flavor_directory,PathProxPrefix))
+    structure["%s_pp"%cln_or_csm]     = check_existence_add_to_website("%s/%s_pathprox.png"%(output_flavor_directory,PathProxPrefix))
+    structure["%s_roc"%cln_or_csm]    = check_existence_add_to_website("%s/%s_pathprox_roc.png"%(output_flavor_directory,PathProxPrefix))
+    structure["%s_pr"%cln_or_csm]     = check_existence_add_to_website("%s/%s_pathprox_pr.png"%(output_flavor_directory,PathProxPrefix))
+
+    os.chdir(save_cwd)
     
     # Return the structure and the ClinVar/COSMIC results
     return structure,summary
@@ -635,10 +700,8 @@ def report_one_mutation(structure_report,workstatus):
   cln_list = []
   csm_list = []
   ddG_list = []
-  # import pdb; pdb.set_trace()
   # Load up variables for each structure in our set
   for key_tuple in struct_dict:
-    # import pdb; pdb.set_trace()
     s = structure_html_vars(tdf_unique_structures.loc[key_tuple],df_structure_report.loc[key_tuple],struct_dict[key_tuple])
     s,Clinvar_sum = PathProx_html_vars(s,struct_dict[key_tuple],'Clinvar')
     if Clinvar_sum is not None:
@@ -649,7 +712,7 @@ def report_one_mutation(structure_report,workstatus):
     s,ddG_summary = ddG_html_vars(s,struct_dict[key_tuple])
     if ddG_summary is not None:
       ddG_list.append(ddG_summary)
- 
+
     structures.append(s)
   if cln_list:
     cln_sum = pd.concat(cln_list)
@@ -706,7 +769,6 @@ def report_one_mutation(structure_report,workstatus):
       print msg
     LOGGER.info(msg)
 
-  # import pdb;pdb.set_trace()
   LOGGER.warn("REminder: DATABASE IS NOT BEING UPDATED")
  
   """ 
@@ -736,7 +798,6 @@ def report_one_mutation(structure_report,workstatus):
     df_structure_report.style.set_properties(**{'text-align': 'center'})
     # dfTemp = df_structure_report[columns_for_html].copy()
     # dfTemp[['Seq Identity']] = dfTemp[['Seq Identity']].astype('float')
-    # import pdb; pdb.set_trace()
     df_copy =  df_structure_report[columns_for_html].copy() # .to_html(justify='center') # ,formatters={'Seq Identity': '{:,.2f}'.format})
     # pd.set_option('float_format', '%.2f')
     pdb_html = df_copy.to_html(justify='center',float_format=lambda x: "%.2f"%x) 
@@ -760,7 +821,6 @@ def report_one_mutation(structure_report,workstatus):
       if not domainGraphicsJSONstr:
         graphicsLegend = "Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
     else:
-      import pdb; pdb.set_trace()
       graphicsLegend = "Pfam Domain Graphic for Non-canonical Isoform %s"%gathered_info['unp']
 
     # _Either_ communications failure OR non-canonical isoform
@@ -859,7 +919,8 @@ def report_one_mutation(structure_report,workstatus):
   
   
   PfamResultTableHTML +=  '</tbody></table>'
-  pfamGraphicsIframe_fname = "html/%s_%s_PfamGraphicsIframe.html"%(gathered_info['gene'],gathered_info['mutation'])
+  pfamGraphicsIframe_fname = "%s_%s_PfamGraphicsIframe.html"%(gathered_info['gene'],gathered_info['mutation'])
+  website_filelist.append(os.path.join(web_dir,pfamGraphicsIframe_fname))
   
  
   # This data structure directly feeds the complex items in the psb_report.html template 
@@ -879,7 +940,9 @@ def report_one_mutation(structure_report,workstatus):
     base_fname = "%s_%s_structure_final_report.%%s"%(gathered_info['gene'],mutation)
   else:
     base_fname = "%s_structure_final_report.%%s"%gathered_info['gene']
+
  
+  """ Copying of the html system for each mutation was replaced with single case-wide copy
   # The html directory, and it's large set of supporting files, is located beneath the directory
   # where this file, psb_rep.py, is located 
   src =  os.path.join(os.path.dirname(os.path.realpath(__file__)),"html")
@@ -924,6 +987,7 @@ def report_one_mutation(structure_report,workstatus):
       fname = os.path.join(root, f)
       os.chmod(fname,0o664)
       os.chown(os.path.join(fname), -1, capra_group)
+  """
   
   env        = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
   template   = env.get_template("psb_report.html")
@@ -939,62 +1003,68 @@ def report_one_mutation(structure_report,workstatus):
   LOGGER.info("Now working in %s",final_report_directory)
 
   html_fname = base_fname%"html"
+  website_filelist.append(os.path.join(web_dir,html_fname))
   with open(html_fname,"w") as html_f:
     html_f.write(html_out)
 
   with open(pfamGraphicsIframe_fname,"w") as html_f:
     html_f.write(htmlPfamGraphics)
 
-  pdf_fname = base_fname%"pdf"
-  wkhtmltopdf_fname = base_fname%"wkhtml.pdf"
-  print "\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(final_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname)
-
-  LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
-
-  logging.disable(sys.maxint)
-  HTML(string=html_out).write_pdf(pdf_fname,stylesheets=["./html/css/typography.css"])#,CSS(string="@page { size: A3 landscape; }")])
-  logging.disable(logging.NOTSET)
-  LOGGER.warning("weasyprint write_pdf() has returned.  Restoring logging")
-     
+  write_pdfs = None
+  if write_pdfs:
+    pdf_fname = base_fname%"pdf"
+    wkhtmltopdf_fname = base_fname%"wkhtml.pdf"
+    print "\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(final_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname)
   
-  # Write out another .pdf using the wkhtmltopdf tool
-
-  wkhtml_command_list = ["wkhtmltopdf","--print-media-type","--no-outline","--minimum-font-size","12",html_fname,wkhtmltopdf_fname]
-  process = Popen(wkhtml_command_list, stdout = PIPE,stderr = PIPE)
-  (output,err) = process.communicate()
-
-  # So unfortunately, the stderr from wkhtmltopdf is full of ==================\r things, which are a mess for the LOGGER.  Get rid of stuff that ends in \r  Keep all other lines and ending in \r
-  # import pdb; pdb.set_trace()
-  err_nl_array = err.split('\n')
-  err_legit_list = []
-  for ena in err_nl_array:
-    crs = ena.split('\r')
-    if len(crs) > 0: ## Pick off the last string, which means all ending with Carriage Return are ignored
-      cr_last = crs[-1].strip()
-      if cr_last:
-        err_legit_list.append(cr_last)
-      
-  err_legit = '\n'.join(err_legit_list)
+    LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
   
- 
-  # ContentNotFound really just info - not warning 
-  if (process.returncode != 0) and ("Exit with code 1 due to network error: ContentNotFoundError" not in err):
-    print "Unable to complete %s exitstatus=%d due to error %s\n  output: %s\n"%(str(wkhtml_command_list),process.returncode,err_legit,output)
-    LOGGER.warning("wkhtmltopdf stderr:\n%s",err_legit)
-  else:
-    LOGGER.info("wkhtmltopdf stderr:\n%s",err_legit)
+    logging.disable(sys.maxint)
+    HTML(string=html_out).write_pdf(pdf_fname,stylesheets=["../html/css/typography.css"])#,CSS(string="@page { size: A3 landscape; }")])
+    logging.disable(logging.NOTSET)
+    LOGGER.warning("weasyprint write_pdf() has returned.  Restoring logging")
+       
+    
+    # Write out another .pdf using the wkhtmltopdf tool
   
+    wkhtml_command_list = ["wkhtmltopdf","--print-media-type","--no-outline","--minimum-font-size","12",html_fname,wkhtmltopdf_fname]
+    process = subprocess.Popen(wkhtml_command_list, stdout = subprocess.PIPE,stderr = subprocess.PIPE)
+    (output,err) = process.communicate()
+  
+    # So unfortunately, the stderr from wkhtmltopdf is full of ==================\r things, which are a mess for the LOGGER.  Get rid of stuff that ends in \r  Keep all other lines and ending in \r
+    err_nl_array = err.split('\n')
+    err_legit_list = []
+    for ena in err_nl_array:
+      crs = ena.split('\r')
+      if len(crs) > 0: ## Pick off the last string, which means all ending with Carriage Return are ignored
+        cr_last = crs[-1].strip()
+        if cr_last:
+          err_legit_list.append(cr_last)
+        
+    err_legit = '\n'.join(err_legit_list)
+    
+   
+    # ContentNotFound really just info - not warning 
+    if (process.returncode != 0) and ("Exit with code 1 due to network error: ContentNotFoundError" not in err):
+      print "Unable to complete %s exitstatus=%d due to error %s\n  output: %s\n"%(str(wkhtml_command_list),process.returncode,err_legit,output)
+      LOGGER.warning("wkhtmltopdf stderr:\n%s",err_legit)
+    else:
+      LOGGER.info("wkhtmltopdf stderr:\n%s",err_legit)
+    
   # WE HAVE NOW RETURNED TO the psb_pipeline/bin directory
   os.chdir(save_cwd);
   # Close out the local log file for this mutation
   local_fh.flush()
   local_fh.close()
   LOGGER.removeHandler(local_fh)
-  gathered_info['final_report_directory'] = final_report_directory
+  gathered_info['final_report_directory'] = os.path.basename(final_report_directory)
   gathered_info['html_fname'] = html_fname
   return gathered_info # End of function report_one_mutation()
   
 # Main logic here.  A period in the argument means the user wants to launch one mutation only,
+# Whether one mutation, or the more typical set, we must have html/css/javascript statuc
+# resources property installed in the destination tree
+copy_html_css_javascript()
+
 # directly from a single mutation output file of psb_plan.py
 if oneMutationOnly:
   if args.slurm:
@@ -1010,7 +1080,8 @@ else:
   if not infoLogging:
     print msg
   LOGGER.info(msg)
-  df_all_mutations = pd.DataFrame.from_csv(udn_csv_filename,sep=',')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
+  df_all_mutations.fillna('NA',inplace=True)
 
   if args.slurm:
     slurm_directory = os.path.join(collaboration_dir,"slurm")
@@ -1035,9 +1106,11 @@ else:
     if not infoLogging:
       print msg
     LOGGER.info(msg)
+    if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
+	row['refseq'] = 'NA'
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
-      LOGGER.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem.")
+      LOGGER.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem.",mutation_dir)
       sys.exit(1)
 
     gene_refseq_mutation = "%s_%s_%s"%(row['gene'],row['refseq'],row['mutation'])
@@ -1164,7 +1237,6 @@ fi
     env        = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
     template   = env.get_template("case_report_template.html")
     # print html_table
-    # import pdb; pdb.set_trace()
     final_gathered_info = {'mutation_summaries': mutation_summaries, 
              'firstGeneTable': html_table_generic,
              'firstGeneReport': html_report_generic,
@@ -1175,6 +1247,7 @@ fi
              }
     html_out = template.render(final_gathered_info)
     case_summary_filename = os.path.join(collaboration_dir,"%s.html"%args.projectORstructures) # The argument is an entire project UDN124356
+    website_filelist.append(case_summary_filename)
     with open(case_summary_filename,"w") as f:
       f.write(html_out)
     lastmsg = "The case summary report is: " + case_summary_filename
@@ -1189,17 +1262,29 @@ fi
   else:
     print(lastmsg)
 
-  # The html directory, and it's large set of supporting files, is located beneath the directory
-  # where this file, psb_rep.py, is located 
-  src =  os.path.join(os.path.dirname(os.path.realpath(__file__)),"html")
-  dest = "%s/html"%collaboration_dir
-  LOGGER.info("Copying supporting javascript and html from %s to %s"%(src,dest))
-  
-  try:
-    shutil.rmtree(dest,ignore_errors=True)
-    shutil.copytree(src,dest)
-  except Exception as err:
-    print err
-    print "REMINDER: Need to exit"
+
+  if website_filelist:
+    website_filelist_filename = os.path.join(collaboration_dir,"%s_website_files.list"%args.projectORstructures) # The argument is an entire project UDN124356
+    with open(website_filelist_filename,"w") as f:
+      # import pdb; pdb.set_trace()
+      f.write('\n'.join((os.path.relpath(
+              os.path.abspath(website_file),
+                (os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])))
+                  for website_file in website_filelist)))
+    LOGGER.info("A filelist for creating a website is in %s",website_filelist_filename)
+    website_zip_filename = "%s.zip"%args.projectORstructures
+    pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -'%(website_zip_filename,os.path.join(args.projectORstructures,website_filelist_filename),os.path.join(args.projectORstructures,website_zip_filename),website_zip_filename)
+    LOGGER.info("Executing: %s",pkzip_maker)
+    subprocess.call(pkzip_maker,shell=True)
+
+    website_tar_filename = "%s.tar.gz"%args.projectORstructures
+    tar_maker = 'rm -f %s; cd ..; tar cvzf %s --files-from %s > %s.stdout; cd -'%(website_tar_filename,
+         os.path.join(args.projectORstructures,website_tar_filename),
+         os.path.join(args.projectORstructures,website_filelist_filename),
+         website_tar_filename)
+    LOGGER.info("Executing: %s",tar_maker)
+    subprocess.call(tar_maker,shell=True)
+
+    print "Compressed website files are in %s and %s"%(website_zip_filename,website_tar_filename)
  
 sys.exit(0)
