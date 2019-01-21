@@ -292,9 +292,12 @@ else:
   print "Retrieving project mutations from %s"%udn_csv_filename
   df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
   print "Monitoring all jobs for %d mutations"%len(df_all_mutations)
+  df_all_mutations.fillna('NA',inplace=True)
   for index,row in df_all_mutations.iterrows():
     # print without a newline - monitor_one_mutation will add one
     print "%d of %d: %-10s %-10s %-6s"%(index+1,len(df_all_mutations),row['gene'],row['refseq'],row['mutation']),
+    if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
+	row['refseq'] = 'NA'
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
       logging.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem."%mutation_dir)
