@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head lang="en">
-		<meta charset="UTF-8" name="viewport" content="width=devie-width, intial-scale=1">
+		<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
 		<title>{{ title }}</title>
       <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
-      <link rel="stylesheet" href="file:html/css/typography.css" />
+      <link rel="stylesheet" href="../html/css/typography.css" />
 		<style media="print" type="text/css">
 		h4{text-align:center;margin:0;padding:0.1in;}
 		h5{text-align:center;margin:0;padding:0.1in;}
@@ -42,7 +42,7 @@
     -->
 
     <!-- NGL molecular graphics viewer -->
-    <script type="text/javascript" src="html/javascript/ngl.js"></script>
+    <script type="text/javascript" src="../html/javascript/ngl.js"></script>
 
 
     <!-- IE, being IE, needs extra help. In particular we need to add an extra library
@@ -233,7 +233,7 @@ img {
 		<!-- Structure Plots -->
 		<div class="container">
 			<h4>Location of {{ structure['mutation'] }} in {{ structure['structid'] }}.{{ structure['chain'] }}</h4>
-			<img src="file:{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto">
+			<img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto">
          <h4>NGL Viewer of same </h4>
 
 		   <script>
@@ -370,12 +370,12 @@ addElement(screenshotButton);
 
 			<div class="column3">
 				<h5>{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}} ExAC</h5>
-				<img src="file:{{ structure['exac_var'] }}" class="img" style="width:100%;height:auto">
+				<img src="{{ structure['exac_var'] }}" class="img" style="width:100%;height:auto">
 			</div>
 			<div class="column3">
 				<h5>{{structure['ngl_cln_residue_count'] if structure['ngl_cln_residue_count']}} ClinVar</h5>
 				{% if structure['cln_var'] %}
-					<img src="file:{{ structure['cln_var'] }}"  class="img" style="width:100%;height:auto">
+					<img src="{{ structure['cln_var'] }}"  class="img" style="width:100%;height:auto">
 				{% else %}
 					No Clinvar Variants map to this structure
 				{% endif %}
@@ -383,7 +383,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>{{structure['ngl_csm_residue_count'] if structure['ngl_csm_residue_count']}} COSMIC</h5>
 				{% if structure['csm_var'] %}
-					<img src="file:{{ structure['csm_var'] }}"  class="img" style="width:300%;height:auto">
+					<img src="{{ structure['csm_var'] }}"  class="img" style="width:300%;height:auto">
 				{% else %}
 					No COSMIC Variants map to this structure
 				{% endif %}
@@ -397,7 +397,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>ExAC</h5>
 				{% if structure['exac_K'] %}
-					<img src="file:{{ structure['exac_K'] }}" class="img" style="width:100%;height:auto"> 
+					<img src="{{ structure['exac_K'] }}" class="img" style="width:100%;height:auto"> 
 				{% else %}
 					Ripley's Univariate K graphic was not created for ExAC
 				{% endif %}
@@ -405,7 +405,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>ClinVar</h5>
 				{% if structure['cln_K'] %}
-					<img src="file:{{ structure['cln_K'] }}"  class="img" style="width:100%;height:auto"> 
+					<img src="{{ structure['cln_K'] }}"  class="img" style="width:100%;height:auto"> 
 				{% else %}
 					Ripley's Univariate K graphic was not created for Clinvar
 				{% endif %}
@@ -413,7 +413,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>COSMIC</h5>
 				{% if structure['csm_K'] %}
-					<img src="file:{{ structure['csm_K'] }}"  class="img" style="width:100%;height:auto"> 
+					<img src="{{ structure['csm_K'] }}"  class="img" style="width:100%;height:auto"> 
 				{% else %}
 					Ripley's Univariate K graphic was not created for COSMIC
 				{% endif %}
@@ -426,7 +426,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>ClinVar - ExAC</h5>
 				{% if structure['cln_D'] %}
-					<img src="file:{{ structure['cln_D'] }}" class="img" style="width:100%;height:auto"> <!-- class="img" style="width:100%;height:auto"> -->
+					<img src="{{ structure['cln_D'] }}" class="img" style="width:100%;height:auto"> <!-- class="img" style="width:100%;height:auto"> -->
 				{% else %}
 					ClinVar-Exac Bivariate D plot was not created
 				{% endif %}
@@ -434,7 +434,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>COSMIC - ExAC</h5>
 				{% if structure['csm_D'] %}
-					<img src="file:{{ structure['csm_D'] }}" class="img" style="width:100%;height:auto"> 
+					<img src="{{ structure['csm_D'] }}" class="img" style="width:100%;height:auto"> 
 				{% else %}
 					COSMIC-Exac Bivariate D plot was not created
 				{% endif %}
@@ -447,8 +447,8 @@ addElement(screenshotButton);
 		<h4>PathProx (ClinVar - ExAC) Results</h4>
 		<div class="column3">
 			<h5>PathProx</h5>
-			{% if structure['cln_pm'] %}
-				<img src="file:{{ structure['cln_pp'] }}"  class="img" style="width:100%;height:auto">
+			{% if structure['cln_pp'] %}
+				<img src="{{ structure['cln_pp'] }}"  class="img" style="width:100%;height:auto">
 			{% else %}
 				No graphic was created
 			{% endif %}
@@ -456,7 +456,7 @@ addElement(screenshotButton);
 		<div class="column3">
 			<h5>PathProx CV ROC</h5>
 			{% if structure['cln_roc'] %}
-				<img src="file:{{ structure['cln_roc'] }}" class="img" style="width:100%;height:auto">
+				<img src="{{ structure['cln_roc'] }}" class="img" style="width:100%;height:auto">
 			{% else %}
 				No graphic was created
 			{% endif %}
@@ -464,7 +464,7 @@ addElement(screenshotButton);
 		<div class="column3">
 			<h5>PathProx CV PR</h5>
 			{% if structure['cln_pr'] %}
-				<img src="file:{{ structure['cln_pr'] }}"  class="img" style="width:100%;height:auto">
+				<img src="{{ structure['cln_pr'] }}"  class="img" style="width:100%;height:auto">
 			{% else %}
 				No graphic was created
 			{% endif %}
@@ -477,7 +477,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>PathProx</h5>
 				{% if structure['csm_pp'] %}
-					<img src="file:{{ structure['csm_pp'] }}"  class="img" style="width:100%;height:auto">
+					<img src="{{ structure['csm_pp'] }}"  class="img" style="width:100%;height:auto">
 				{% else %}
 					No graphic was created
 				{% endif %}
@@ -485,7 +485,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>PathProx CV ROC</h5>
 				{% if structure['csm_roc'] %}
-					<img src="file:{{ structure['csm_roc'] }}" class="img" style="width:100%;height:auto">
+					<img src="{{ structure['csm_roc'] }}" class="img" style="width:100%;height:auto">
 				{% else %}
 					No graphic was created
 				{% endif %}
@@ -493,7 +493,7 @@ addElement(screenshotButton);
 			<div class="column3">
 				<h5>PathProx CV PR</h5>
 				{% if structure['csm_pr'] %}
-					<img src="file:{{ structure['csm_pr'] }}"  class="img" style="width:100%;height:auto">
+					<img src="{{ structure['csm_pr'] }}"  class="img" style="width:100%;height:auto">
 				{% else %}
 					No graphic was created
 				{% endif %}
