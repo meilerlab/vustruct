@@ -32,3 +32,80 @@ pip install python-Levenshtein
 $ cd /dors/capra_lab/users/psbadmin
 $ ./precompile.bash
 
+=================================================================================================================
+
+6) INSTALL the Ensembl PERL API.
+
+Access to the Ensembl PERL API requires PERL5 and BioPerl.  In my experience, PERL is a fading star, and it is difficult
+to imagine that there will not soon be an Ensembl Python API.  Until then, we follow Ensembl's very strict 
+prescription for preparing the required PERL software stack.
+
+6a) Install your own PERL5 binaries, to avoid the potential stress of surprise Operating System (or compute center) updates
+
+Double-check the (relatively flexible) PERL5 version requirements of the Ensembl Library.  
+Then, follow exactly these instructions and load a compatible PERL5 into the psbadmin/localperl directory
+
+https://www.cpan.org/src/README.html
+
+cd /dors/capra_lab/users/psbadmin/perl.wherever_untarred
+./Configure -des -Dprefix=/dors/capra_lab/users/psbadmin/localperl
+make test
+make install
+
+Modify your ~/bash_config or ~/.bashrc so that your PATH includes your new localperl/bin directory before other PERL binary locations.
+Verify with:
+
+$ which perl
+
+which must rerefernce your local perl as in:
+/dors/capra_lab/users/psbadmin/localperl/bin/perl
+
+$ which cpan should report a cpain in that same directory
+
+From there
+
+THEN, install DBI.pm  (if needed)
+perl -MCPAN -e 'install Bundle::DBI'      See https://metacpan.org/pod/Bundle::DBI
+
+6a.2) Install DBD
+The "punch line" is that you will do
+
+"cpan DBD::mysql"
+
+as described here:
+https://metacpan.org/pod/distribution/DBD-mysql/lib/DBD/mysql/INSTALL.pod
+
+HOWEVER, this above will not work until the C compiler can see /usr/include/mysql/mysql.h and 
+other mariadb development supports, which includes /usr/lib64/mysql/mysql_config
+
+6b) Load bioperl-1.2.3 in the specific manner required by Ensembl PERL API:
+
+Following the video:
+https://useast.ensembl.org/info/docs/api/api_installation.html
+
+with (likely stale) documentation here:
+ftp://ftp.ebi.ac.uk/pub/databases/ensembl/Helpdesk/API_video_script.txt
+
+$ cd /dors/capra_lab/users/psbadmin
+$ mkdir ensembl
+$ cd ensembl            <<<< I use "ensembl" here and NOT "src" as in the video
+
+$ wget https://github.com/bioperl/bioperl-live/archive/bioperl-release-1-2-3.zip
+$ unzip bioperl-release-1-2-3.zip 
+$ mv bioperl-live-bioperl-release-1-2-3/ bioperl-1.2.3
+
+6c) Clone 5 Ensembl repositories:
+
+$ git clone https://github.com/Ensembl/ensembl.git
+$ git clone https://github.com/Ensembl/ensembl-variation.git
+$ git clone https://github.com/Ensembl/ensembl-compara.git
+$ git clone https://github.com/Ensembl/ensembl-funcgen.git
+$ git clone https://github.com/Ensembl/ensembl-tools.git
+
+6d) Try::Tiny
+cpan Try::Tiny
+
+6e) Testing
+
+
+
