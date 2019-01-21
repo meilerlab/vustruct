@@ -189,7 +189,10 @@ PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_su
 # In order to set the directories, we need the gene name worted out, interestingly enough
 if not infoLogging:
   print "Loading idmapping file from %s"%config_dict['idmapping']
+
+logger.info("Loading idmapping")
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
+logger.info("Loading done")
 
 # print "Establishing connection with the PDBMap database..."
 if (not io):
@@ -275,7 +278,14 @@ def makejob(flavor,command,params,options,cwd=os.getcwd()):
   job['mutation'] = params['mutation']
   job['project'] = args.project
   job['unp'] = params['unp']
+  
   job['pdbid'] = params.get('pdbid','')
+
+  # If our structure name ends in .pdb, that's fine - but trim that out for the formation
+  # of our output directory and unique key
+  dot_pdb = job['pdbid'].find(".pdb")
+  if dot_pdb > 2:
+    job['pdbid'] = job['pdbid'][0:dot_pdb]
   job['chain'] = params.get('chain','')
   if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
     job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
@@ -284,8 +294,12 @@ def makejob(flavor,command,params,options,cwd=os.getcwd()):
     job['uniquekey'] = job['flavor']
     job['outdir'] = params['mutation_dir']
   else: # Most output directories have pdbid and chain suffixes
-    job['outdir'] = os.path.join(params['mutation_dir'] ,  "%s_%s"%(job['pdbid'],job['chain']))
-    job['uniquekey'] = "%s_%s_%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['pdbid'],job['chain'],job['flavor'])
+    if not job['chain'].strip() or job['chain'] == "''" or job['chain'] == "' '":
+      pdb_chain_segment = job['pdbid']
+    else:
+      pdb_chain_segment = "%s_%s"%(job['pdbid'],job['chain'])
+    job['outdir'] = os.path.join(params['mutation_dir'] , pdb_chain_segment )
+    job['uniquekey'] = "%s_%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],pdb_chain_segment,job['flavor'])
   job['cwd'] = cwd
   return pd.Series(job)
 
@@ -293,7 +307,7 @@ def makejob(flavor,command,params,options,cwd=os.getcwd()):
 def makejobs_pathprox(params,method,sid,ch,pdb_mut_i):
   params['method'] = method
   params['pdbid'] = sid
-  params['chain'] = ch 
+  params['chain'] = "%s"%ch  # Quote it in case the IDentifier is a space, as in many models
   if (not pdb_mut_i) or (pdb_mut_i == 'None'):
     params['pp_mut'] = ''
   else:
@@ -301,13 +315,17 @@ def makejobs_pathprox(params,method,sid,ch,pdb_mut_i):
 
   params['sqlcache'] = os.path.join(params['mutation_dir'],"sqlcache")
 
+  params_transcript = ''
+  if 'transcript' in params and params['transcript']:
+    params_transcript = " --isoform '%s'"%params['transcript']
+
   df_jobs_to_run = pd.DataFrame()
   # ClinVar PathProx
   j = makejob("PathProxClinvar","pathprox2.py",params,
        ("-c %(config)s -u %(userconfig)s %(pdbid)s %(refseq)s %(pp_mut)s " +
-        "--chain=%(chain)s --add_pathogenic --add_exac --radius=D " + 
+        "--chain='%(chain)s' --add_pathogenic --add_exac --radius=D " + 
         "--sqlcache=%(sqlcache)s " + 
-        "--overwrite")%params)
+        "--overwrite")%params + params_transcript)
   df_jobs_to_run = df_jobs_to_run.append(j,ignore_index=True)
 
   # COSMIC PathProx
@@ -315,7 +333,7 @@ def makejobs_pathprox(params,method,sid,ch,pdb_mut_i):
          ("-c %(config)s -u %(userconfig)s %(pdbid)s %(refseq)s %(pp_mut)s " +
          "--chain=%(chain)s --add_cosmic --add_exac --radius=D " + 
         "--sqlcache=%(sqlcache)s " + 
-         "--overwrite")%params)
+         "--overwrite")%params + params_transcript)
 
   return df_jobs_to_run.append(j,ignore_index=True)
 
@@ -339,7 +357,7 @@ def makejob_udn_structure(params,method,sid,ch,pdb_mut_i):
 # Fix this in python 3 - where we have additional local scoping options
 df_dropped = None
 
-def plan_one_mutation(entity,refseq,mutation):
+def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
   # Use the global database connection
   global io
   global args
@@ -347,16 +365,31 @@ def plan_one_mutation(entity,refseq,mutation):
   global df_dropped
 
   logger.info("Planning mutation for %s %s %s %s",args.project,entity,refseq,mutation)
+  if user_model:
+    logger.info("Additional User model %s requested",user_model)
+
   # 2017-10-03 Chris Moth modified to key off NT_ refseq id
   unps = PDBMapProtein.refseqNT2unp(refseq)
   if unps:
-    unp = unps[0]
+    newunp = unps[0]
+    if unp and (newunp != unp):
+      logger.warning("unp determined from refseq is %s which does not match %s",newunp,unp)
+    unp = newunp
     gene = PDBMapProtein.unp2hgnc(unp)
     del unps
   else: # Sort this out the old way
-    logger.warning("Refseq %s does not map to a uniprot identifier.  Attempting map of gene %s\n"%(refseq,entity))
-    io = PDBMapIO(config_dict['dbhost'],config_dict['dbuser'],config_dict['dbpass'],config_dict['dbname']) # ,slabel=args.slabel)
-    unp,gene = detect_entity(io,entity)
+    if unp:
+      logger.warning("Setting refseq to NA and using unp=%s",unp) 
+      gene = PDBMapProtein.unp2hgnc(unp)
+      refseq = 'NA'
+    else:
+      logger.warning("Refseq %s does not map to a uniprot identifier.  Attempting map of gene %s\n"%(refseq,entity))
+      io = PDBMapIO(config_dict['dbhost'],config_dict['dbuser'],config_dict['dbpass'],config_dict['dbname']) # ,slabel=args.slabel)
+      unp,gene = detect_entity(io,entity)
+
+  if not gene:
+    logger.critical("A gene name was not matched to the refseq or uniprot ID.  Gene will be set to %s",entity)
+    gene=entity
   
   mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(gene,refseq,mutation))
   psb_permissions.makedirs(mutation_dir)
@@ -526,7 +559,7 @@ def plan_one_mutation(entity,refseq,mutation):
               break
             elif row_j['Analyzable?'] == 'No':
               drop_df_row(j,"is not as analyzable",i)
-              break
+              breaktest_SCN11A_psb_plan.log
             elif row_i['Analyzable?'] == 'Maybe':
               drop_df_row(i,"is not as analyzable",j)
               break
@@ -711,7 +744,51 @@ def plan_one_mutation(entity,refseq,mutation):
     df_dropped.to_csv(dropped_models_filename,sep='\t',index=True)
     #
     # End if not df_empty
-  
+
+ 
+  ENST_transcript_ids = None 
+  if user_model: # Then add it to our structure report
+    from Bio.PDB.PDBParser import PDBParser 
+    p = PDBParser()
+    structure = p.get_structure('user_model',user_model)
+    model_count = 0
+    chain_count = 0;
+    chain_id = ' '
+    for model in structure:
+      model_count += 1
+      for chain in model:
+        chain_id = chain.get_id()
+        chain_count += 1
+        seq_start = -1 
+        seq_end = -1
+        for residue in chain:
+          resid = residue.id
+          assert((resid[0] == None or resid[0] == ' ') and ('User model residues cannot be WAT or HET entries'))
+          assert((resid[2] == None or resid[2] == ' ') and ('User model insertion codes must be blank'))
+          if seq_start == -1:
+            seq_start = residue.id[1]
+          seq_end = residue.id[1]
+    ENST_transcript_ids = PDBMapProtein.unp2enst(unp)
+    if ENST_transcript_ids:
+      print "Determining transcript AA sequence for user model from transcript: %s"%ENST_transcript_ids[0]
+    else:
+      logger.error("The uniprot identifier must map to an ENST transcript ID in order to incorporate a user model",user_model,model_count)
+      sys.exit(1)
+
+    if model_count != 1:
+      logger.error("User model %s must contain one and only one model, not %d",user_model,model_count)
+      sys.exit(1)
+
+    if chain_count != 1:
+      logger.error("User model %s must contain one and only one chain, not %d",user_model,chain_count)
+      sys.exit(1)
+
+    for chain in structure:
+      break
+
+    df = df.append({'Gene': gene, 'Label': 'UserModel', 'Method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'Structure ID': user_model, 'PDB Template': 'N/A', "Analyzable?": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
+ 
+ 
   # df could be empty or not....
   structure_report_filename = "%s/%s_%s_%s_structure_report.csv"%(mutation_dir,gene,refseq,mutation)
   logger.info("Output the %d retained PDB, ModBase and Swiss structures to: %s"%(len(df),structure_report_filename))
@@ -722,7 +799,6 @@ def plan_one_mutation(entity,refseq,mutation):
   #
   # With the list of structures complete, now create a schedule of work to be later launched
   #
-  
   df_all_jobs = pd.DataFrame()
   
   # This dictionary used to feed patching of .slurm template scripts
@@ -735,7 +811,9 @@ def plan_one_mutation(entity,refseq,mutation):
             "mutation":mutation,
             "transcript_mutation":mutation,
             "pdb_mutation":"Error: replace for each structure"}
-  
+ 
+  if ENST_transcript_ids:
+    params["transcript"] = ENST_transcript_ids[0]
   # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
   df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
   
@@ -792,7 +870,8 @@ def plan_one_mutation(entity,refseq,mutation):
     else:
       pdb_muts = [None]*len(df)
       transcript_muts = [None]*len(df)
-  
+ 
+    # import pdb; pdb.set_trace() 
     # Launch pathprox analyses on all structures
     df_all_jobs = df_all_jobs.append([makejobs_pathprox(params,method,sid,ch,transcript_muts[i]) \
       for i,(method,sid,ch) in enumerate(df[["Method","Structure ID","Chain"]].values) ],ignore_index = True)
@@ -911,17 +990,19 @@ else:
   # Now plan the per-mutation jobs
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
   print "Retrieving project mutations from %s"%udn_csv_filename
-  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None)
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False)
   print "Work for %d mutations will be planned"%len(df_all_mutations)
 
   ui_final_table = pd.DataFrame()
   for index,row in df_all_mutations.iterrows():
     print "Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???")
+    if ('unp' in row) and ('user_model' in row):
+      print "....Including user_model %s"%row['user_model']
     ui_final = {}
     for f in ['gene','refseq','mutation','unp']:
       ui_final[f] = row[f]
-    
-    df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'])
+   
+    df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row else None,unp = row['unp'] if 'unp' in row else None)
     fulldir, filename = os.path.split(log_filename)
     fulldir, mutation_dir = os.path.split(fulldir)
     fulldir, project_dir = os.path.split(fulldir)
