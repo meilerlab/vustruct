@@ -1,4 +1,4 @@
-e ho "Preparing PDB Pipeline PATH and environment settings"
+echo "Preparing PDB Pipeline PATH and environment settings"
 echo "This file should only be sourced from a bash or sh shell"
 echo
 if [[ $0 != $BASH_SOURCE ]]; then
