@@ -44,12 +44,13 @@ This model will supplement Swiss and Modbase models, and PDB srtuctures, found i
 Place your model .pdb file in the case directory, and append a comma, and the .pdb filename, at the right.
 ALSO, you must add the text ",user_model" to the right of the first header line of the missense.csv file
 
-For example, your file would be hand-edited to look something like this:
+For example, your file would be hand-edited to look something like this
 
+```
 ,gene,refseq,mutation,unp,user_model
 0,SCN11A,NM_014139,R60S,Q9UI33-1,test_SCN11A.pdb
 1,ABCD,NM_012435,A59H,Q12345-2
-..
+```
 
 5) Plan the work (jobs to be run for each mutation, based on available structures)
 ```
