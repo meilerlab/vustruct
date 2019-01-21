@@ -1,4 +1,4 @@
-# PSB Pipeline V2.1,  2018-11-26 update
+# PSB Pipeline V2.2,  2019-01-21 update
 ### Use this documentation after README.md and performing setups in the Manifest.txt file
 
 ## Quick Rampup
@@ -39,6 +39,18 @@ parse_udn_report.py
 ```
 Compare both the created .csv file of missense mutations, and the gene list, to the original .xlsx.
 
+4b) User-supplied models:  You may add one user-supplied model to any mutation line in the missense.csv file.
+This model will supplement Swiss and Modbase models, and PDB srtuctures, found in the pipeline's SQL database.
+Place your model .pdb file in the case directory, and append a comma, and the .pdb filename, at the right.
+ALSO, you must add the text ",user_model" to the right of the first header line of the missense.csv file
+
+For example, your file would be hand-edited to look something like this:
+
+,gene,refseq,mutation,unp,user_model
+0,SCN11A,NM_014139,R60S,Q9UI33-1,test_SCN11A.pdb
+1,ABCD,NM_012435,A59H,Q12345-2
+..
+
 5) Plan the work (jobs to be run for each mutation, based on available structures)
 ```
 psb_plan.py 
@@ -55,6 +67,10 @@ psb_monitor.py
 ```
 psb_rep.py
 ```
+
+You may move the final .zip or .tar.gz files to extract to a laptop, or public website.
+
+
 
 # Detailed Instructions
 
@@ -361,13 +377,15 @@ When jobs are complete, you may generate reports.
 
 ```
 % cd $UDN/UDN123456
-% psb_rep.py TestJED -u mothcw.config  
+% psb_rep.py
 4 of 4  ./psb_rep.py Pipeline report generator.  -h for detailed help
 Retrieving project mutations from /dors/capra_lab/projects/psb_collab/UDN/TestJED/TestJED.csv
 Reporting on all 2 project TestJED mutations
 Reporting on SPRY3      NM_001304990 R242C 
 Generating html and pdf final reports for 2 of 6 complete jobs:
 ```
+
+A complete portable website fileset is created, in both .zip and .tar.gz file formats.
 
 ### Running a report for only one mutation
 A nice thing about all the psb_*.py programs is that you can somewhat bypass the _entire_ list of mutations, and run a report (or launch or monitor) just one mutation.
