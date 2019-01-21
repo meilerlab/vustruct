@@ -399,6 +399,7 @@ fi
         if jobCount == 1:
           # No need to fiddle with the slurm case statement
           slurmf.write(launch_strings[subdir][0][1])
+          slurmf.write("\n")
         else:
           slurmf.write("case $SLURM_ARRAY_TASK_ID in\n")
           slurm_array_id = 0
@@ -446,12 +447,15 @@ else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkplan) # The argument is an entire project UDN124356
   print "Retrieving project mutations from %s"%udn_csv_filename
   df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
+  df_all_mutations.fillna('NA',inplace=True);
   print "Launching all jobs for %d mutations"%len(df_all_mutations)
   for index,row in df_all_mutations.iterrows():
     print "Launching %-10s %-10s %-6s"%(row['gene'],row['refseq'],row['mutation'])
+    if 'GeneOnly' in row['refseq']:
+      row['refseq'] = 'NA'
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
-      LOGGER.critical("The specific mutation directory %s should have been created by psb_plan.py.  Fatal problem.")
+      LOGGER.critical("The specific mutation directory %s should have been created by psb_plan.py.  Fatal problem.",mutation_dir)
       sys.exit(1)
        
     workplan_filename = "%s/%s_%s_%s_workplan.csv"%(mutation_dir,row['gene'],row['refseq'],row['mutation'])
