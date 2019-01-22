@@ -292,7 +292,12 @@ for gene in family_members_with_variant:
             variant_inheritance_info[gene] = ['in Dad']
             if len(family_members_with_variant[gene]) > 2:
                 variant_inheritance_info[gene].append('in sibling')
-    else:
+
+    # If no Mother/Father entry in the list of relatives with the variant, THEN
+    # at future point, make inferences from brothers, half-sisters, etc.
+    # For today, Jan 22 2019, we declare these "De Novo" when NEITHER parent
+    # OR oarent sequencing is unavailable
+    if not gene in variant_inheritance_info: # No record of (or in) Mother, Father
         variant_inheritance_info[gene] = ['De Novo']  # We only have Proband
 
 
