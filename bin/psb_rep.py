@@ -527,20 +527,24 @@ def report_one_mutation(structure_report,workstatus):
     # have them yet
 
     # If an image file is in the filesystem, great, else return empty string  
-    def check_existence_add_to_website(plot_png):
+    def check_existence_add_to_website(plot_png,structure_dict,structure_key,value_if_missing=None):
       if os.path.exists(plot_png):
+	structure_dict[structure_key] = plot_png
         website_filelist.append(os.path.join(web_dir,plot_png))
         return plot_png
       LOGGER.info("Graphic png file %s not found",plot_png)
+      if value_if_missing is not None:
+	structure_dict[structure_key] = value_if_missing
+
       return 0 
 
     if not "vus_var" in structure:
-      structure["vus_var"]  = check_existence_add_to_website("%s/%s_structure.png"%(output_flavor_directory,PathProxPrefix))
+      check_existence_add_to_website("%s/%s_structure.png"%(output_flavor_directory,PathProxPrefix),structure,"vus_var",None)
   
     if not "exac_var" in structure:
-      structure["exac_var"] = check_existence_add_to_website("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix))
+      check_existence_add_to_website("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix),structure,"exac_var",None)
  
-    structure["%s_var"%cln_or_csm] = check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix))
+    check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_var"%cln_or_csm,0)
 
     # Where pathprox has left us ngl viewer variant setups, incorporate those into the final report
     # As with the static .png im
@@ -557,7 +561,7 @@ def report_one_mutation(structure_report,workstatus):
       if len(residues) == 0:
         return None
       return residue_list_to_ngl(residues) + "and .CA"
-      
+     
     json_filename = os.path.join(output_flavor_directory,PathProxPrefix + "_ResiduesOfInterest.json")
     if os.path.exists(json_filename):
       with open(json_filename) as f:
@@ -606,15 +610,15 @@ def report_one_mutation(structure_report,workstatus):
 
     # Don't re-do exac_K graphic if already loaded from the other directory
     if (not "exac_K" in structure) or len(structure["exac_K"]) == 0:
-      structure["exac_K"]   = check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix))
+      check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"exac_K","")
 
-    structure["%s_K"%cln_or_csm]      = check_existence_add_to_website("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix))
+    check_existence_add_to_website("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_K"%cln_or_csm,"")
     # Load the Ripley's D results for ClinVar and COSMIC
-    structure["%s_D"%cln_or_csm]      = check_existence_add_to_website("%s/%s_D_plot.png"%(output_flavor_directory,PathProxPrefix))
+    check_existence_add_to_website("%s/%s_D_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_D"%cln_or_csm,"")
     # Load the PathProx Mapping and Performance for ClinVar
-    structure["%s_pp"%cln_or_csm]     = check_existence_add_to_website("%s/%s_pathprox.png"%(output_flavor_directory,PathProxPrefix))
-    structure["%s_roc"%cln_or_csm]    = check_existence_add_to_website("%s/%s_pathprox_roc.png"%(output_flavor_directory,PathProxPrefix))
-    structure["%s_pr"%cln_or_csm]     = check_existence_add_to_website("%s/%s_pathprox_pr.png"%(output_flavor_directory,PathProxPrefix))
+    check_existence_add_to_website("%s/%s_pathprox.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_pp"%cln_or_csm,"")
+    check_existence_add_to_website("%s/%s_pathprox_roc.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_roc"%cln_or_csm,"")
+    check_existence_add_to_website("%s/%s_pathprox_pr.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_pr"%cln_or_csm,"")
 
     os.chdir(save_cwd)
     
