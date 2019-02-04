@@ -10,6 +10,8 @@ IMPORTANT: All steps must be run as user psbadmin
 
 4) Install add-on libraries with:
 
+pip install pandas
+# Biopython requires, and will include, numpy library
 pip install biopython
 # Grab an Entity.py from pre 1.69 version and patch the new one!
 
@@ -26,6 +28,7 @@ pip install networkx==1.9
 
 pip install fuzzywuzzy
 pip install python-Levenshtein
+pip install jinja2
 
 5) Precompile all python modules as user psbadmin.  Currently, accomplished with
 
