@@ -1,20 +1,23 @@
 import cPickle as pickle
 import logging
 logger = logging.getLogger()
+import os
 
-hpo_full_name_to_codes=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/hpo_full_name_to_codes.txt'))
+DATAROOT='/dors/capra_lab/projects/psb_collab/UDN/data_for_systems_biology_analysis/'
 
-hpo_code_to_all_names=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/hpo_code_to_all_names.txt'))
+hpo_full_name_to_codes=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/hpo_full_name_to_codes.txt')))
 
-similar_codes=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/similar_codes.txt'))
+hpo_code_to_all_names=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/hpo_code_to_all_names.txt')))
 
-hpo_gene_to_code=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/hpo_gene_to_code.txt'))
+similar_codes=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/similar_codes.txt')))
 
-hpo_code_to_gene=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/hpo_code_to_gene.txt'))
+hpo_gene_to_code=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/hpo_gene_to_code.txt')))
 
-hpo_name_to_code=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/hpo_processed_name_to_code.txt'))
+hpo_code_to_gene=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/hpo_code_to_gene.txt')))
 
-hpo_code_to_name=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Phenotype_Enrichment/hpo_code_to_processed_name.txt'))
+hpo_name_to_code=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/hpo_processed_name_to_code.txt')))
+
+hpo_code_to_name=pickle.load(open(os.path.join(DATAROOT,'Phenotype_Enrichment/hpo_code_to_processed_name.txt')))
 
 from scipy.stats import hypergeom
 

@@ -1,25 +1,28 @@
 import cPickle as pickle
 from scipy.stats import hypergeom
+import os
 
-reactome_gene_to_path_codes = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/reactome_gene_to_path_codes.txt'))
+DATAROOT='/dors/capra_lab/projects/psb_collab/UDN/data_for_systems_biology_analysis/'
 
-reactome_path_to_genes = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/reactome_path_to_genes.txt'))
+reactome_gene_to_path_codes = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/reactome_gene_to_path_codes.txt')))
 
-reactome_path_code_to_name = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/reactome_path_code_to_name.txt'))
+reactome_path_to_genes = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/reactome_path_to_genes.txt')))
 
-reactome_tot_codes_in_path = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/reactome_tot_codes_in_path.txt'))
+reactome_path_code_to_name = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/reactome_path_code_to_name.txt')))
 
-kegg_list_genes = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/kegg_list_genes.txt'))
+reactome_tot_codes_in_path = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/reactome_tot_codes_in_path.txt')))
 
-kegg_full_gene_name = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/kegg_full_gene_name.txt'))
+kegg_list_genes = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/kegg_list_genes.txt')))
 
-kegg_gene_name = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/kegg_gene_name.txt'))
+kegg_full_gene_name = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/kegg_full_gene_name.txt')))
 
-kegg_gene_to_path_codes = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/kegg_gene_to_path_codes.txt'))
+kegg_gene_name = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/kegg_gene_name.txt')))
 
-kegg_path_to_genes = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/kegg_path_to_genes.txt'))
+kegg_gene_to_path_codes = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/kegg_gene_to_path_codes.txt')))
 
-kegg_path_code_to_name = pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Pathway_Enrichment/kegg_path_code_to_name.txt'))
+kegg_path_to_genes = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/kegg_path_to_genes.txt')))
+
+kegg_path_code_to_name = pickle.load(open(os.path.join(DATAROOT,'Pathway_Enrichment/kegg_path_code_to_name.txt')))
 
 def get_enriched_pathways(genes,cutoff,pv):
     list_paths = []
