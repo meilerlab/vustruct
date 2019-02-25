@@ -118,12 +118,12 @@ psb_permissions = psb_perms.PsbPermissions(config_dict)
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory,args.project)
 psb_permissions.makedirs(collaboration_dir)
-collaboration_log_dir = os.path.join(collaboration_dir,"log")
+# collaboration_log_dir = os.path.join(collaboration_dir,"log")
 
 # Whether we made it above or not, we want our main directory for this run to be group capra_lab and sticky!
 psb_permissions.set_dir_group_and_sticky_bit(collaboration_dir)
 
-psb_permissions.makedirs(collaboration_log_dir)
+# psb_permissions.makedirs(collaboration_log_dir)
 
 logger.info("Loading UniProt ID mapping...")
 
@@ -177,6 +177,46 @@ if not oneMutationOnly:
 # pprint.pprint(vars(args))
 logger.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
 logger.info("Configuration File parameters:\n%s"%pprint.pformat(config_dict_shroud_password))
+
+config_pathprox_dict = dict(config.items("PathProx"))  
+logger.info("Pathprox config entries:\n%s"%pprint.pformat(config_pathprox_dict))
+
+def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
+  variants_filename_key = "%s_variant_filename"%disease1_or_2_or_neutral
+  if variants_filename_key in config_pathprox_dict:
+    config_str = config_pathprox_dict[variants_filename_key]
+    return "--pathogenic %s --pathogenic_label %s"%(config_str,config_pathprox_dict["%s_variant_sql_label"%disease1_or_2_or_neutral]) if 'neutral' not in variants_filename_key else "--neutral %s"%config_str
+  else:
+    variants_sql_label_key = "%s_variant_sql_label"%disease1_or_2_or_neutral
+    if variants_sql_label_key not in config_pathprox_dict:
+      logger.critical("A configuration file must define a variant set for %s or %s in the [PathProx] section"%(variants_sql_label_key,variants_filename_key))
+    config_str = config_pathprox_dict[variants_sql_label_key]
+    if config_str == "clinvar":
+      return "--add_pathogenic"
+    if config_str == "tcga":
+      return "--add_tcga"
+    if config_str == "cosmic":
+      return "--add_cosmic"
+    if config_str == "1kg3":
+      return "--add_1kg3"
+    if config_str == "gnomad":
+      return "--add_gnomad"
+    if config_str == "exac":
+      return "--add_exac"
+    if config_str == "ERROR":
+      return "BAD VALUE IN PATHPROX CONFIG FILE SECTION OR CALLER"
+    logger.critical("pathprox variant config of [%s] was not found. Applying default of [%s]",config_str,default)
+    return pathprox_config_to_argument(default,"ERROR")
+
+pathprox_arguments = {
+  'disease1': pathprox_config_to_argument('disease1',"clinvar"),
+  'disease2': pathprox_config_to_argument('disease2',"COSMIC"),
+  'neutral' : pathprox_config_to_argument('neutral',"exac")
+}
+
+logger.info("Pathprox Disease 1 command line argument: %s"%pathprox_arguments['disease1'])
+logger.info("Pathprox Disease 2 command line argument: %s"%pathprox_arguments['disease2'])
+logger.info("Pathprox Neutral   command line argument: %s"%pathprox_arguments['neutral'])
 
 
 logger.info("Results for patient case %s will be rooted in %s"%(args.project,collaboration_dir))
@@ -301,6 +341,7 @@ def makejob(flavor,command,params,options,cwd=os.getcwd()):
     job['outdir'] = os.path.join(params['mutation_dir'] , pdb_chain_segment )
     job['uniquekey'] = "%s_%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],pdb_chain_segment,job['flavor'])
   job['cwd'] = cwd
+  # too much detail logger.debug(pprint.pformat(job))
   return pd.Series(job)
 
 # Jobs for PathProx analyses
@@ -320,22 +361,22 @@ def makejobs_pathprox(params,method,sid,ch,pdb_mut_i):
     params_transcript = " --isoform '%s'"%params['transcript']
 
   df_jobs_to_run = pd.DataFrame()
-  # ClinVar PathProx
-  j = makejob("PathProxClinvar","pathprox2.py",params,
-       ("-c %(config)s -u %(userconfig)s %(pdbid)s %(refseq)s %(pp_mut)s " +
-        "--chain='%(chain)s' --add_pathogenic --add_exac --radius=D " + 
-        "--sqlcache=%(sqlcache)s " + 
-        "--overwrite")%params + params_transcript)
-  df_jobs_to_run = df_jobs_to_run.append(j,ignore_index=True)
+  # ClinVa params['disease1argument'] = pathprox_disease1argument
 
-  # COSMIC PathProx
-  j = makejob("PathProxCOSMIC","pathprox2.py",params,
-         ("-c %(config)s -u %(userconfig)s %(pdbid)s %(refseq)s %(pp_mut)s " +
-         "--chain=%(chain)s --add_cosmic --add_exac --radius=D " + 
-        "--sqlcache=%(sqlcache)s " + 
+  #  Make jobs for Disease 1 (maybe ClinVar) PathProx and Disease 2 (maybe COSMIC) PathProx
+  for disease_1or2 in [ 'disease1', 'disease2' ]:
+      disease_variant_sql_label = config_pathprox_dict['%s_variant_sql_label'%disease_1or2]
+      params['diseaseArgument'] = pathprox_arguments[disease_1or2]
+      params['neutralArgument'] = pathprox_arguments['neutral']
+      # import pdb; pdb.set_trace()
+      j = makejob("PathProx_%s"%disease_variant_sql_label,"pathprox2.py",params,
+        ("-c %(config)s -u %(userconfig)s %(pdbid)s %(refseq)s %(pp_mut)s " +
+         "--chain=%(chain)s %(diseaseArgument)s %(neutralArgument)s --radius=D " + 
+         "--sqlcache=%(sqlcache)s " + 
          "--overwrite")%params + params_transcript)
+      df_jobs_to_run = df_jobs_to_run.append(j,ignore_index=True)
 
-  return df_jobs_to_run.append(j,ignore_index=True)
+  return df_jobs_to_run
 
 def makejob_udn_sequence(params):
   # Secondary structure prediction and sequence annotation
@@ -351,7 +392,7 @@ def makejob_udn_structure(params,method,sid,ch,pdb_mut_i):
   # ddg_monomer (plus redundant secondary structure/uniprot annotation)
   return makejob("ddG","udn_pipeline2.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
-           "-p %(collab)s -i %(project)s -g %(gene)s -s %(pdbid)s -c %(chain)s -m %(pdb_mutation)s")%params) # options
+           "-p %(collab)s -i %(project)s -g %(gene)s -s %(pdbid)s -c %(chain)s -m %(pdb_mutation)s -t %(transcript_mutation)s")%params) # options
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
 # Fix this in python 3 - where we have additional local scoping options
@@ -745,8 +786,15 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     #
     # End if not df_empty
 
- 
-  ENST_transcript_ids = None 
+  ENST_transcript_ids = PDBMapProtein.unp2enst(unp)
+  if ENST_transcript_ids:
+    logger.info("ENST transcript for %s will be %s",unp,ENST_transcript_ids[0])
+    if len(ENST_transcript_ids) > 1:
+      logger.warning("%d additional ENST transcripts will be ignored",len(ENST_transcript_ids)-1)
+
+  elif (config_pathprox_dict['disease1_variant_sql_label'] == 'tcga') or \
+       (config_pathprox_dict['disease2_variant_sql_label'] == 'tcga'):
+    logger.error("The uniprot identifier must map to an ENST transcript ID in order use tcga variants",user_model,model_count)
   if user_model: # Then add it to our structure report
     from Bio.PDB.PDBParser import PDBParser 
     p = PDBParser()
@@ -768,12 +816,10 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
           if seq_start == -1:
             seq_start = residue.id[1]
           seq_end = residue.id[1]
-    ENST_transcript_ids = PDBMapProtein.unp2enst(unp)
-    if ENST_transcript_ids:
-      print "Determining transcript AA sequence for user model from transcript: %s"%ENST_transcript_ids[0]
-    else:
-      logger.error("The uniprot identifier must map to an ENST transcript ID in order to incorporate a user model",user_model,model_count)
       sys.exit(1)
+
+    if not ENST_transcript_ids:
+      logger.error("The uniprot identifier must map to an ENST transcript ID in order to incorporate a user model",user_model,model_count)
 
     if model_count != 1:
       logger.error("User model %s must contain one and only one model, not %d",user_model,model_count)
@@ -783,7 +829,7 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
       logger.error("User model %s must contain one and only one chain, not %d",user_model,chain_count)
       sys.exit(1)
 
-    for chain in structure:
+    for chain in structure: # This leaves chain referencing the first chain
       break
 
     df = df.append({'Gene': gene, 'Label': 'UserModel', 'Method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'Structure ID': user_model, 'PDB Template': 'N/A', "Analyzable?": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
@@ -1002,7 +1048,8 @@ else:
     for f in ['gene','refseq','mutation','unp']:
       ui_final[f] = row[f]
    
-    df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row else None,unp = row['unp'] if 'unp' in row else None)
+    df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
+
     fulldir, filename = os.path.split(log_filename)
     fulldir, mutation_dir = os.path.split(fulldir)
     fulldir, project_dir = os.path.split(fulldir)
@@ -1017,8 +1064,10 @@ else:
   myLeftJustifiedRefseq = lambda x: '%-14s'%x
   myLeftJustifiedPlanfile = lambda x: '%-40s'%x
   myLeftJustifiedUNP = lambda x: '%-9s'%x
-  print "%s"%ui_final_table.to_string(columns=['gene','refseq','mutation','unp','retained','dropped','jobs','planfile'],float_format="%1.0f",justify='center',
+  final_structure_info_table = ui_final_table.to_string(columns=['gene','refseq','mutation','unp','retained','dropped','jobs','planfile'],float_format="%1.0f",justify='center',
          formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq,'unp': myLeftJustifiedUNP, 'planfile': myLeftJustifiedPlanfile})
+  print ("Structure Report\n%s"%final_structure_info_table)
+  logger.info("%s",final_structure_info_table)
 
   # It is so easy to forget to create this phenotypes file - so remind user again!
   if not os.path.exists(phenotypes_filename):
