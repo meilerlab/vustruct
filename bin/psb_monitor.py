@@ -93,7 +93,7 @@ LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
 if oneMutationOnly:
-  collaboration_dir = os.path.dirname(os.path.dirname(args.projectORworkstatus))
+  collaboration_dir = os.path.dirname(os.path.dirname(os.path.abspath(args.projectORworkstatus)))
 else:
   collaboration_dir = os.path.join(udn_root_directory,args.projectORworkstatus)
 
@@ -101,10 +101,10 @@ if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
   logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_dir)
   sys.exit(1)
 
-collaboration_log_dir = os.path.join(collaboration_dir,"log")
-if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
-  logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
-  sys.exit(1)
+# collaboration_log_dir = os.path.join(collaboration_dir,"log")
+# if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
+#  logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
+#  sys.exit(1)
 
 def monitor_one_mutation(workstatus):
   slurmInfoColumns = (['scontrolTimestamp','JobState','ExitCode','RunTime','TimeLimit',
@@ -162,7 +162,7 @@ def monitor_one_mutation(workstatus):
     interesting_info = {}
     interesting_info['uniquekey'] = uniquekey
     interesting_info['jobid'] = jobid
-    if ('ExitCode' in row) and row['ExitCode'] and (len(row['ExitCode']) >= 1):
+    if ('ExitCode' in row) and row['ExitCode'] and (len(row['ExitCode']) >= 1) and (int(row['ExitCode']) == 0):
       LOGGER.info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(row['ExitCode'])))
       continue
     # The most reliable source of Exit=0 is the arrival of a completed file in the status director
