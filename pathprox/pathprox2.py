@@ -225,6 +225,8 @@ def structure_lookup(io,sid,bio=True,chain=None):
 
 def model_lookup(io,mid):
   """ Returns coordinate files for a ModBase ID """
+  PDBMapModel.load_modbase(config_dict['modbase2016_dir'],config_dict['modbase2016_summary'])
+  PDBMapModel.load_modbase(config_dict['modbase2013_dir'],config_dict['modbase2013_summary'])
   f = PDBMapModel.get_coord_file(mid.upper())
   LOGGER.info("File location for %s: %s"%(mid.upper(),f))
   #f = "%s/Homo_sapiens_2016/model/%s.pdb.gz"%(args.modbase_dir,mid.upper())
@@ -242,6 +244,7 @@ def model_lookup(io,mid):
 
 def swiss_lookup(io,model_id):
   """ Returns coordinate files for a Swiss ID """
+  PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
   f = PDBMapSwiss.get_coord_file(model_id)
   LOGGER.info("File location for %s: %s"%(model_id,f))
   if not os.path.exists(f):
@@ -318,7 +321,6 @@ def query_1kg(io,sid,refid=None,chains=None,indb=False):
 
 def query_exac(io,sid,unp=None,chains=None,indb=False):
   """ Query natural variants (ExAC) from PDBMap """
-  # import pdb; pdb.set_trace()
   if indb:
     LOGGER.info("Known structure, querying pre-intersected variants...")
     s,w = default_var_query()
@@ -343,24 +345,24 @@ def query_exac(io,sid,unp=None,chains=None,indb=False):
 
 def query_gnomad(io,sid,refid=None,chains=None,indb=False):
   """ Query natural variants (gnomAD) from PDBMap """
-  if indb:
+  """if indb:
     s,w = default_var_query()
     if chains:
       w += "AND chain in (%s) "%','.join(["'%s'"%c for c in chains])
     f   = ("gnomad",sid)
     c   = ["unp_pos","ref","alt","chain"]
-  else:
-    s,w = sequence_var_query()
-    f   = ["gnomad"]
-    c   = ["unp_pos","ref","alt"]
+  else:"""
+  s,w = sequence_var_query()
+  f   = ["gnomad"]
+  c   = ["unp_pos","ref","alt"]
   q   = s+w
   res = [list(r) for r in io.secure_cached_query(cache_dir,q,f,cursorclass="Cursor")]
   # If user-specified model...
-  if not indb:
-    # Add chains IDs
-    res = [r+[c] for r in res for c in chains]
-    # # Add null pdb_pos (not yet aligned)
-    # res = [[None]+r for r in res]
+  # if not indb:
+  # Add chains IDs
+  res = [r+[c] for r in res for c in chains]
+  # # Add null pdb_pos (not yet aligned)
+  # res = [[None]+r for r in res]
   return res
 
 def query_benign(io,sid,refid=None,chains=None,indb=False):
@@ -440,7 +442,6 @@ def query_drug(io,sid,refid=None,chains=None,indb=False):
 
 def query_cosmic(io,sid,refid=None,chains=None,indb=False):
   """ Query somatic variants (COSMIC) from PDBMap """
-  # import pdb; pdb.set_trace()
   if indb:
     s,w = default_var_query()
     if chains:
@@ -466,25 +467,26 @@ def query_cosmic(io,sid,refid=None,chains=None,indb=False):
 
 def query_tcga(io,sid,refid=None,chains=None,indb=False):
   """ Query somatic variants (TCGA) from PDBMap """
-  if indb:
+  """ 2019-Feb 11- Get Away from the default query mode which requires pre-intersection """
+  """if indb:
     s,w = default_var_query()
     if chains:
       w += "AND chain in (%s) "%','.join(["'%s'"%c for c in chains])
     f   = ("tcga",sid)
     c   = ["unp_pos","ref","alt","chain"]
-  else:
-    s,w = sequence_var_query()
-    f   = ("tcga",refid)
-    c   = ["unp_pos","ref","alt"]
+  else:"""
+  s,w = sequence_var_query()
+  f   = ["tcga"]
+  c   = ["unp_pos","ref","alt"]
   m   = "INNER JOIN tcga d "
   m  += "ON b.chr=d.chr and b.start=d.start "
-  m  += "AND d.cnt>1 "
+  # m  += "AND d.cnt>1 "  For tcga, the count is actually 1 for all of them 
   q   = s+m+w
   res = [list(r) for r in io.secure_cached_query(cache_dir,q,f,cursorclass="Cursor")]
   # If user-specified model...
-  if not indb:
-    # Add chains IDs
-    res = [r+[c] for r in res for c in chains]
+  # if not indb:  ACTUALLY - since we are doing the sequence_var_query, add back the chains...
+  # Add chains IDs
+  res = [r+[c] for r in res for c in chains]
   return res
 
 def get_coord_files(entity,io):
@@ -552,9 +554,8 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
   for m in s:
     for c in list(m.get_chains()):
       if c.id in ('',' '):
-        del c.get_parent().child_dict[c.id]
+        # In Biopython 1.73, this below calls @setter.id, and sorts out the parent relationships beautifully
         c.id = 'A'
-        c.get_parent().child_dict['A'] = c
 
   # Reduce to the specified chain if given
   if chain:
@@ -595,7 +596,8 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
       for c in list(m.get_chains()):
         # Align pdb residue numbers to the reference sequence
         for r in list(c.get_residues()):
-          r.id = (' ',c.alignment.pdb2seq[r.id[1]],' ')
+          new_id = (' ',c.alignment.pdb2seq[r.id[1]],' ')
+          r.id = new_id 
 
   # If user-provided structure, QA the chain alignment
   if bio < 0:
@@ -912,7 +914,6 @@ def var2coord(s,p,n,c,q=[]):
   # These new columns are initialized to np.nan and only change from nan
   # If they are loaded from known path/neutral/candidate/variants
   vdf = pd.DataFrame(columns=["unp_pos","ref","alt","chain","dcode","qt"])
-  # import pdb; pdb.set_trace()
 
   if p: # List of pathogenic variants
     pdf = pd.DataFrame(p,columns=["unp_pos","ref","alt","chain"])
@@ -969,7 +970,7 @@ def var2coord(s,p,n,c,q=[]):
   coords   = [resicom(r) for r in s.get_residues()]
   coord_df = pd.DataFrame(coords,index=sdf.index,columns=["x","y","z"])
   sdf_coord = sdf.merge(coord_df,left_index=True,right_index=True)
-
+   
   # Merge the sequence-aligned structure dataframe with the sequence-based variant dataframe
   vdf_extract = vdf_neutrals_deferred[["unp_pos","ref","alt","chain","dcode","qt"]].copy()
   vdf_extract['unp_pos'] = vdf_extract['unp_pos'].apply(int)
@@ -1613,6 +1614,8 @@ if __name__ == "__main__":
                       help="UniProt fasta file for the reference sequence")
   cmdline_parser.add_argument("--pathogenic",type=str,
                       help="User-defined set of pathogenic variants")
+  cmdline_parser.add_argument("--pathogenic_label",type=str,
+                      help="Label for User-defined pathogenic variants")
   cmdline_parser.add_argument("--neutral",type=str,
                       help="User-defined set of neutral variants")
   cmdline_parser.add_argument("--quantitative",type=str,
@@ -1787,11 +1790,14 @@ if __name__ == "__main__":
   dbpass = config_dict.get('dbpass','?')
   config_dict_shroud_password['dbpass'] = '*' * len(dbpass)
 
+  # pathprox_config_dict = dict(config.items('PathProx'))
+
 
   # LOGGER.info("Command Line Arguments")
   # pprint.pprint(vars(args))
   LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
   LOGGER.info("Configuration File parameters:\n%s"%pprint.pformat(config_dict_shroud_password))
+  # LOGGER.info("PathProx parameters:\n%s"%pprint.pformat(pathprox_config_dict))
 
   if args.sqlcache:
     cache_dir = args.sqlcache
@@ -1830,6 +1836,11 @@ if __name__ == "__main__":
     args.label += "_cosmic"
   if args.add_tcga:
     args.label += "_tcga"
+  if args.pathogenic:
+    if args.pathogenic_label:
+      args.label += '_%s'%args.pathogenic_label
+    else:
+      args.label += '_pathogenic'
   if args.add_exac:
     args.label += "_exac"
   if args.add_gnomad:
@@ -1918,9 +1929,6 @@ if __name__ == "__main__":
   PDBMapProtein.load_idmapping(config_dict['idmapping'])
   PDBMapProtein.load_sec2prim(config_dict['sec2prim'])
   PDBMapProtein.load_sprot(config_dict['sprot'])
-  PDBMapModel.load_modbase(config_dict['modbase2016_dir'],config_dict['modbase2016_summary'])
-  PDBMapModel.load_modbase(config_dict['modbase2013_dir'],config_dict['modbase2013_summary'])
-  PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
   statusdir_info('Initialized')
 
   unp_flag,olabel = False,args.label
@@ -1936,7 +1944,6 @@ if __name__ == "__main__":
     q = parse_qt(args.quantitative)
     p = parse_variants("Pathogenic",args.pathogenic)
     n = parse_variants("Neutral",args.neutral)
-    # import pdb; pdb.set_trace()
     c = parse_variants("Candidate",args.variants)
 
     if unp_flag:
@@ -1974,7 +1981,6 @@ if __name__ == "__main__":
       LOGGER.info("UniProt AC: %s"%unp)
 
     # Check that any user-specified chain is present in the structure
-    # import pdb; pdb.set_trace()
     if args.chain and args.chain not in chains:
       msg = "Biological assembly %s does not contain chain %s. Skipping\n"%(bio,args.chain)
       LOGGER.warning(msg); continue
@@ -2560,7 +2566,6 @@ if __name__ == "__main__":
     # pdb_rep.py will point ngl to the psb with HELIX and SHEET information (Secondary Structure)
     residuesOfInterest['pdbSSfilename'] =  os.path.join(args.outdir,renumberedPDBfilenameSS)
 
-    # import pdb; pdb.set_trace()
     variant_residues = []
     neutral_residues = []
     pathogenic_residues = []
