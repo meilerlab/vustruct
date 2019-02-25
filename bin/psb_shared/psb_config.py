@@ -44,6 +44,10 @@ def create_default_argument_parser(callers_docstring,user_config_dirname):
       help="User specific settings and configuration profile overrides",
       required=False, metavar="FILE", default=os.path.join("..", getpass.getuser() + ".config"))
   cmdline_parser.add_argument(
+      "-g", "--caseconfig",
+      help="Case-specific settings and configuration profile overrides",
+      required=False, metavar="FILE", default=os.path.join(".","%s.config"%os.path.basename(os.getcwd()).replace(os.path.sep,'')))
+  cmdline_parser.add_argument(
       "-v", "--verbose",
       help="Include routine info log entries on stderr", default=False, action="store_true")
   cmdline_parser.add_argument(
@@ -59,7 +63,7 @@ def read_config_files(args, required_config_items=None):
 
   config = ConfigParser.SafeConfigParser(allow_no_value=True)
 
-  config_file_list = [args.config, args.userconfig]
+  config_file_list = [args.config, args.userconfig, args.caseconfig]
   LOGGER.info("Attempting to read config from " + str(config_file_list))
   parsed_file_list = config.read(config_file_list)
   LOGGER.info("Successfully read config from " + str(parsed_file_list))
