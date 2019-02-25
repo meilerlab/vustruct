@@ -11,6 +11,8 @@
 #                : (output from psb_launch.py)
 #=============================================================================#
 
+from __future__ import print_function
+
 """\
 Create final html and pdf reports for completed pipeline jobs from either
 a project id (ex. UDN123456) or a single workstatus.csv file output from psb_monitor.py
@@ -22,7 +24,7 @@ Configuration options must be provided with
    workstatus.csv as previously updated with psb_monitor.py
 """
 
-print "4 of 4  %s Pipeline report generator.  -h for detailed help"%__file__
+print ("4 of 4  %s Pipeline report generator.  -h for detailed help"%__file__)
 
 import logging,os,pwd,sys,grp,stat,string
 import time, datetime
@@ -129,6 +131,9 @@ try:
 except Exception as ex:
   pass
 
+config_pathprox_dict = dict(config.items("PathProx"))  
+LOGGER.info("Pathprox config entries:\n%s"%pprint.pformat(config_pathprox_dict))
+
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])
@@ -152,9 +157,8 @@ def copy_html_css_javascript():
   try:
     shutil.rmtree(dest,ignore_errors=True)
     shutil.copytree(src,dest)
-  except Exception as err:
-    print err
-    print "REMINDER: Need to exit"
+  except Exception as e:
+    LOGGER.exception(e)
     sys.exit(1)
 
   # Make sure 
@@ -163,7 +167,7 @@ def copy_html_css_javascript():
   dest_file_list = [os.path.join(root,name) for root,dirs,files in os.walk(dest) for name in files]
   if len(src_file_list) == len(dest_file_list):
     infostr = "Copy of %d html support files succeeded"%len(src_file_list)
-    print infostr
+    print (infostr)
     LOGGER.info(infostr)
     # print '\n'.join(src_file_list)
   else:
@@ -276,7 +280,7 @@ def report_one_mutation(structure_report,workstatus):
     return None;
   else:
     if not infoLogging:
-      print msg
+      print (msg)
     LOGGER.info(msg)
 
   web_dir=os.path.dirname(structure_report)
@@ -289,7 +293,7 @@ def report_one_mutation(structure_report,workstatus):
 
   gathered_info['Error'] = '' # < This is False for truth but looks fine on the report
   gathered_info['ddG Max'] = gathered_info['ddG Min'] = None
-  gathered_info['csm_pp'] = gathered_info['cln_pp'] = None
+  gathered_info['disease2_pp'] = gathered_info['disease1_pp'] = None
 
 
   udn_sequence_annotation_jobs = ((df_all_jobs_status['flavor'] == 'SequenceAnnotation'))
@@ -391,7 +395,7 @@ def report_one_mutation(structure_report,workstatus):
   df_complete_jobs = df_all_jobs_status[df_all_jobs_status['ExitCode'] == '0'].copy()
   
   
-  print "Generating html and pdf final reports for %d of %d complete jobs:"%(len(df_complete_jobs),len(df_all_jobs_status))
+  print ("Generating html and pdf final reports for %d of %d complete jobs:"%(len(df_complete_jobs),len(df_all_jobs_status)))
   
   def structure_html_vars(df_onerow,df_structure_report_onerow,thestruct):
     # Subset the dataframe to the results of this chain
@@ -440,24 +444,17 @@ def report_one_mutation(structure_report,workstatus):
 
   
   # Compile PathProx results into report (one page per structure+chain+mutation)
-  def PathProx_html_vars(structure,thestruct,Clinvar_or_COSMIC):
+  def PathProx_html_vars(structure,thestruct,disease1_or_disease2):
     """ Generate the HTML for a single page structure report """
   
+    variant_sql_label = config_pathprox_dict['%s_variant_sql_label'%disease1_or_disease2]
+    variant_short_description = config_pathprox_dict['%s_variant_short_description'%disease1_or_disease2]
     # If there is no thestruct['Clinvar'] or thestruct['COSMIC'] then return right away - no big deal
-    if not Clinvar_or_COSMIC in thestruct:
+
+    if not disease1_or_disease2 in thestruct:
       return structure,None
   
-  
-    if (Clinvar_or_COSMIC == 'Clinvar'):
-      clinvar_or_cosmic = 'clinvar'
-      cln_or_csm = 'cln'
-    elif (Clinvar_or_COSMIC == 'COSMIC'):
-      clinvar_or_cosmic = 'cosmic'
-      cln_or_csm = 'csm'
-    else:
-      assert Clinvar_or_COSMIC == 'Clinvar' or Clinvar_or_COSMIC == 'COSMIC'
-  
-    df_row = thestruct[Clinvar_or_COSMIC]
+    df_row = thestruct[disease1_or_disease2] # was Clinvar_or_COSMIC]
   
     save_cwd = os.getcwd();
     os.chdir(os.path.dirname(df_row['outdir']))
@@ -466,8 +463,8 @@ def report_one_mutation(structure_report,workstatus):
     # Define directory prefixes
     # This is where we'll search for those final pathprox .pdb files, etc 
     output_flavor_directory = os.path.join(os.path.basename(df_row['outdir']),df_row['flavor'])
-  
-    PathProxPrefix = "%s_%s_%s_exac_D"%(thestruct['pdbid'],thestruct['chain'],clinvar_or_cosmic)
+
+    PathProxPrefix = "%s_%s_%s_%s_D"%(thestruct['pdbid'],thestruct['chain'],variant_sql_label,config_pathprox_dict['neutral_variant_sql_label'])
   
     # Rename the primary columns for each results set
     coldir = {"Kz_path":"Pathogenic Kz","Kt_path":"Pathogenic Kt",
@@ -496,30 +493,30 @@ def report_one_mutation(structure_report,workstatus):
         summary["%s_pathcon"%mutation] = np.nan
       summary = summary.rename(columns=coldir)
       summary = summary[colord]
-      structure["%s_results"%cln_or_csm] = summary.to_html(index=False,float_format=lambda x: "%.2f"%x)
+      structure["%s_results"%disease1_or_disease2] = summary.to_html(index=False,float_format=lambda x: "%.2f"%x)
     else:
-      print "PathProx summary file not found: %s"%pathprox_summary_file
-      structure["%s_results"%cln_or_csm] = ""
+      print ("PathProx summary file not found: %s"%pathprox_summary_file)
+      structure["%s_results"%disease1_or_disease2] = ""
       summary = pd.DataFrame()
     """
     # Load the COSMIC summary of results for this mutation
-    if os.path.exists("%s/%s_summary.txt"%(dors_ppdir,csm_prefix)):
-      csm_sum = pd.read_csv("%s/%s_summary.txt"%(dors_ppdir,csm_prefix),sep='\t',header=0)
-      csm_sum["Mutation"] = mutation
+    if os.path.exists("%s/%s_summary.txt"%(dors_ppdir,disease2_prefix)):
+      disease2_sum = pd.read_csv("%s/%s_summary.txt"%(dors_ppdir,disease2_prefix),sep='\t',header=0)
+      disease2_sum["Mutation"] = mutation
       # Dummy code coverage-dependent columns if missing
-      if "%s_pathprox"%mutation not in csm_sum.columns:
-        csm_sum["%s_pathprox"%mutation] = np.nan
-      if "%s_neutcon"%mutation not in csm_sum.columns:
-        csm_sum["%s_neutcon"%mutation] = np.nan
-      if "%s_pathcon"%mutation not in csm_sum.columns:
-        csm_sum["%s_pathcon"%mutation] = np.nan
-      csm_sum = csm_sum.rename(columns=coldir)
-      csm_sum = csm_sum[colord]
-      structure["csm_results"] = csm_sum.to_html(index=False,float_format=lambda x: "%.2f"%x)
+      if "%s_pathprox"%mutation not in disease2_sum.columns:
+        disease2_sum["%s_pathprox"%mutation] = np.nan
+      if "%s_neutcon"%mutation not in disease2_sum.columns:
+        disease2_sum["%s_neutcon"%mutation] = np.nan
+      if "%s_pathcon"%mutation not in disease2_sum.columns:
+        disease2_sum["%s_pathcon"%mutation] = np.nan
+      disease2_sum = disease2_sum.rename(columns=coldir)
+      disease2_sum = disease2_sum[colord]
+      structure["disease2_results"] = disease2_sum.to_html(index=False,float_format=lambda x: "%.2f"%x)
     else:
-      print "COSMIC PathProx summary file not found: %s/%s_summary.txt"%(dors_ppdir,csm_prefix)
-      structure["csm_results"] = ""
-      csm_sum = pd.DataFrame()
+      print "COSMIC PathProx summary file not found: %s/%s_summary.txt"%(dors_ppdir,disease2_prefix)
+      structure["disease2_results"] = ""
+      disease2_sum = pd.DataFrame()
     """
     # Load the variant plots
     # Use  root-relative pathnames as inputs to the structure[] diction that flows into the html creation
@@ -544,7 +541,7 @@ def report_one_mutation(structure_report,workstatus):
     if not "exac_var" in structure:
       check_existence_add_to_website("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix),structure,"exac_var",None)
  
-    check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_var"%cln_or_csm,0)
+    check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_var"%variant_sql_label,0)
 
     # Where pathprox has left us ngl viewer variant setups, incorporate those into the final report
     # As with the static .png im
@@ -577,7 +574,7 @@ def report_one_mutation(structure_report,workstatus):
           json_filename))
 
       # For final .html - we need to be specific regarding type of pathogenic.  We weren't when json file was written
-      residuesOfInterest['%s_pathogenics'%cln_or_csm] = residuesOfInterest['pathogenics']
+      residuesOfInterest['%s_pathogenics'%disease1_or_disease2] = residuesOfInterest['pathogenics']
       del residuesOfInterest['pathogenics']
       structure.update(residuesOfInterest)
       website_filelist.append(os.path.join(web_dir,structure['pdbSSfilename']))
@@ -585,8 +582,8 @@ def report_one_mutation(structure_report,workstatus):
       structure['ngl_variant_residues'] = residue_list_to_ngl(residuesOfInterest['variants'])
       structure['ngl_neutral_residue_count'] = len(residuesOfInterest['neutrals'])
       structure['ngl_neutral_residues'] = residue_list_to_ngl_CAs(residuesOfInterest['neutrals'])
-      structure['ngl_%s_residue_count'%cln_or_csm] = len(residuesOfInterest['%s_pathogenics'%cln_or_csm])
-      structure['ngl_%s_residues'%cln_or_csm] = residue_list_to_ngl_CAs(residuesOfInterest['%s_pathogenics'%cln_or_csm])
+      structure['ngl_%s_residue_count'%disease1_or_disease2] = len(residuesOfInterest['%s_pathogenics'%disease1_or_disease2])
+      structure['ngl_%s_residues'%disease1_or_disease2] = residue_list_to_ngl_CAs(residuesOfInterest['%s_pathogenics'%disease1_or_disease2])
 
     
     # if not "vus_ngl_html" in structure and os.path.exists("%s/%s_structure.ngl.html"%(output_flavor_directory,PathProxPrefix)):
@@ -604,25 +601,25 @@ def report_one_mutation(structure_report,workstatus):
     if os.path.exists(pathogenic_ngl_html_filename):
       website_filelist.append(os.path.join(web_dir,pathogenic_ngl_html_filename))
       with open( pathogenic_ngl_html_filename ,"rb") as ngl_html_file:
-        structure["%s_ngl_html"%cln_or_csm]    = ngl_html_file.read()
+        structure["%s_ngl_html"%disease1_or_disease2]    = ngl_html_file.read()
 
-    # Load the Ripley's K results for ClinVar and COSMIC
+    # Load the Ripley's K results for Disease1(default ClinVar) and Disease2(default COSMIC)
 
     # Don't re-do exac_K graphic if already loaded from the other directory
     if (not "exac_K" in structure) or len(structure["exac_K"]) == 0:
       check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"exac_K","")
 
-    check_existence_add_to_website("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_K"%cln_or_csm,"")
-    # Load the Ripley's D results for ClinVar and COSMIC
-    check_existence_add_to_website("%s/%s_D_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_D"%cln_or_csm,"")
-    # Load the PathProx Mapping and Performance for ClinVar
-    check_existence_add_to_website("%s/%s_pathprox.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_pp"%cln_or_csm,"")
-    check_existence_add_to_website("%s/%s_pathprox_roc.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_roc"%cln_or_csm,"")
-    check_existence_add_to_website("%s/%s_pathprox_pr.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_pr"%cln_or_csm,"")
+    check_existence_add_to_website("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_K"%disease1_or_disease2,"")
+    # Load the Ripley's D results for Disease1(ClinVar) and Disease2(COSMIC)
+    check_existence_add_to_website("%s/%s_D_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_D"%disease1_or_disease2,"")
+    # Load the PathProx Mapping and Performance for Disease1(ClinVar)
+    check_existence_add_to_website("%s/%s_pathprox.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_pp"%disease1_or_disease2,"")
+    check_existence_add_to_website("%s/%s_pathprox_roc.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_roc"%disease1_or_disease2,"")
+    check_existence_add_to_website("%s/%s_pathprox_pr.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_pr"%disease1_or_disease2,"")
 
     os.chdir(save_cwd)
     
-    # Return the structure and the ClinVar/COSMIC results
+    # Return the structure and the Disease1(ClinVar)/Disease2(COSMIC) results
     return structure,summary
   
   def unp2PfamDomainGraphicString(unp,timeoutSeconds):
@@ -678,54 +675,62 @@ def report_one_mutation(structure_report,workstatus):
     thestruct['mutation'] = row['mutation']
     thestruct['pdbid'] = row['pdbid']
     thestruct['chain'] = row['chain']
-    if 'COSMIC' in row['flavor']:
-      thestruct['COSMIC'] = row.to_dict()
-    elif 'Clinvar' in row['flavor']:
-      thestruct['Clinvar'] = row.to_dict()
+    if row['flavor'].endswith(config_pathprox_dict['disease1_variant_sql_label']):
+      thestruct['disease1'] = row.to_dict()
+    elif row['flavor'].endswith(config_pathprox_dict['disease2_variant_sql_label']):
+      thestruct['disease2'] = row.to_dict()
     elif 'SequenceAnnotation' == row['flavor']: 
       continue # UDN Sequence annotations are NOT a part of generated reports
     elif 'ddG' == row['flavor']: 
       thestruct['ddG'] = row.to_dict()
     else:
-      LOGGER.critical("flavor in row is neither COSMIC nor Clinvar nor ddG - cannot continue:\n%s",str(row))
+      LOGGER.critical("flavor in row is neither %s nor %s nor ddG - cannot continue:\n%s",config_pathprox_dict['disease1_variant_sql_label'],config_pathprox_dict['disease2_variant_sql_label'],str(row))
       sys.exit(1)
     # This will often reassign over prior assignments - That's OK
     struct_dict[key_tuple] = thestruct
   
-  print "%d structures have at least one complete report"%len(struct_dict)
+  print("%d structures have at least one complete report"%len(struct_dict))
   assert len(struct_dict) == len(tdf_unique_structures)
-  print "*** THINK ABOUT THIS ASSERT BELOW ***"
+  print("*** THINK ABOUT THIS ASSERT BELOW ***")
   # assert len(struct_dict) == len(df_structure_report)
   
   # Generate vars for individual structure pages
-  print "\nLoading the results from each structural analysis..."
+  print("\nLoading the results from each structural analysis...")
   
   structures = []
-  cln_list = []
-  csm_list = []
+  disease1_list = []
+  disease2_list = []
   ddG_list = []
   # Load up variables for each structure in our set
   for key_tuple in struct_dict:
     s = structure_html_vars(tdf_unique_structures.loc[key_tuple],df_structure_report.loc[key_tuple],struct_dict[key_tuple])
-    s,Clinvar_sum = PathProx_html_vars(s,struct_dict[key_tuple],'Clinvar')
-    if Clinvar_sum is not None:
-      cln_list.append(Clinvar_sum)
-    s,COSMIC_sum = PathProx_html_vars(s,struct_dict[key_tuple],'COSMIC')
-    if COSMIC_sum is not None:
-      csm_list.append(COSMIC_sum)
+
+    s,temp_disease_sum = PathProx_html_vars(s,struct_dict[key_tuple],'disease1')
+    if temp_disease_sum is not None:
+      disease1_list.append(temp_disease_sum)
+
+    s,temp_disease_sum = PathProx_html_vars(s,struct_dict[key_tuple],'disease2')
+    if temp_disease_sum is not None:
+      disease2_list.append(temp_disease_sum)
+
+    del temp_disease_sum
+
     s,ddG_summary = ddG_html_vars(s,struct_dict[key_tuple])
     if ddG_summary is not None:
       ddG_list.append(ddG_summary)
 
     structures.append(s)
-  if cln_list:
-    cln_sum = pd.concat(cln_list)
+
+  if disease1_list:
+    disease1_sum = pd.concat(disease1_list)
   else:
-    cln_sum = pd.DataFrame() 
-  if csm_list:
-    csm_sum = pd.concat(csm_list)
+    disease1_sum = pd.DataFrame() 
+
+  if disease2_list:
+    disease2_sum = pd.concat(disease2_list)
   else:
-    csm_sum = pd.DataFrame() 
+    disease2_sum = pd.DataFrame() 
+
   if ddG_list:
     ddG_sum = pd.concat(ddG_list)
     gathered_info['ddG Max'] = ddG_sum['ddG'].max()
@@ -738,39 +743,40 @@ def report_one_mutation(structure_report,workstatus):
   # Summarize the results for this gene mutation
   aggcols = ["Mutation","Neutral Kz","Neutral Kt","Pathogenic Kz","Pathogenic Kt","ROC AUC",
               "PR AUC","PathProx","Neutral Constraint","Pathogenic Constraint"]
-  if not cln_sum.empty:
-    msg = "Summarizing results from %d ClinVar PathProx analyses..."%len(cln_sum)
+  if not disease1_sum.empty:
+    msg = "Summarizing results from %d %s PathProx analyses..."%(len(disease1_sum),config_pathprox_dict['disease1_variant_short_description'])
     if not infoLogging:
-      print msg
+      print (msg)
     LOGGER.info(msg)
     # Fancy way to compete the average for all the aggcols 
-    cln_sum = cln_sum.groupby("Mutation")[aggcols].aggregate(np.nanmedian)
-    cln_auc = cln_sum["ROC AUC"].values[0]
-    gathered_info['cln_pp']  = cln_sum["PathProx"].values[0]
-    cln_auc = cln_auc if not np.isnan(cln_auc) else None
-    gathered_info['cln_pp']  = gathered_info['cln_pp'] if not np.isnan(gathered_info['cln_pp']) else None
+    disease1_sum = disease1_sum.groupby("Mutation")[aggcols].aggregate(np.nanmedian)
+    disease1_auc = disease1_sum["ROC AUC"].values[0]
+    gathered_info['disease1_pp']  = disease1_sum["PathProx"].values[0]
+    disease1_auc = disease1_auc if not np.isnan(disease1_auc) else None
+    gathered_info['disease1_pp']  = gathered_info['disease1_pp'] if not np.isnan(gathered_info['disease1_pp']) else None
   else:
-    cln_auc = gathered_info['cln_pp'] = None
+    disease1_auc = gathered_info['disease1_pp'] = None
   
-  if not csm_sum.empty:
-    msg = "Summarizing results from %d COSMIC PathProx analyses..."%len(csm_sum)
+  if not disease2_sum.empty:
+    msg = "Summarizing results from %d %s PathProx analyses..."%(len(disease2_sum),config_pathprox_dict['disease2_variant_short_description'])
+
     if not infoLogging:
-      print msg
+      print (msg)
     LOGGER.info(msg)
     # Fancy way to compete the average for all the aggcols 
-    csm_sum = csm_sum.groupby("Mutation")[aggcols].aggregate(np.nanmedian)
-    csm_auc = csm_sum["ROC AUC"].values[0]
-    gathered_info['csm_pp']  = csm_sum["PathProx"].values[0]
-    csm_auc = csm_auc if not np.isnan(csm_auc) else None
-    gathered_info['csm_pp']  = gathered_info['csm_pp'] if not np.isnan(gathered_info['csm_pp']) else None
+    disease2_sum = disease2_sum.groupby("Mutation")[aggcols].aggregate(np.nanmedian)
+    disease2_auc = disease2_sum["ROC AUC"].values[0]
+    gathered_info['disease2_pp']  = disease2_sum["PathProx"].values[0]
+    disease2_auc = disease2_auc if not np.isnan(disease2_auc) else None
+    gathered_info['disease2_pp']  = gathered_info['disease2_pp'] if not np.isnan(gathered_info['disease2_pp']) else None
   else:
-    csm_auc = gathered_info['csm_pp'] = None
+    disease2_auc = gathered_info['disease2_pp'] = None
 
 
   if not ddG_sum.empty:
     msg = "Summarizing results from %d ddg runs..."%len(ddG_sum)
     if not infoLogging:
-      print msg
+      print (msg)
     LOGGER.info(msg)
 
   LOGGER.warn("REminder: DATABASE IS NOT BEING UPDATED")
@@ -784,15 +790,15 @@ def report_one_mutation(structure_report,workstatus):
   sql += "clinvar_roc_med=%s,  cosmic_roc_med=%s,"
   sql += "clinvar_pathprox=%s, cosmic_pathprox=%s "
   sql += "WHERE collab=%s AND project=%s AND gene=%s AND refseq=%s AND mutation=%s"
-  c.execute(sql,(cln_auc,csm_auc,gathered_info['gathered_info['cln_pp']'],gathered_info['csm_pp'],
+  c.execute(sql,(disease1_auc,disease2_auc,gathered_info['gathered_info['disease1_pp']'],gathered_info['disease2_pp'],
             config_dict['collaboration'],gathered_info['project'],gathered_info['gene'],gathered_info['refseq'],mutation)
   c.close()
   """
   
   # Generate vars for overall html template
   pdb_html = "No structures or homology models were identified for this gene."
-  cln_html = "Insufficient variation was available for PathProx analysis."
-  csm_html = cln_html
+  disease1_html = "Insufficient variation was available for PathProx analysis."
+  disease2_html = disease1_html
   ddG_html = "No ddG calculations were completed for this mutation."
  
   columns_for_html = ['Analyzable?','Label','Distance to Boundary','Seq Start','Seq End','Seq Identity','PDB Pos','PDB Template','Residues','Resolution (PDB)','Transcript Pos']
@@ -805,10 +811,10 @@ def report_one_mutation(structure_report,workstatus):
     df_copy =  df_structure_report[columns_for_html].copy() # .to_html(justify='center') # ,formatters={'Seq Identity': '{:,.2f}'.format})
     # pd.set_option('float_format', '%.2f')
     pdb_html = df_copy.to_html(justify='center',float_format=lambda x: "%.2f"%x) 
-  if not cln_sum.empty:
-    cln_html = cln_sum.to_html(float_format=lambda x: "%.2f"%x)
-  if not csm_sum.empty:
-    csm_html = csm_sum.to_html(float_format=lambda x: "%.2f"%x)
+  if not disease1_sum.empty:
+    disease1_html = disease1_sum.to_html(float_format=lambda x: "%.2f"%x)
+  if not disease2_sum.empty:
+    disease2_html = disease2_sum.to_html(float_format=lambda x: "%.2f"%x)
   if not ddG_sum.empty:
     ddG_html = ddG_sum.to_html(float_format=lambda x: "%.2f"%x)
   
@@ -934,8 +940,9 @@ def report_one_mutation(structure_report,workstatus):
                    "pfamGraphicsIframe_fname" : pfamGraphicsIframe_fname,
                    "graphicsLegend" : graphicsLegend,
                    "psb_structure_results" : pdb_html,
-                   "clinvar_summary"   : cln_html,
-                   "cosmic_summary"    : csm_html,
+                   "config_pathprox_dict"   : config_pathprox_dict,
+                   "disease1_summary"   : disease1_html,
+                   "disease2_summary"    : disease2_html,
                    "ddG_summary"    : ddG_html,
                    "DomainGraphicsJSON"  : domainGraphicsJSONstr,
                    "PfamResultTableHTML"  : PfamResultTableHTML,
@@ -959,7 +966,7 @@ def report_one_mutation(structure_report,workstatus):
     shutil.copytree(src,dest)
   except Exception as err:
     print err
-    print "REMINDER: Need to exit"
+    print("REMINDER: Need to exit")
     # sys.exit(1)
 
 
@@ -1018,7 +1025,7 @@ def report_one_mutation(structure_report,workstatus):
   if write_pdfs:
     pdf_fname = base_fname%"pdf"
     wkhtmltopdf_fname = base_fname%"wkhtml.pdf"
-    print "\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(final_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname)
+    print("\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(final_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname))
   
     LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
   
@@ -1049,7 +1056,7 @@ def report_one_mutation(structure_report,workstatus):
    
     # ContentNotFound really just info - not warning 
     if (process.returncode != 0) and ("Exit with code 1 due to network error: ContentNotFoundError" not in err):
-      print "Unable to complete %s exitstatus=%d due to error %s\n  output: %s\n"%(str(wkhtml_command_list),process.returncode,err_legit,output)
+      print("Unable to complete %s exitstatus=%d due to error %s\n  output: %s\n"%(str(wkhtml_command_list),process.returncode,err_legit,output))
       LOGGER.warning("wkhtmltopdf stderr:\n%s",err_legit)
     else:
       LOGGER.info("wkhtmltopdf stderr:\n%s",err_legit)
@@ -1075,14 +1082,14 @@ if oneMutationOnly:
     LOGGER.warning("--slurm option is ignored when only one report is requested")
   template_vars = report_one_mutation(args.projectORstructures,args.workstatus)
   if template_vars: # The usual case, we had some Pathprox outputs
-    print "Single mutation report saved to %s/.pdf/.wkhtml.pdf"%template_vars['html_fname']
+    print("Single mutation report saved to %s/.pdf/.wkhtml.pdf"%template_vars['html_fname'])
   else:
-    print "Due to lack of pathprox outputs, no html (or pdf) reports were created from %s"%args.workstatus
+    print("Due to lack of pathprox outputs, no html (or pdf) reports were created from %s"%args.workstatus)
 else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORstructures) # The argument is an entire project UDN124356
   msg = "Retrieving project mutations from %s"%udn_csv_filename
   if not infoLogging:
-    print msg
+    print (msg)
   LOGGER.info(msg)
   df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
   df_all_mutations.fillna('NA',inplace=True)
@@ -1100,7 +1107,7 @@ else:
   else: # not a slurm run - so just do one report after another- normal case 
     msg = "Reporting on all %d project %s mutations"%(len(df_all_mutations),args.projectORstructures)
   if not infoLogging:
-    print msg
+    print (msg)
   LOGGER.info(msg)
 
   mutation_summaries = []
@@ -1108,7 +1115,7 @@ else:
   for index,row in df_all_mutations.iterrows():
     msg = "%s %-10s %-10s %-6s"%("Generating slurm entry for" if args.slurm else "Reporting on", row['gene'],row['refseq'],row['mutation'])
     if not infoLogging:
-      print msg
+      print (msg)
     LOGGER.info(msg)
     if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
 	row['refseq'] = 'NA'
@@ -1132,7 +1139,7 @@ else:
           gathered_info['html_fname'] = os.path.join(gathered_info['final_report_directory'],gathered_info['html_fname'])
           msg = "%s %s %s report saved to %s/.pdf/.wkhtml.pdf"%(row['gene'],row['refseq'],row['mutation'],gathered_info['html_fname'])
           if not infoLogging:
-            print msg
+            print (msg)
           LOGGER.info(msg)
         gathered_info['Gene Mutation'] = "%-9.9s %-10.10s %-10.10s %-7.7s"%(row['gene'],row['refseq'],row['unp'],row['mutation'])
         gathered_info['Gene Hit Generic'] = ''
@@ -1140,7 +1147,7 @@ else:
       else:
         msg = "Due to lack of pathprox or ddG outputs, %s %s %s has no html (or pdf) report"%(row['gene'],row['refseq'],row['mutation'])
         if not infoLogging:
-          print msg
+          print (msg)
         LOGGER.info(msg)
 
   if args.slurm:
@@ -1247,7 +1254,9 @@ fi
              'secondGeneTable': html_table_familial,
              'secondGeneReport': html_report_familial,
              'case': args.projectORstructures, 
-             "date"  : time.strftime("%Y-%m-%d")
+             "date"  : time.strftime("%Y-%m-%d"),
+             'disease1_variant_short_description':  config_pathprox_dict['disease1_variant_short_description'],
+             'disease2_variant_short_description':  config_pathprox_dict['disease2_variant_short_description']
              }
     html_out = template.render(final_gathered_info)
     case_summary_filename = os.path.join(collaboration_dir,"%s.html"%args.projectORstructures) # The argument is an entire project UDN124356
@@ -1258,8 +1267,8 @@ fi
   else:
     lastmsg = "No mutation summaries - bummer"
 
-  print ""
-  print ""
+  print ("")
+  print ("")
 
   if args.verbose:
     LOGGER.info(lastmsg);
@@ -1270,7 +1279,6 @@ fi
   if website_filelist:
     website_filelist_filename = os.path.join(collaboration_dir,"%s_website_files.list"%args.projectORstructures) # The argument is an entire project UDN124356
     with open(website_filelist_filename,"w") as f:
-      # import pdb; pdb.set_trace()
       f.write('\n'.join((os.path.relpath(
               os.path.abspath(website_file),
                 (os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])))
@@ -1289,6 +1297,6 @@ fi
     LOGGER.info("Executing: %s",tar_maker)
     subprocess.call(tar_maker,shell=True)
 
-    print "Compressed website files are in %s and %s"%(website_zip_filename,website_tar_filename)
+    print ("Compressed website files are in %s and %s"%(website_zip_filename,website_tar_filename))
  
 sys.exit(0)
