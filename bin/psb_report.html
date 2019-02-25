@@ -205,10 +205,10 @@ img {
       <div class="header">
 		<h3> Structure Summary </h3> 
 		</div>
-		<h3>ClinVar Summary - {{ gene }} {{ mutation }}</h3>
-		{{ clinvar_summary }}
-		<h3>COSMIC Summary - {{ gene }} {{ mutation }}</h3>
-		{{ cosmic_summary }}
+		<h3>{{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ gene }} {{ mutation }}</h3>
+		{{ disease1summary }}
+		<h3>{{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ gene }} {{ mutation }}</h3>
+		{{ disease2summary }}
 		<p><i>All results are summarized by the median over all valid structures.</i></p>
 		<h3>ddG Summary - {{ gene }} {{ mutation }}</h3>
 		{{ ddG_summary }}
@@ -225,10 +225,10 @@ img {
 		<h3 >{{ structure['structid'] }}.{{ structure['chain'] }} - Structure Detail</h3>
       </div>
 		{{ structure['details'] }}
-		<h4>PSB ClinVar Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
-		{{ structure['cln_results'] }}
-		<h4>PSB COSMIC Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
-		{{ structure['csm_results'] }}
+		<h4>PSB {{ config_pathprox_dict['disease1_variant_short_description'] }} Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
+		{{ structure['disease1_results'] }}
+		<h4>PSB {{ config_pathprox_dict['disease2_variant_short_description'] }} Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
+		{{ structure['disease2_results'] }}
 
 		<!-- Structure Plots -->
 		<div class="container">
@@ -239,15 +239,15 @@ img {
 		   <script>
 		    document.addEventListener("DOMContentLoaded", function () {
             var variantResidues = "{{structure['ngl_variant_residues']}}";
-            var exacResidues = "{{structure['ngl_neutral_residues'] if structure['ngl_neutral_residues']}}";
-            var clnResidues = "{{structure['ngl_cln_residues'] if structure['ngl_cln_residues']}}";
-            var csmResidues = "{{structure['ngl_csm_residues'] if structure['ngl_csm_residues']}}";
-            var exacResidueCount = "{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}}";
-            var clnResidueCount = "{{structure['ngl_cln_residue_count'] if structure['ngl_cln_residue_count']}}";
-            var csmResidueCount = "{{structure['ngl_csm_residue_count'] if structure['ngl_csm_residue_count']}}";
-            var exacRepresentation = null;
-            var clnRepresentation = null;
-            var csmRepresentation = null;
+            var neutralResidues = "{{structure['ngl_neutral_residues'] if structure['ngl_neutral_residues']}}";
+            var disease1Residues = "{{structure['ngl_disease1_residues'] if structure['ngl_disease1_residues']}}";
+            var disease2Residues = "{{structure['ngl_disease2_residues'] if structure['ngl_disease2_residues']}}";
+            var neutralResidueCount = "{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}}";
+            var disease1ResidueCount = "{{structure['ngl_disease1_residue_count'] if structure['ngl_disease1_residue_count']}}";
+            var disease2ResidueCount = "{{structure['ngl_disease2_residue_count'] if structure['ngl_disease2_residue_count']}}";
+            var neutralRepresentation = null;
+            var disease1Representation = null;
+            var disease2Representation = null;
 		      var stage = new NGL.Stage("viewport_{{ structure['unique_div_name'] }}", { backgroundColor : "white" } );
 		      stage.loadFile("{{ structure['pdbSSfilename'] }}").then(function (o) {
 		      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
@@ -281,61 +281,61 @@ var centerButton = createElement("input", {
 )
 addElement(centerButton)
 
-if (exacResidues && exacResidues.length > 0) {
-	var exacButton = createElement("input", {
+if (neutralResidues && neutralResidues.length > 0) {
+	var neutralButton = createElement("input", {
 	  textcolor: "Green",
 	  type: "button",
-	  value: exacResidueCount + " Exac",
+	  value: neutralResidueCount + " {{ config_pathprox_dict['neutral_variant_short_description'] }}",
 	  onclick: function () {
-	    if (exacRepresentation) {
-			 o.removeRepresentation(exacRepresentation);
-			 exacRepresentation = null;
+	    if (neutralRepresentation) {
+			 o.removeRepresentation(neutralRepresentation);
+			 neutralRepresentation = null;
 			 }
 	    else
-	        exacRepresentation = o.addRepresentation("ball+stick", { sele: exacResidues, color: "blue",radius: "0.6" })
+	        neutralRepresentation = o.addRepresentation("ball+stick", { sele: neutralResidues, color: "blue",radius: "0.6" })
 	  }
 	 }
 	, { top: "-40px", display:"inline-block" }
 	)
-	addElement(exacButton);
+	addElement(neutralButton);
 }
 
-if (clnResidues && clnResidues.length > 0) {
-	var clnButton = createElement("input", {
+if (disease1Residues && disease1Residues.length > 0) {
+	var disease1Button = createElement("input", {
 	  textcolor: "Green",
 	  type: "button",
-	  value: clnResidueCount + " Clinvar",
+	  value: disease1ResidueCount + " {{ config_pathprox_dict['disease1_variant_short_description'] }}",
 	  onclick: function () {
-	    if (clnRepresentation) {
-			 o.removeRepresentation(clnRepresentation);
-			 clnRepresentation = null;
+	    if (disease1Representation) {
+			 o.removeRepresentation(disease1Representation);
+			 disease1Representation = null;
 			 }
 	    else
-	        clnRepresentation = o.addRepresentation("ball+stick", { sele: clnResidues, color: "red",radius: "0.6" })
+	        disease1Representation = o.addRepresentation("ball+stick", { sele: disease1Residues, color: "red",radius: "0.6" })
 	  }
 	 }
 	, { top: "-40px", display:"inline-block" }
 	)
-	addElement(clnButton);
+	addElement(disease1Button);
 }
 
-if (csmResidues && csmResidues.length > 0) {
-var csmButton = createElement("input", {
+if (disease2Residues && disease2Residues.length > 0) {
+var disease2Button = createElement("input", {
   textcolor: "Green",
   type: "button",
-  value: csmResidueCount + " Cosmic",
+  value: disease2ResidueCount + " {{ config_pathprox_dict['disease2_variant_short_description'] }}",
   onclick: function () {
-    if (csmRepresentation) {
-		 o.removeRepresentation(csmRepresentation);
-		 csmRepresentation = null;
+    if (disease2Representation) {
+		 o.removeRepresentation(disease2Representation);
+		 disease2Representation = null;
 		 }
     else
-        csmRepresentation = o.addRepresentation("ball+stick", { sele: csmResidues, color: "orange",radius: "0.6" })
+        disease2Representation = o.addRepresentation("ball+stick", { sele: disease2Residues, color: "orange",radius: "0.6" })
   }
  }
 , { top: "-40px", display: "inline-block" }
 )
-addElement(csmButton)
+addElement(disease2Button)
 }
 
 var screenshotButton = createElement("input", {
@@ -364,136 +364,136 @@ addElement(screenshotButton);
         </div>
 		</div>
 
-		<!-- ExAC, ClinVar, COSMIC Variant Mapping Plots -->
+		<!-- {{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease1_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }} Variant Mapping Plots -->
 		<div class="wrapper main-box">
 			<h4>Variant Distributions</h4>
 
 			<div class="column3">
-				<h5>{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}} ExAC</h5>
-				<img src="{{ structure['exac_var'] }}" class="img" style="width:100%;height:auto">
+				<h5>{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}} {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+				<img src="{{ structure['neutral_var'] }}" class="img" style="width:100%;height:auto">
 			</div>
 			<div class="column3">
-				<h5>{{structure['ngl_cln_residue_count'] if structure['ngl_cln_residue_count']}} ClinVar</h5>
-				{% if structure['cln_var'] %}
-					<img src="{{ structure['cln_var'] }}"  class="img" style="width:100%;height:auto">
+				<h5>{{structure['ngl_disease1_residue_count'] if structure['ngl_disease1_residue_count']}} {{ config_pathprox_dict['disease1_variant_short_description'] }}</h5>
+				{% if structure['disease1_var'] %}
+					<img src="{{ structure['disease1_var'] }}"  class="img" style="width:100%;height:auto">
 				{% else %}
-					No Clinvar Variants map to this structure
+					No {{ config_pathprox_dict['disease1_variant_short_description'] }} Variants map to this structure
 				{% endif %}
 			</div>
 			<div class="column3">
-				<h5>{{structure['ngl_csm_residue_count'] if structure['ngl_csm_residue_count']}} COSMIC</h5>
-				{% if structure['csm_var'] %}
-					<img src="{{ structure['csm_var'] }}"  class="img" style="width:300%;height:auto">
+				<h5>{{structure['ngl_disease2_residue_count'] if structure['ngl_disease2_residue_count']}} {{ config_pathprox_dict['disease2_variant_short_description'] }}</h5>
+				{% if structure['disease2_var'] %}
+					<img src="{{ structure['disease2_var'] }}"  class="img" style="width:300%;height:auto">
 				{% else %}
-					No COSMIC Variants map to this structure
+					No {{ config_pathprox_dict['disease2_variant_short_description'] }} Variants map to this structure
 				{% endif %}
 			</div>
 		</div>
 
 
 		<div class="wrapper main-box">
-		<!-- ExAC, ClinVar, COSMIC Univariate K Plots -->
+		<!-- {{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease1_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }} Univariate K Plots -->
 			<h4>Ripley's Univariate K</h4>
 			<div class="column3">
-				<h5>ExAC</h5>
-				{% if structure['exac_K'] %}
-					<img src="{{ structure['exac_K'] }}" class="img" style="width:100%;height:auto"> 
+				<h5>{{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+				{% if structure['neutral_K'] %}
+					<img src="{{ structure['neutral_K'] }}" class="img" style="width:100%;height:auto"> 
 				{% else %}
-					Ripley's Univariate K graphic was not created for ExAC
+					Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['neutral_variant_short_description'] }} 
 				{% endif %}
 			</div>
 			<div class="column3">
-				<h5>ClinVar</h5>
-				{% if structure['cln_K'] %}
-					<img src="{{ structure['cln_K'] }}"  class="img" style="width:100%;height:auto"> 
+				<h5>{{ config_pathprox_dict['disease1_variant_short_description'] }}</h5>
+				{% if structure['disease1_K'] %}
+					<img src="{{ structure['disease1_K'] }}"  class="img" style="width:100%;height:auto"> 
 				{% else %}
-					Ripley's Univariate K graphic was not created for Clinvar
+					Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['disease1_variant_short_description'] }} 
 				{% endif %}
 			</div>
 			<div class="column3">
-				<h5>COSMIC</h5>
-				{% if structure['csm_K'] %}
-					<img src="{{ structure['csm_K'] }}"  class="img" style="width:100%;height:auto"> 
+				<h5>{{ config_pathprox_dict['disease2_variant_short_description'] }}</h5>
+				{% if structure['disease2_K'] %}
+					<img src="{{ structure['disease2_K'] }}"  class="img" style="width:100%;height:auto"> 
 				{% else %}
-					Ripley's Univariate K graphic was not created for COSMIC
+					Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['disease2_variant_short_description'] }} 
 				{% endif %}
 			</div>
 		</div>
 		
-		<!-- ClinVar-ExAC, COSMIC-ExAC Bivariate D Plots -->
+		<!-- {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} Bivariate D Plots -->
 		<div class="wrapper main-box">
 			<h4>Ripley's Bivariate D</h4>
 			<div class="column3">
-				<h5>ClinVar - ExAC</h5>
-				{% if structure['cln_D'] %}
-					<img src="{{ structure['cln_D'] }}" class="img" style="width:100%;height:auto"> <!-- class="img" style="width:100%;height:auto"> -->
+				<h5>{{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+				{% if structure['disease1_D'] %}
+					<img src="{{ structure['disease1_D'] }}" class="img" style="width:100%;height:auto"> <!-- class="img" style="width:100%;height:auto"> -->
 				{% else %}
-					ClinVar-Exac Bivariate D plot was not created
+					{{ config_pathprox_dict['disease1_variant_short_description'] }}-Exac Bivariate D plot was not created
 				{% endif %}
 			</div>
 			<div class="column3">
-				<h5>COSMIC - ExAC</h5>
-				{% if structure['csm_D'] %}
-					<img src="{{ structure['csm_D'] }}" class="img" style="width:100%;height:auto"> 
+				<h5>{{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+				{% if structure['disease2_D'] %}
+					<img src="{{ structure['disease2_D'] }}" class="img" style="width:100%;height:auto"> 
 				{% else %}
-					COSMIC-Exac Bivariate D plot was not created
+					{{ config_pathprox_dict['disease2_variant_short_description'] }}-Exac Bivariate D plot was not created
 				{% endif %}
 			</div>
 		</div>
 	</div>
 
 	<div class="wrapper main-box">
-		<!-- ClinVar-ExAC PathProx, ROC, PR -->
-		<h4>PathProx (ClinVar - ExAC) Results</h4>
+		<!-- {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} PathProx, ROC, PR -->
+		<h4>PathProx ({{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}) Results</h4>
 		<div class="column3">
 			<h5>PathProx</h5>
-			{% if structure['cln_pp'] %}
-				<img src="{{ structure['cln_pp'] }}"  class="img" style="width:100%;height:auto">
+			{% if structure['disease1_pp'] %}
+				<img src="{{ structure['disease1_pp'] }}"  class="img" style="width:100%;height:auto">
 			{% else %}
 				No graphic was created
 			{% endif %}
 		</div>
 		<div class="column3">
-			<h5>PathProx CV ROC</h5>
-			{% if structure['cln_roc'] %}
-				<img src="{{ structure['cln_roc'] }}" class="img" style="width:100%;height:auto">
+			<h5>PathProx {{ config_pathprox_dict['disease1_variant_short_description'] }} ROC</h5>
+			{% if structure['disease1_roc'] %}
+				<img src="{{ structure['disease1_roc'] }}" class="img" style="width:100%;height:auto">
 			{% else %}
 				No graphic was created
 			{% endif %}
 		</div>
 		<div class="column3">
-			<h5>PathProx CV PR</h5>
-			{% if structure['cln_pr'] %}
-				<img src="{{ structure['cln_pr'] }}"  class="img" style="width:100%;height:auto">
+				<h5>PathProx {{ config_pathprox_dict['disease1_variant_short_description'] }} PR</h5>
+			{% if structure['disease1_pr'] %}
+				<img src="{{ structure['disease1_pr'] }}"  class="img" style="width:100%;height:auto">
 			{% else %}
 				No graphic was created
 			{% endif %}
 		</div>
   </div>
 				
-		<!-- COSMIC-ExAC PathProx, ROC, PR -->
+		<!-- {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} PathProx, ROC, PR -->
 	<div class="wrapper main-box">
-			<h4>PathProx (COSMIC - ExAC) Results</h4>
+			<h4>PathProx ({{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}) Results</h4>
 			<div class="column3">
 				<h5>PathProx</h5>
-				{% if structure['csm_pp'] %}
-					<img src="{{ structure['csm_pp'] }}"  class="img" style="width:100%;height:auto">
+				{% if structure['disease2_pp'] %}
+					<img src="{{ structure['disease2_pp'] }}"  class="img" style="width:100%;height:auto">
 				{% else %}
 					No graphic was created
 				{% endif %}
 			</div>
 			<div class="column3">
-				<h5>PathProx CV ROC</h5>
-				{% if structure['csm_roc'] %}
-					<img src="{{ structure['csm_roc'] }}" class="img" style="width:100%;height:auto">
+				<h5>PathProx {{ config_pathprox_dict['disease2_variant_short_description'] }} ROC</h5>
+				{% if structure['disease2_roc'] %}
+					<img src="{{ structure['disease2_roc'] }}" class="img" style="width:100%;height:auto">
 				{% else %}
 					No graphic was created
 				{% endif %}
 			</div>
 			<div class="column3">
-				<h5>PathProx CV PR</h5>
-				{% if structure['csm_pr'] %}
-					<img src="{{ structure['csm_pr'] }}"  class="img" style="width:100%;height:auto">
+				<h5>PathProx {{ config_pathprox_dict['disease2_variant_short_description'] }} PR</h5>
+				{% if structure['disease2_pr'] %}
+					<img src="{{ structure['disease2_pr'] }}"  class="img" style="width:100%;height:auto">
 				{% else %}
 					No graphic was created
 				{% endif %}

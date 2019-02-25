@@ -54,8 +54,8 @@
 					<th>#</th>
 					<th>Gene Mutation</th>
 					<th>Error</th>
-					<th>PP Clinvar</th>
-					<th>PP COSMIC</th>
+					<th>PP {{ disease1_variant_short_description }}</th>
+					<th>PP {{ disease2_variant_short_description }}</th>
 					<th>ddg Max</th>
 					<th>ddg Min</th>
 					<th>Gene Intrctns Generic</th>
@@ -75,14 +75,14 @@
 					<td><A href={{ mutation['html_fname'] }}>{{ mutation['Gene Mutation'] }}</A></td>
 					<td> {{ mutation['Error'] }} </td>
 					<td>
-						{% if mutation['cln_pp'] is not none %}   
-						    {{ mutation['cln_pp']|round(2) }}
+						{% if mutation['disease1_pp'] is not none %}   
+						    {{ mutation['disease1_pp']|round(2) }}
 						{%endif %}
 					</td>
 
 					<td>
-						{% if mutation['csm_pp'] is not none %}   
-						    {{ mutation['csm_pp']|round(2) }}
+						{% if mutation['disease2_pp'] is not none %}   
+						    {{ mutation['disease2_pp']|round(2) }}
 						{%endif %}
 					</td>
 
