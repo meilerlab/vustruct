@@ -1,4 +1,4 @@
-# PSB Pipeline V2.2,  2019-01-21 update
+# PSB Pipeline V2.2,  2019-02-25 update
 ### Use this documentation after README.md and performing setups in the Manifest.txt file
 
 ## Quick Rampup
@@ -43,6 +43,8 @@ Compare both the created .csv file of missense mutations, and the gene list, to 
 This model will supplement Swiss and Modbase models, and PDB srtuctures, found in the pipeline's SQL database.
 Place your model .pdb file in the case directory, and append a comma, and the .pdb filename, at the right.
 ALSO, you must add the text ",user_model" to the right of the first header line of the missense.csv file
+
+__Your user model must have amino acids numbered to match transcript numbering.  It can contain only one chain at this time.__
 
 For example, your file would be hand-edited to look something like this
 
@@ -164,19 +166,39 @@ However, you may override this default with the -u command line option.
 % cd $UDN
 ...... Create the file as you like...
 % cat mothcw.config
-[UserSpecific]
-idmapping = /dors/capra_lab/users/mothcw/mydata/idmapping/HUMAN_9606_idmapping_sprot.dat.gz
-[SlurmParametersAll]
-mail-user=chris.moth@vanderbilt.edu
-mail-type=end
-[SlurmParametersPathProxCOSMIC]
-time = 1-0
-mem = 30GB
-[SlurmParametersPathProxClinvar]
-time = 1-0
-mem = 30GB
+[UserSpecific]  
+idmapping = /dors/capra_lab/users/mothcw/mydata/idmapping/HUMAN_9606_idmapping_sprot.dat.gz  
+[SlurmParametersAll]  
+mail-user=chris.moth@vanderbilt.edu  
+mail-type=end  
+[SlurmParametersPathProxCOSMIC]  
+time = 1-0  
+mem = 30GB  
+[SlurmParametersPathProxClinvar]  
+time = 1-0  
+mem = 30GB  
 
-Because these two config files are required for every pipeline application, you may find it helpful to place both the -c global.config and -u local.config command line parameters into a single short environment variable.
+These two config files default for every pipeline application.  (As shown in psb_plan.py --help)  You may find it helpful to place both the -c global.config and -u local.config command line parameters into a single short environment variable.
+
+Finally, a third config file, defaulting to the casename.config (overrideable with -g)  is searched in the case directory.  Ths file is typically unnecessary, but it is extremely convenient for when a case should be procssed with variant lists other than the default exac/clinvar/COSMIC
+
+Here is an example case-config file showing three changes from the defaults:
+* neutral variants for pathrpox are switched from default exac in the sql database to gnomad in the sql database
+* disease1 variants for pathprox reports are changed from clinvars in the sql database, to a custom list in a .txt file.  
+* Disease2 variants are switched from the COSMIC cancer set to tcga in the sql database
+
+
+$ cd $UDN/UDN123456  
+$ cat UDN123456.config  
+[PathProx]  
+neutral_variant_short_description=gnomad  
+neutral_variant_sql_label=gnomad  
+disease1_variant_filename=P10636-1_13clinvars.txt  
+disease1_variant_short_description=13clinvars  
+disease1_variant_sql_label=13clinvars  
+disease2_variant_short_description=TCGA  
+disease2_variant_sql_label=tcga
+
 
 # Preparation of input
 
@@ -244,7 +266,7 @@ psb_plan.py creates a master psb_plan.log file for the entire run, as well as an
 
 Typically, you will not want to inspect fine details of the workplan.csv files that are generated for each mutation.  The locations of these files are well-documented in the .log files that are listed in the above output.  You can review all of the log file, or just "grep" for what interests you:
 
-```
+```git hub markdown force line break
 % grep "workplan.csv" /dors/capra_lab/projects/psb_collab/UDN/Test123456/Test123456_psb_plan.log
 14:34:22 INFO [         psb_plan.py:730] Workplan written to /dors/capra_lab/projects/psb_collab/UDN/Test123456/SPRY3_NM_001304990_R242C/SPRY3_NM_001304990_R242C_workplan.csv
 14:34:22 INFO [         psb_plan.py:730] Workplan written to /dors/capra_lab/projects/psb_collab/UDN/Test123456/TPRN_NM_001128228_P39L/TPRN_NM_001128228_P39L_workplan.csv
