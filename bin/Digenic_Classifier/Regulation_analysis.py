@@ -1,7 +1,11 @@
 import cPickle as pickle
 from scipy.stats import hypergeom
-upstream_regulators=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Regulation_Analysis/Regulators_of_genes.txt'))
-downstream_targets=pickle.load(open('/dors/capra_lab/users/mukhes1/Projects/Digenic_Classifier_Project/DATA_Processed/Regulation_Analysis/Targets_of_genes.txt'))
+import os
+
+DATAROOT='/dors/capra_lab/projects/psb_collab/UDN/data_for_systems_biology_analysis/'
+
+upstream_regulators=pickle.load(open(os.path.join(DATAROOT,'Regulation_Analysis/Regulators_of_genes.txt')))
+downstream_targets=pickle.load(open(os.path.join(DATAROOT,'Regulation_Analysis/Targets_of_genes.txt')))
 
 def get_enriched_regulators(genes):
     count=[]
