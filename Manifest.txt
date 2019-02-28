@@ -30,6 +30,8 @@ pip install fuzzywuzzy
 pip install python-Levenshtein
 pip install jinja2
 
+4d) Use "ln" so two perl scripts in pdbmap/lib visible in pdbmap directory
+
 5) Precompile all python modules as user psbadmin.  Currently, accomplished with
 
 $ cd /dors/capra_lab/users/psbadmin

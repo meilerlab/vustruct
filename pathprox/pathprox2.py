@@ -570,7 +570,8 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
   # Dirty hack: Reset pdb2pose
   s._pdb2pose = dict((key,key) for key,val in s._pdb2pose.iteritems())
 
-  if not seq:
+  # If we in fact got an alignment from the database, then pathprox should use that
+  if aln and len(aln) > 2:
     # Manually create a PDBMapAlignment from the queried alignment
     LOGGER.info("Chains in %s: %s"%
        (s.id,','.join(sorted([c.id for c in s.get_chains()]))))
@@ -591,13 +592,27 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
             c.detach_child(r.id)
 
   if renumber:
+    from Bio.PDB.Chain import Chain
     # Update all residue numbers to match the reference sequence
     for m in s:
       for c in list(m.get_chains()):
         # Align pdb residue numbers to the reference sequence
-        for r in list(c.get_residues()):
+        residues_list = list(c.get_residues())
+        renumbered_chain = Chain(c.id)
+
+        for r in residues_list:
+          LOGGER.info("%s",str(r))
+          LOGGER.info("%s",str(c.alignment.pdb2seq[r.id[1]]))
           new_id = (' ',c.alignment.pdb2seq[r.id[1]],' ')
+          r.detach_parent()
           r.id = new_id 
+          renumbered_chain.add(r)
+
+        m.detach_child(c.id)
+        m.add(renumbered_chain)
+
+        
+          
 
   # If user-provided structure, QA the chain alignment
   if bio < 0:
@@ -1893,6 +1908,7 @@ if __name__ == "__main__":
   AAseq = None
   if args.isoform and not args.fasta:
     # Query the Ensembl API for the transcript
+    # pdbmap will be in the PATH from psb_prep.bash
     cmd = "transcript_to_AAseq.pl %s"%args.isoform
     LOGGER.info("Executing: %s"%cmd)
     status, stdout_stderr =  commands.getstatusoutput(cmd)
