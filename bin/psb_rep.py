@@ -67,7 +67,7 @@ import shutil
 import numpy as np
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
-from StringIO import StringIO
+import io
 import pycurl
 import json
 from xml2json import Cxml2json
@@ -211,9 +211,9 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
         return None,None,None,None
 
     geneInteractions = {}
-    html_table =  StringIO()
-    html_report = StringIO()
-    text_report = StringIO()
+    html_table =  io.BytesIO()
+    html_report = io.BytesIO()
+    text_report = io.BytesIO()
 
     structure_positive_genes = [gene.strip() for gene in unstripped_genes]
     
@@ -224,21 +224,20 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
     pairs['other'] = []
 
     # We let the template html open the <table> with formatting as it prefers
-    # print >>html_table, "<table>" 
-    print >>html_table, "<thead><tr>" 
-    print >>html_table, "<th></th>"# top left is blank cell in header
+    html_table.write( "<thead><tr>\n" )
+    html_table.write("<th></th>\n" )  # top left is blank cell in header
     for gene1 in structure_positive_genes:
-      print >>html_table, "<th>" + gene1 + "</th>" 
-    print >>html_table, "</tr></thead>" 
+      html_table.write("<th>" + gene1 + "</th>\n" )
+    html_table.write("</tr></thead>\n")
 
     for gene1 in structure_positive_genes:
-        print >>text_report, "%s:"%gene1
-        print >>html_report, '%s:'%gene1
-        print >>html_table, "<tr><td>%s</td>"%gene1 
+        text_report.write("%s:\n"%gene1)
+        html_report.write('%s:\n'%gene1)
+        html_table.write("<tr><td>%s</td>\n"%gene1)
         if gene1 in genepair_dict:
-          print >>html_report, '<ul style="list-style: none;">'
+          html_report.write('<ul style="list-style: none;">\n')
         for gene2 in structure_positive_genes:
-          print >>html_table, "<td>",
+          html_table.write("<td>")
           if gene1 in genepair_dict and gene2 in genepair_dict[gene1] and ((not CheckInheritance) or (genepair_dict[gene1][gene2]['Inheritance'])):
               pairs_hits = []
               if genepair_dict[gene1][gene2]['Direct_Interaction']:
@@ -258,13 +257,12 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
                           if not gene2 in geneInteractions[gene1]:
                               geneInteractions[gene1].append(gene2)
                   logging.debug("Gene Interactions: %s %s %s"%(gene1, gene2, str(pairs_hits)))
-                  print >>text_report, gene2, str(pairs_hits) 
-                  print >>html_report, "<li>",gene2 + ':', ", ".join(pairs_hits),"</li>"
-                  print >>html_table, '<br>'.join(pairs_hits) 
-          print >>html_table, "</td>" 
-        print >>html_report, '</ul>'
-        print >>html_table, "</tr>"
-    # print >>html_table, "</table>" 
+                  text_report.write(gene2 + str(pairs_hits) )
+                  html_report.write( "<li>" + gene2 + ':' + ", ".join(pairs_hits) + "</li>")
+                  html_table.write('<br>'.join(pairs_hits) + '\n')
+          html_table.write("</td>\n")
+        html_report.write('</ul>\n')
+        html_table.write("</tr>\n")
     return geneInteractions,html_table.getvalue(),html_report.getvalue(),text_report.getvalue()
 
 # This complex routine gather PathProx, and ddG results from the pipeline run, where available
@@ -520,7 +518,7 @@ def report_one_mutation(structure_report,workstatus):
     """
     # Load the variant plots
     # Use  root-relative pathnames as inputs to the structure[] diction that flows into the html creation
-    # vus_var and exac_var should be populated from either Clinvar or COSMIC calculations.  Get them we don't
+    # vus_var and neutral_var should be populated from either Clinvar or COSMIC calculations.  Get them we don't
     # have them yet
 
     # If an image file is in the filesystem, great, else return empty string  
@@ -538,10 +536,10 @@ def report_one_mutation(structure_report,workstatus):
     if not "vus_var" in structure:
       check_existence_add_to_website("%s/%s_structure.png"%(output_flavor_directory,PathProxPrefix),structure,"vus_var",None)
   
-    if not "exac_var" in structure:
-      check_existence_add_to_website("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix),structure,"exac_var",None)
+    if not "neutral_var" in structure:
+      check_existence_add_to_website("%s/%s_neutral.png"%(output_flavor_directory,PathProxPrefix),structure,"neutral_var",None)
  
-    check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_var"%variant_sql_label,0)
+    check_existence_add_to_website("%s/%s_pathogenic.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_var"%disease1_or_disease2,0)
 
     # Where pathprox has left us ngl viewer variant setups, incorporate those into the final report
     # As with the static .png im
@@ -590,12 +588,12 @@ def report_one_mutation(structure_report,workstatus):
       # with open("%s/%s_structure.ngl.html"%(output_flavor_directory,PathProxPrefix),"rb") as ngl_html_file:
         # structure["vus_ngl_html"] =  ngl_html_file.read()
  
-    if not "exac_ngl_html" in structure:
+    if not "neutral_ngl_html" in structure:
       html_filename =  "%s/%s_neutral.ngl.html"%(output_flavor_directory,PathProxPrefix)
       if os.path.exists(html_filename):
         website_filelist.append(os.path.join(web_dir,html_filename))
         with open("%s/%s_neutral.ngl.html"%(output_flavor_directory,PathProxPrefix),"rb") as ngl_html_file:
-          structure["exac_ngl_html"] = ngl_html_file.read()
+          structure["neutral_ngl_html"] = ngl_html_file.read()
 
     pathogenic_ngl_html_filename = "%s/%s_pathogenic.ngl.html"%(output_flavor_directory,PathProxPrefix)
     if os.path.exists(pathogenic_ngl_html_filename):
@@ -605,9 +603,9 @@ def report_one_mutation(structure_report,workstatus):
 
     # Load the Ripley's K results for Disease1(default ClinVar) and Disease2(default COSMIC)
 
-    # Don't re-do exac_K graphic if already loaded from the other directory
-    if (not "exac_K" in structure) or len(structure["exac_K"]) == 0:
-      check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"exac_K","")
+    # Don't re-do exac_K (neutral) graphic if already loaded from the other directory
+    if (not "neutral_K" in structure) or len(structure["neutral_K"]) == 0:
+      check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"neutral_K","")
 
     check_existence_add_to_website("%s/%s_pathogenic_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"%s_K"%disease1_or_disease2,"")
     # Load the Ripley's D results for Disease1(ClinVar) and Disease2(COSMIC)
@@ -625,7 +623,7 @@ def report_one_mutation(structure_report,workstatus):
   def unp2PfamDomainGraphicString(unp,timeoutSeconds):
     url = 'http://pfam.xfam.org/protein/{0}/graphic'.format(unp.split(' ')[0].split('-')[0])
   
-    buffer = StringIO()
+    buffer = io.BytesIO()
   
     try:
       timeout = 60 #NOTE: using pycurl assures that this timeout is honored
