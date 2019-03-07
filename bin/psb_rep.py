@@ -825,8 +825,10 @@ def report_one_mutation(structure_report,workstatus):
     if xmlHandle.isCanonical(gathered_info['unp']): # Then we need to manually create the xml ourselves
       # Go for the web link because this is a canonical UNP - however that _can_ fail.
       graphicsLegend = "Downloaded Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
+      LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam"%gathered_info['unp']);
       domainGraphicsJSONstr = unp2PfamDomainGraphicString(gathered_info['unp'],20)
       if not domainGraphicsJSONstr:
+        LOGGER.info("Download returned nothing")
         graphicsLegend = "Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
     else:
       graphicsLegend = "Pfam Domain Graphic for Non-canonical Isoform %s"%gathered_info['unp']
@@ -1274,7 +1276,14 @@ fi
     print(lastmsg)
 
 
+
   if website_filelist:
+    try:
+      os.remove('index.html') # First time through will gen an exception.  That's A-OK
+    except:
+      pass
+    os.symlink(case_summary_filename,'index.html')
+    website_filelist.append('index.html')
     website_filelist_filename = os.path.join(collaboration_dir,"%s_website_files.list"%args.projectORstructures) # The argument is an entire project UDN124356
     with open(website_filelist_filename,"w") as f:
       f.write('\n'.join((os.path.relpath(
@@ -1283,15 +1292,18 @@ fi
                   for website_file in website_filelist)))
     LOGGER.info("A filelist for creating a website is in %s",website_filelist_filename)
     website_zip_filename = "%s.zip"%args.projectORstructures
-    pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -'%(website_zip_filename,os.path.join(args.projectORstructures,website_filelist_filename),os.path.join(args.projectORstructures,website_zip_filename),website_zip_filename)
+    pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -'%(website_zip_filename,
+         os.path.join(args.projectORstructures,website_filelist_filename),
+         os.path.join(args.projectORstructures,website_zip_filename),
+         os.path.join(args.projectORstructures,website_zip_filename))
     LOGGER.info("Executing: %s",pkzip_maker)
     subprocess.call(pkzip_maker,shell=True)
 
     website_tar_filename = "%s.tar.gz"%args.projectORstructures
-    tar_maker = 'rm -f %s; cd ..; tar cvzf %s --files-from %s > %s.stdout; cd -'%(website_tar_filename,
+    tar_maker = 'rm -f %s; cd ..; tar cvzf %s --files-from %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -'%(website_tar_filename,
          os.path.join(args.projectORstructures,website_tar_filename),
          os.path.join(args.projectORstructures,website_filelist_filename),
-         website_tar_filename)
+         os.path.join(args.projectORstructures,website_tar_filename))
     LOGGER.info("Executing: %s",tar_maker)
     subprocess.call(tar_maker,shell=True)
 
