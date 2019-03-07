@@ -205,10 +205,10 @@ img {
       <div class="header">
 		<h3> Structure Summary </h3> 
 		</div>
-		<h3>{{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ gene }} {{ mutation }}</h3>
-		{{ disease1summary }}
-		<h3>{{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ gene }} {{ mutation }}</h3>
-		{{ disease2summary }}
+		<h3>{{ config_pathprox_dict['disease1_variant_short_description'] }} Summary - {{ gene }} {{ mutation }}</h3>
+		{{ disease1_summary }}
+		<h3>{{ config_pathprox_dict['disease2_variant_short_description'] }} Summary - {{ gene }} {{ mutation }}</h3>
+		{{ disease2_summary }}
 		<p><i>All results are summarized by the median over all valid structures.</i></p>
 		<h3>ddG Summary - {{ gene }} {{ mutation }}</h3>
 		{{ ddG_summary }}
