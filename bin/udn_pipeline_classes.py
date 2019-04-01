@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import datetime
 import glob
 import gzip
@@ -14,7 +15,7 @@ from collections import OrderedDict
 from numpy import array, linalg, mean
 from shutil import copyfile
 from timeit import default_timer
-from urllib import urlopen
+from urllib.request import urlopen
 
 import logging
 
@@ -27,8 +28,8 @@ class NullHandler(logging.Handler):
 LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(NullHandler())
 
-sys.path.insert(0, '/dors/meilerlab/home/sliwosgr/gregit/')
-from prepare import cleaner,query_modres
+# sys.path.insert(0, '/dors/meilerlab/home/sliwosgr/gregit/')
+from udn_prepare import cleaner,query_modres
 
 AA = {"R":"ARG","ARG":"R","H":"HIS","HIS":"H","K":"LYS","LYS":"K",
       "D":"ASP","ASP":"D","E":"GLU","GLU":"E","S":"SER","SER":"S",
@@ -134,11 +135,11 @@ class predict_ss(object):
         self._mutfasta = self._fasta[:self._mutation[1]-1]+self._mutation[2]+self._fasta[self._mutation[1]:]
 
         if len(mutations)>1:
-            print "Warning, predict_ss currently only supports 1 mutation, using only first mutation (%s)" % "".join(str(x) for x in self._mutation)
+            LOGGER.info("Warning, predict_ss currently only supports 1 mutation, using only first mutation (%s)" % "".join(str(x) for x in self._mutation))
         LOGGER.info("predict_ss.__init__  completed after setting:\n%s"%pprint.pformat(self.__dict__))
         
     def failure(self, message):
-        print message
+        LOGGER.info(message)
         return [False,message]
 
 
@@ -149,7 +150,7 @@ class predict_ss(object):
 
         residue = self._residue
         mutation = self._mutation
-        disprange = range(max(1,residue-self._visbuffer),min(len(self._fasta),residue+self._visbuffer)+1)
+        disprange = list(range(max(1,residue-self._visbuffer),min(len(self._fasta),residue+self._visbuffer)+1))
         npreds = len(self._predictors)
         ixrow = ['res','aa','mut_aa']       
         for mit in sorted(self._predictors.keys()):
@@ -195,15 +196,15 @@ class predict_ss(object):
         plt.rcParams["figure.figsize"] = [w,h]
         fig, axs = plt.subplots(nplts,1,sharex=True,sharey=True)
         if mutation is None:
-            labels = ['']+sorted(self._predictors.keys(),reverse=True)+['']
-            preds = [varcol]+[wtcol[it] for it in sorted(wtcol.keys(),reverse=True)]+[varcol]
+            labels = ['']+sorted(list(self._predictors.keys()),reverse=True)+['']
+            preds = [varcol]+[wtcol[it] for it in sorted(list(wtcol.keys()),reverse=True)]+[varcol]
         else:
             labels = ['']
-            for it in sorted(self._predictors.keys(),reverse=True):       
+            for it in sorted(list(self._predictors.keys()),reverse=True):       
                 labels += ["%s_Mut" % it,"%s_WT" % it,'']
             labels += ['']
             preds = [varcol]
-            for it in sorted(self._predictors.keys(),reverse=True):
+            for it in sorted(list(self._predictors.keys()),reverse=True):
                 preds += [mutcol[it],wtcol[it],varcol]
         
         plt.subplots_adjust(hspace=None,bottom=.2,left=lb,right=rb)
@@ -213,9 +214,9 @@ class predict_ss(object):
         if disprange[-1]>999 or self._visbuffer<2:
             axs[-1].set_xticklabels(disprange,fontsize=8)
     
-        for item in xrange(len(axs)):
+        for item in range(len(axs)):
             axs[item].set_ylabel(labels[item],rotation=0,va='center',ha='right')
-            axs[item].tick_params(axis=u'both', which=u'both',length=0)
+            axs[item].tick_params(axis='both', which='both',length=0)
             axs[item].bar(disprange,y,1,color=preds[item],align='center')
     
         plt.xticks(x)
@@ -281,7 +282,7 @@ class predict_ss(object):
             label += ["%s_change" % it]
         final_preds = [label]
 
-        for x in xrange(len(self._fasta)):
+        for x in range(len(self._fasta)):
             ref = sorted(self._predictors.keys())[0]
             res = int(wt_raw[ref][x][0])
             aa = wt_raw[ref][x][1]
@@ -297,7 +298,7 @@ class predict_ss(object):
                 mutp.append(mut_raw[it][x][2])
                 mutc.append(max(float(mut_raw[it][x][3]),float(mut_raw[it][x][4]),float(mut_raw[it][x][5])))
             mut_change = []
-            for it in xrange(len(wtp)):
+            for it in range(len(wtp)):
                 mut_aa = mut_raw[ref][x][1]
                 if wtp[it]==mutp[it]:
                     mut_change.append('-')
@@ -397,6 +398,8 @@ class ddg_monomer(object):
             LOGGER.info("Scoring all ddg models with command:\n%s/%s" , self._rosetta,command)
             runscore = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             (scout,scerr) = runscore.communicate()
+            scout = out.decode('latin')
+            scerr = scerr.decode('latin')
             try:
                 assert os.path.isfile(rescorefile)
             except AssertionError:
@@ -455,7 +458,7 @@ class ddg_monomer(object):
             elif len(top_three[curkey])<3:
                 top_three[curkey].append([curscore,curmodel])
             elif curscore<sorted(top_three[curkey])[-1][0]:
-                print sorted(top_three[curkey])[-1][0]
+                LOGGER.info(sorted(top_three[curkey])[-1][0])
                 top_three[curkey][-1] == [curscore,curmodel]
         allmeans = {}
         for keys in top_three:
@@ -469,6 +472,8 @@ class ddg_monomer(object):
                 topmod+= ".pdb"
                 extcom = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 (cstout,csterr) = extcom.communicate()                            
+                cstout = cstout.decode('latin')
+                csterr = csterr.decode('latin')
             copyfile(topmod, 'top_models/%s' % topmod)
             curmean = mean([x[0] for x in top_three[keys]])
             allmeans[keys] = curmean
@@ -508,10 +513,10 @@ class ddg_monomer(object):
             mutation_pose[-1][1] = to_pdb.index(mut[1])
             posemut = "".join(str(y) for y in mutation_pose[-1])
             pose_to_raw[posemut] = rawmut
-            print "Mutation residue has been converted from %d to pose #%d (internally)." % (mut[1],mutation_pose[-1][1])
+            LOGGER.info("Mutation residue has been converted from %d to pose #%d (internally)." % (mut[1],mutation_pose[-1][1]))
             with open(commandfile,'a') as outfile:
                 outfile.write("Mutation residue has been converted from %d to pose #%d (internally).\n" % (mut[1],mutation_pose[-1][1]))
-        print self._break
+        LOGGER.info(self._break)
   
         ##Preminimize and gather restraints
         #Premin only takes a list of structs even if you only have 1
@@ -527,10 +532,12 @@ class ddg_monomer(object):
             outfile.write("Preminimize\n")
             outfile.write("%s/%s" % (self._rosetta,command))
         minstart = default_timer()
-        print "Generating starting constraints with command:"
-        print "%s/%s" % (self._rosetta, command)
+        LOGGER.info("Generating starting constraints with command:")
+        LOGGER.info("%s/%s" % (self._rosetta, command))
         runcst = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (cstout,csterr) = runcst.communicate()
+        cstout = cstout.decode('latin')
+        csterr = csterr.decode('latin')
 
         csts = []
         for line in cstout.split("\n"):
@@ -548,7 +555,7 @@ class ddg_monomer(object):
         mintime = minstop-minstart
         os.remove(templistfile)
         minimized_pdb = "minimized.%s_0001.pdb" % (os.path.basename(isopdbname).split(".")[0])
-        print minimized_pdb
+        LOGGER.info(minimized_pdb)
         try:
             assert os.path.isfile(minimized_pdb)
         except AssertionError:
@@ -559,15 +566,17 @@ class ddg_monomer(object):
         ##Rescore model and get residue score
         command = """per_residue_energies.linuxgccrelease -s %s -score:weights talaris2014 \
          -out:file:silent min_residues_%s.sc""" % (minimized_pdb, suffix)
-        print self._break
-        print "Rescoring minimized model with command:"
-        print "%s/%s" % (self._rosetta,command)
+        LOGGER.info(self._break)
+        LOGGER.info("Rescoring minimized model with command:")
+        LOGGER.info("%s/%s" % (self._rosetta,command))
         with open(commandfile,'a') as outfile:
             outfile.write("---\nRescore:\n")
             outfile.write("%s/%s" % (self._rosetta,command))
         scorestart = default_timer()
         runscore = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (scoreout,scoreerr) = runscore.communicate()
+        scoreout = scoreout.decode('latin')
+        scoreerr = scoreerr.decode('latin')
         with open("min_residues_%s.sc" % suffix) as infile:
             raw_scores = [x.strip().split()[-2:] for x in infile.readlines() if len(x.strip().split())>0 and x.strip().split()[-1] != "description"]
         try:
@@ -583,7 +592,7 @@ class ddg_monomer(object):
         for x in self._mutations:
             z = "".join(str(y) for y in x)
             mutation_score[z] = None
-        for x in xrange(len(raw_scores)):
+        for x in range(len(raw_scores)):
             resnum = to_pdb[x+1]
             if self._mutations is not None:
                 for z in self._mutations:
@@ -650,29 +659,32 @@ class ddg_monomer(object):
         if os.path.isfile("ddg_predictions.out"):
             shutil.move("ddg_predictions.out","ddg_predictions.old_%s" % suffix)
         command = "ddg_monomer.linuxgccrelease @%s -constraints::cst_file %s -s %s -ddg:mut_file %s" % (optionsfile,cstfile,minimized_pdb,mutfile)
-        print self._break
+        LOGGER.info(self._break)
         if squality:
-            print "Running high quality (row 16) ddG monomer protocol"
+            LOGGER.info("Running high quality (row 16) ddG monomer protocol")
         else:
-            print "Running low quality (row 3) ddG monomer protocol"
-        print "Running ddg_monomer application with %d iterations (this may take a while)" % iterations
-        print "Command:"
-        print "%s/%s" % (self._rosetta,command)
+            LOGGER.info("Running low quality (row 3) ddG monomer protocol")
+        LOGGER.info("Running ddg_monomer application with %d iterations (this may take a while)" % iterations)
+
+        rosetta_cmdstring = os.path.join(self._rosetta,command) 
+        LOGGER.info("Command: %s",rosetta_cmdstring)
         with open(commandfile,'a') as outfile:
             outfile.write("---\nddG:\n")
-            outfile.write("%s/%s" % (self._rosetta,command))
+            outfile.write(rosetta_cmdstring)
             outfile.write("\n")
         ddgstart = default_timer()
-        runddg = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        runddg = subprocess.Popen(rosetta_cmdstring, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (ddgout,ddgerr) = runddg.communicate()
+        ddgout = ddgout.decode('latin')
+        ddgerr = ddgerr.decode('latin')
         ddgstop = default_timer()
         ddgtime = ddgstop-ddgstart
         
         #Make sure all expected files have been generated
         if not silent:
-            expected_files = ["repacked_wt_round_%d.pdb" % (x+1) for x in xrange(iterations)]+["ddg_predictions.out"]
+            expected_files = ["repacked_wt_round_%d.pdb" % (x+1) for x in range(iterations)]+["ddg_predictions.out"]
             for mut in mutation_pose:
-                expected_files += ["mut_%s_round_%d.pdb" % ("".join(str(x) for x in mut),x+1) for x in xrange(iterations)]
+                expected_files += ["mut_%s_round_%d.pdb" % ("".join(str(x) for x in mut),x+1) for x in range(iterations)]
         else:
             expected_files = ["ddg_predictions.out"]
         for x in expected_files:
@@ -792,10 +804,10 @@ class interface_analyzer(object):
             outfile.write("\n")
             
     def failure(self, dumps, message):
-        print message
+        LOGGER.info(message)
         if dumps is not None:
             for item in dumps:
-                print "Dumping %s to %s" % (item[0],item[1])
+                LOGGER.info("Dumping %s to %s" % (item[0],item[1]))
                 with open(item[1],'w') as outfile:
                     outfile.write(item[2])
         #self.log_failure(message)
@@ -814,7 +826,7 @@ class interface_analyzer(object):
         #If failed chain checks, still write results to files for simple post processing
         renumresult, renumpdbname, to_pdb, allchains = renum_pdb(self._pdb, self._chain,2)      
         if not renumresult:
-            print "Unable to calculate interface energy: %s" % to_pdb
+            LOGGER.info("Unable to calculate interface energy: %s" % to_pdb)
             results = ["\t".join(["File","Chain","Residue","Interface_Chain","Total_Score","Abs_Total_Score"])]
             for x in self._mutations:
                 results += ["\t".join([self._pdb,self._chain,str(x[1]),'NA','NA','NA'])]
@@ -827,11 +839,11 @@ class interface_analyzer(object):
             try:
                 residue_pose.append(self._to_pdb.index(res))
             except ValueError:
-                print "%s not found in biounit, skipping" % res
+                LOGGER.info("%s not found in biounit, skipping" % res)
                 residue_pose.append(None)
                 continue
-            print "Selected residue number has been converted from %s to pose #%d (internally)." % (res[1:],residue_pose[-1])
-        print self._break
+            LOGGER.info("Selected residue number has been converted from %s to pose #%d (internally)." % (res[1:],residue_pose[-1]))
+        LOGGER.info(self._break)
 
         ##Preminimize to equilibriate to Rosetta energy environment
         #Premin only takes a list of structs even if you only have 1
@@ -843,10 +855,12 @@ class interface_analyzer(object):
         pmlogfile = "%s_premin.log" % os.path.splitext(renumpdbname)[0]
         command = "minimize_with_cst.default.linuxgccrelease -in:file:fullatom -fa_max_dis 9.0 -ddg:harmonic_ca_tether 0.5 -ddg::constraint_weight 1.0 -ddg::out_pdb_prefix  minimized -ddg::sc_min_only false -score:weights talaris2014 -in:file:l %s -overwrite -ignore_zero_occupancy false" % templistfile
         minstart = default_timer()
-        print "Equilibriating structure to Rosetta energy function with command:"
-        print "%s/%s" % (self._rosetta, command)
-        runmin = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        rosetta_cmdstring = os.path.join(self._rosetta, command)
+        LOGGER.info("Equilibriating structure to Rosetta energy function with command:\n%s",rosetta_cmdstring)
+        runmin = subprocess.Popen(rosetta_cmdstring, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (minout,minerr) = runmin.communicate()
+        minout = minout.decode('latin')
+        minerr = minerr.decode('latin')
         minstop = default_timer()
         mintime = minstop-minstart
         os.remove(templistfile)
@@ -861,12 +875,14 @@ class interface_analyzer(object):
 
         ##Generate residue-pair energy score raw file
         command = "residue_energy_breakdown.default.linuxgccrelease -s %s -score:weights talaris2014 -out:file:silent residue_pairs_%s.raw -overwrite" % (minimized_pdb,suffix)
-        print self._break
-        print "Generating residue-pair energies from minimized model with command:"
-        print "%s/%s" % (self._rosetta,command)
+        LOGGER.info(self._break)
+        rosetta_cmdstring = os.path.join(self._rosetta, command)
+        LOGGER.info("Generating residue-pair energies from minimized model with command:\n%s",rosetta_cmdstring)
         scorestart = default_timer()
-        runscore = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        runscore = subprocess.Popen(rosetta_cmdstring, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (scoreout,scoreerr) = runscore.communicate()
+        scoreout = scoreout.decode('latin')
+        scoreerr = scoreerr.decode('latin')
         rawscorefile = "residue_pairs_%s.raw" % suffix
         try:
             assert os.path.isfile(rawscorefile)
@@ -935,7 +951,7 @@ class interface_analyzer(object):
         results = ["\t".join(["File","Chain","Residue","Interface_Chain","Total_Score","Abs_Total_Score"])]
         for x in sorted(allchains):
             if x==self._chain: continue
-            for y in xrange(len(self._mutations)):
+            for y in range(len(self._mutations)):
                 if residue_pose[y] is None:
                     cursc = 0.0
                     curabs = 0.0
@@ -995,10 +1011,10 @@ class dssp(object):
             outfile.write("\n")
             
     def failure(self, dumps, message):
-        print message
+        LOGGER.info(message)
         if dumps is not None:
             for item in dumps:
-                print "Dumping %s to %s" % (item[0],item[1])
+                LOGGER.info("Dumping %s to %s" % (item[0],item[1]))
                 with open(item[1],'w') as outfile:
                     outfile.write(item[2])
         #self.log_failure(message)
@@ -1021,11 +1037,13 @@ class dssp(object):
             return(self.failure(False, "Error: %s not found" % self._dssp))
         
         command = "%s -i %s" % (self._dssp,self._pdb)
-        print "Running DSSP for whole biounit with command:"
-        print command        
+        LOGGER.info("Running DSSP for whole biounit with command:")
+        print(command)        
         rundssp = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (out,err) = rundssp.communicate()        
-        raw = out.split("\n")
+        out = out.decode('latin')
+        err = err.decode('latin')
+        raw = out.split('\n')
         try:
             assert len(raw)>0
         except AssertionError:
@@ -1053,7 +1071,7 @@ class dssp(object):
                 chainpdbs[chain] = [line]
             else:
                 chainpdbs[chain].append(line)
-        print self._break
+        LOGGER.info(self._break)
         
         for chain in chainpdbs:
             if chain!=self._chain: continue
@@ -1061,17 +1079,19 @@ class dssp(object):
             with open(tempfile, 'w') as outtemp:
                 outtemp.write("".join(chainpdbs[chain]))  
             command = "%s -i %s" % (self._dssp,tempfile)
-            print "Running DSSP on isolated chain %s with command:" % self._chain
-            print command
+            LOGGER.info("Running DSSP on isolated chain %s with command:" % self._chain)
+            LOGGER.info(command)
             rundssp = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             (out,err) = rundssp.communicate()
+            out = out.decode('latin')
+            err = err.decode('latin')
             if len(err)>0:
                 return(self.failure(None, "dssp failed with error: %s" % " ".join(err.split("\n"))))
             rawisolated[chain] = out.split("\n")
             if len(rawisolated[chain])==0:
                 return(self.failure(None,"Failed DSSP with isolated chain %s" % chain))
             os.remove('temp_%s_%s.temp.' % (chain, suffix))
-        print self._break
+        LOGGER.info(self._break)
         
         for chain in chainpdbs:
             if chain != self._chain: continue
@@ -1221,10 +1241,10 @@ class ligands(object):
             outfile.write("\n")
             
     def failure(self, dumps, message):
-        print message
+        LOGGER.info(message)
         if dumps is not None:
             for item in dumps:
-                print "Dumping %s to %s" % (item[0],item[1])
+                LOGGER.info("Dumping %s to %s" % (item[0],item[1]))
                 with open(item[1],'w') as outfile:
                     outfile.write(item[2])
         #self.log_failure(message)
@@ -1290,7 +1310,7 @@ class ligands(object):
         try:
             assert len(self.ligands)>0
         except AssertionError:
-            print "No ligands in %s" % self._pdb
+            LOGGER.info("No ligands in %s" % self._pdb)
             for x in respos:
                 result += ["\t".join([self._pdb,self._chain,str(x),'NA','NA'])]
             return [True, result]
@@ -1372,7 +1392,7 @@ class uniprot(object):
         seenmuts = set()
         if unp not in self._fasta:
             return [False,"Warning: failed to retrieve fasta for %s; %s" % (self._gene, unp)]
-        for x in xrange(1,len(self._fasta[unp])+1):
+        for x in range(1,len(self._fasta[unp])+1):
             if x in mutpos:
                 for y in self._mutations:
                     if y[1]==x:
@@ -1399,7 +1419,7 @@ class uniprot(object):
             assert len(unp) > 0
         except AssertionError:
             return [False,"Gene %s not found in uniprot map %s" % (self._gene,self._UNP_MAP)]
-        final_set = [self.get_annotations(unp[x],ignorewhole)[1]+"\n------\n" if x<len(unp)-1 else self.get_annotations(unp[x],ignorewhole)[1] for x in xrange(len(unp))]
+        final_set = [self.get_annotations(unp[x],ignorewhole)[1]+"\n------\n" if x<len(unp)-1 else self.get_annotations(unp[x],ignorewhole)[1] for x in range(len(unp))]
 #        if not outcome:
 #            return [False,final_set]
         try:
@@ -1457,7 +1477,7 @@ class uniprot(object):
                     within = False
                 category = current[0]
                 subcat = current[1]
-                if category not in self._ANNOTATIONS.keys() or subcat not in self._ANNOTATIONS[category]:
+                if category not in list(self._ANNOTATIONS.keys()) or subcat not in self._ANNOTATIONS[category]:
                     continue
                 try:               
                     if current[2][0] == '<' or current[2][0]=='?':
@@ -1472,7 +1492,7 @@ class uniprot(object):
                     else:
                         end = int(current[3])
                 except:
-                    print "Warning: expected residue numbers at pos 2 and 3, got %s and %s instead, skipping this entry" % (current[2],current[3])
+                    LOGGER.info("Warning: expected residue numbers at pos 2 and 3, got %s and %s instead, skipping this entry" % (current[2],current[3]))
                     within = False
                     continue
                 if start==1 and end==length and subcat not in self._PAIRS and ignorewhole:
@@ -1528,6 +1548,6 @@ class uniprot(object):
                 fout.write(fasta)
                 fout.write("\n")
         else:
-            print "Warning: failed to retrieve fasta for gene %s" % self._gene
+            LOGGER.info("Warning: failed to retrieve fasta for gene %s" % self._gene)
         return [True,"\n".join(final)]
 

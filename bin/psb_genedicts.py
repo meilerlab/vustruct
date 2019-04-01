@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 #
 # Project        : PSB Pipeline
 # Filename       : undetermined.py
@@ -39,7 +39,7 @@ def set_capra_group_sticky(dirname):
     pass
 
 import time, datetime
-import argparse,ConfigParser
+import argparse,configparser
 import pprint
 
 from logging.handlers import RotatingFileHandler
@@ -59,7 +59,7 @@ import json
 import sys
 import os
 import argparse
-import cPickle as pickle
+import pickle as pickle
 import networkx as nx
 #import pygraphviz as pgv
 import matplotlib.pyplot as plt
@@ -141,7 +141,7 @@ if not os.path.exists(args.config):
   sys_exit_failure(msg)
   sys.exit(1)
 
-config = ConfigParser.SafeConfigParser(allow_no_value=True)
+config = configparser.SafeConfigParser(allow_no_value=True)
 configFilesRead = config.read([args.config,args.userconfig])
 if len(configFilesRead) == 0:
   msg = "Unable to open config files: %s or %s  Exiting"%(args.config,args.userconfig)
