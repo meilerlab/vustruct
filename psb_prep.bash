@@ -23,9 +23,9 @@ fi
 # PERL binaries, and Ensembl are NOT copied to
 # the development environment.  Not worth trouble
 PSBADMIN_PERL_ROOT=/dors/capra_lab/users/psbadmin
-
+newPATH=''
 # Directories that must be added to your path
-newPATH=$PIPELINE_ROOT/anaconda2/bin
+newPATH=$PIPELINE_ROOT/anaconda3/bin
 newPATH=$newPATH:$PSBADMIN_PERL_ROOT/localperl/bin
 newPATH=$newPATH:$PIPELINE_ROOT/bin
 newPATH=$newPATH:$PIPELINE_ROOT/pdbmap

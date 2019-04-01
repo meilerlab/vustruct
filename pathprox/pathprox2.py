@@ -1,6 +1,6 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 #
-# Project        : PDBMap
+# Project        : PathProx
 # Filename       : pathprox.py  (pathprox2.py reflects new logging, configuration, output structure of pipelineV2 architecture)
 # Authors        : R. Michael Sivley
 #                : Xiaoyi Dou
@@ -34,7 +34,7 @@ import inspect # For status updates
 
 ## Package Dependenecies ##
 # Standardction with a given name return the same logger instance. This means that logger instances never need to be passed between d
-import sys,os,shutil,gzip,csv,platform,grp,stat,commands
+import sys,os,shutil,gzip,csv,platform,grp,stat,subprocess
 import string
 import subprocess as sp
 from time import strftime
@@ -82,8 +82,8 @@ resetwarnings()
 # Biopython
 filterwarnings('ignore',category=ImportWarning)
 from Bio.SubsMat.MatrixInfo import blosum100
-minv,maxv = np.min(blosum100.values()),np.max(blosum100.values())
-for key,val in blosum100.items():
+minv,maxv = np.min(list(blosum100.values())),np.max(list(blosum100.values()))
+for key,val in list(blosum100.items()):
   # Transform to 0..1, then invert so that severe mutations get high scores
   val = float(val)
   blosum100[key]             = 1-((val-minv)/(maxv-minv))
@@ -127,7 +127,7 @@ def makedirs_capra_lab(DEST_PATH, module_name):
 
 def read_fasta(fasta):
   """ Aligns the observed sequence with a user-provided reference """
-  with open(fasta,'rb') as fin:
+  with open(fasta,'r') as fin:
     try:
       unp,refid = fin.readline().split('|')[1:3]
     except:
@@ -203,7 +203,7 @@ def structure_lookup(io,sid,bio=True,chain=None):
   if bio and res: # Biological assemblies were requested and found
     LOGGER.info("Using the first biological assembly for %s."%sid)
     flist = []
-    loc   = "%s/biounit/coordinates/all/%s.pdb%d.gz"
+    loc   = "%s/biounits/%s.pdb%d.gz"
     for b in res:
       f = loc%(config_dict['pdb_dir'],sid.lower(),b)
       if not os.path.exists(f):
@@ -215,7 +215,7 @@ def structure_lookup(io,sid,bio=True,chain=None):
   else:   # No biological assemblies were found; Using asymmetric unit
     if bio:
       LOGGER.info("Using the asymmetric unit for %s."%sid)
-    loc = "%s/structures/all/pdb/pdb%s.ent.gz"
+    loc = "%s/structures/pdb%s.ent.gz"
     f   = loc%(config_dict['pdb_dir'],sid.lower())
     if not os.path.exists(f):
       msg  = "Coordinate file missing for %s[%s]\n"%(sid,0)
@@ -543,7 +543,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
     indb = (unp != None)
     refid = None
 
-  with gzip.open(coord_filename,'rb') if coord_filename.split('.')[-1]=="gz" else open(coord_filename,'rb') as fin:
+  with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else open(coord_filename,'r') as fin:
     filterwarnings('ignore',category=PDBConstructionWarning)
     p = PDBParser()
     s = p.get_structure(sid,fin)
@@ -568,7 +568,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
 
   s = PDBMapStructure(s,refseq=seq,pdb2pose={})
   # Dirty hack: Reset pdb2pose
-  s._pdb2pose = dict((key,key) for key,val in s._pdb2pose.iteritems())
+  s._pdb2pose = dict((key,key) for key,val in s._pdb2pose.items())
 
   # If we in fact got an alignment from the database, then pathprox should use that
   if aln and len(aln) > 2:
@@ -576,10 +576,10 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
     LOGGER.info("Chains in %s: %s"%
        (s.id,','.join(sorted([c.id for c in s.get_chains()]))))
     LOGGER.info("Chains in %s with pre-calculated alignments: %s"%
-       (s.id,','.join(sorted([c for c in set([k[0] for k in aln.keys()])]))))
+       (s.id,','.join(sorted([c for c in set([k[0] for k in list(aln.keys())])]))))
     for c in s.get_chains():
       LOGGER.info("Using pre-calculated alignment for chain %s"%c.id)
-      refdict = dict((val[0],(val[1],"NA",0,0,0)) for key,val in aln.iteritems() if key[0]==c.id)
+      refdict = dict((val[0],(val[1],"NA",0,0,0)) for key,val in aln.items() if key[0]==c.id)
       c.transcript = PDBMapTranscript("ref","ref","ref",refdict)
       c.alignment  = PDBMapAlignment(c,c.transcript)
       s.transcripts.append(c.transcript)
@@ -588,7 +588,7 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
     for m in s:
       for c in m:
         for r in list(c.get_residues()):
-          if r.id[1] not in c.alignment.pdb2seq:
+          if r.id not in c.alignment.pdb2seq:
             c.detach_child(r.id)
 
   if renumber:
@@ -602,8 +602,8 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
 
         for r in residues_list:
           LOGGER.info("%s",str(r))
-          LOGGER.info("%s",str(c.alignment.pdb2seq[r.id[1]]))
-          new_id = (' ',c.alignment.pdb2seq[r.id[1]],' ')
+          LOGGER.info("%s",str(c.alignment.pdb2seq[r.id]))
+          new_id = (' ',c.alignment.pdb2seq[r.id],' ')
           r.detach_parent()
           r.id = new_id 
           renumbered_chain.add(r)
@@ -652,7 +652,7 @@ def parse_variants(variantsFlavor,varset):
     return []
   if os.path.isfile(varset):
     LOGGER.info("Parsing %s variants from file: %s",variantsFlavor,varset)
-    raw_variants = [line.strip() for line in open(varset,'rb')]
+    raw_variants = [line.strip() for line in open(varset,'r')]
   else:
     LOGGER.info("Parsing %s variants from command line argument:\n %s",variantsFlavor,varset)
     raw_variants = [variant.strip() for variant in varset.split(',')]
@@ -716,13 +716,13 @@ def parse_qt(varset):
   if not varset:
     return []
   var,q = [],[]
-  with open(varset,'rb') as f:
+  with open(varset,'r') as f:
     for line in f:
       var.append(line.split('\t')[0].strip())
       q.append(line.split('\t')[1].strip())
   var = ','.join(var)
   var = parse_variants("Quantity weights",var)
-  return zip(var,q)
+  return list(zip(var,q))
 
 def resicom(resi):
   if resi==None: return [None,None,None]
@@ -978,8 +978,8 @@ def var2coord(s,p,n,c,q=[]):
   vdf_neutrals_deferred = vdf.groupby(["unp_pos","ref","alt","chain"],as_index=False).apply(defer_to_pathogenic)
   
   # Construct a dataframe from the coordinate file
-  sdf = pd.DataFrame([[r.get_parent().id,r.id[1]] for r in s.get_residues()],columns=["chain","pdb_pos"])
-  sdf["unp_pos"] = [r.get_parent().alignment.pdb2seq[r.id[1]] for r in s.get_residues()]
+  sdf = pd.DataFrame([[r.get_parent().id,r.id] for r in s.get_residues()],columns=["chain","pdb_pos"])
+  sdf["unp_pos"] = [r.get_parent().alignment.pdb2seq[r.id] for r in s.get_residues()]
 
   # Calculate the coordinate center-of-mass for all residues
   coords   = [resicom(r) for r in s.get_residues()]
@@ -1011,6 +1011,7 @@ def var2coord(s,p,n,c,q=[]):
     LOGGER.critical(msg); 
     sys_exit_failure(msg)
 
+
   # Check that both variant categories are populated (if input is categorical)
   if not args.quantitative:
     msg = None
@@ -1038,7 +1039,7 @@ def var2coord(s,p,n,c,q=[]):
   cnts   = sdf.drop_duplicates(["unp_pos","ref","alt","dcode"]).groupby("dcode").apply(lambda x: (x["dcode"].values[0],len(x)))
   LOGGER.info("################################")
   LOGGER.info("Unique Variant Counts:")
-  with open("%s_variant_counts.txt"%args.label,'wb') as fout:
+  with open("%s_variant_counts.txt"%args.label,'w') as fout:
     writer = csv.writer(fout,delimiter='\t')    
     for dcode,cnt in cnts[::-1]:
       writer.writerow([code2class[dcode],cnt])
@@ -1313,7 +1314,7 @@ def k_plot(T,K,K_average,K_std,Kz,lce,hce,ax=None,weights=False):
   #  text.set_rotation(+90.0)
 
     
-  ax.set_xlabel("Distance Threshold t ($5000 \AA$)",fontsize=16)
+  ax.set_xlabel("Distance Threshold t ($\\AA$)",fontsize=16)
   ax.set_ylabel("K(t) = Percentage of Inter-residue Distances Within t",fontsize=16,rotation=90)
 
 
@@ -1610,7 +1611,7 @@ if __name__ == "__main__":
   # This script will use pathvis.py to assist with chimera output
   script_dir = "%s/bin"%os.path.dirname(os.path.abspath(sys.argv[0]))
   ## Parse Command Line Options ##
-  import os,sys,argparse,ConfigParser
+  import os,sys,argparse,configparser
   from pdbmap import PDBMapModel
   from psb_shared import psb_config,psb_progress
 
@@ -1911,7 +1912,7 @@ if __name__ == "__main__":
     # pdbmap will be in the PATH from psb_prep.bash
     cmd = "transcript_to_AAseq.pl %s"%args.isoform
     LOGGER.info("Executing: %s"%cmd)
-    status, stdout_stderr =  commands.getstatusoutput(cmd)
+    status, stdout_stderr =  subprocess.getstatusoutput(cmd)
     if status > 0:
       LOGGER.critical("Exit Code of %d from perl %s stdout:\n%s"%(status,cmd,stdout_stderr))
       sys.exit(1)
@@ -2072,6 +2073,21 @@ if __name__ == "__main__":
     pNextPathogenicSeqDelta = None
 
     mapped_variant_count =  (sdf["dcode"] == -1).sum()
+    def format_resid(resid):
+       # If that residue type first element of the biopython has anything, then
+       # something weird is going on, so make some noise
+       if len(resid[0].strip()):
+         logger.warning("Malformed residue tuple: %s   Reformatting for readability/chimera.",str(resid))
+
+       # If there is an insertion code then return 123F for residue id
+       if len(resid[2].strip()):
+          resid_formatted = "%d%s"%(resid[1],resid[2])
+          logger.warning("Residue %s has insertion code and will be reformatted as %s"%(resid,resid_formatted))
+          return resid_formatted
+
+       # The usual case, a pdb resdidue number with out a type, without an insertion code
+       return str(resid[1])
+     
     # Check that candidate variants did not map to missing residues
     if args.variants and mapped_variant_count < 1:
       LOGGER.info("All candidate variants were aligned to missing residues.")
@@ -2093,11 +2109,11 @@ if __name__ == "__main__":
 
         df_pathogenic_nearest = df_pathogenic.iloc[min_subscript]
         pClosestPathogenicMutationPDB = "%s%s%s"%(
-          df_pathogenic_nearest['ref'],df_pathogenic_nearest['pdb_pos'],df_pathogenic_nearest['alt'])
+          df_pathogenic_nearest['ref'],format_resid(df_pathogenic_nearest['pdb_pos']),df_pathogenic_nearest['alt'])
         pClosestPathogenicMutationUNP = "%s%d%s"%(
           df_pathogenic_nearest['ref'],int(df_pathogenic_nearest['unp_pos']),df_pathogenic_nearest['alt'])
  
-        print "3-space Nearest is %d %s %s"%(min_subscript,pClosestPathogenicMutationPDB,pClosestPathogenicMutationUNP)
+        print("3-space Nearest is %d %s %s"%(min_subscript,pClosestPathogenicMutationPDB,pClosestPathogenicMutationUNP))
         #Second, get the distance in sequence space
         variant_unp_pos = df_variant[['unp_pos']].values
         pathogenic_unp_poss = df_pathogenic[['unp_pos']].values
@@ -2107,10 +2123,10 @@ if __name__ == "__main__":
         min_subscript = np.argmin(distances_to_pathogenic[0])
         df_pathogenic_nearest = df_pathogenic.iloc[min_subscript]
         pNextPathogenicMutationPDB = "%s%s%s"%(
-          df_pathogenic_nearest['ref'],df_pathogenic_nearest['pdb_pos'],df_pathogenic_nearest['alt'])
+          df_pathogenic_nearest['ref'],format_resid(df_pathogenic_nearest['pdb_pos']),df_pathogenic_nearest['alt'])
         pNextPathogenicMutationUNP = "%s%d%s"%(
           df_pathogenic_nearest['ref'],int(df_pathogenic_nearest['unp_pos']),df_pathogenic_nearest['alt'])
-        print "Sequence Nearest is %d %s %s"%(min_subscript,pNextPathogenicMutationPDB,pNextPathogenicMutationUNP)
+        print("Sequence Nearest is %d %s %s"%(min_subscript,pNextPathogenicMutationPDB,pNextPathogenicMutationUNP))
     else:
       LOGGER.info("%d variants were mapped.  Impossible to calculate nearest pathogenic residues."%mapped_variant_count)
 
@@ -2167,14 +2183,14 @@ if __name__ == "__main__":
     # Write attribute file with neutral variants
     if nflag:
       # Original PDB numbering
-      with open("%s_neutral.attr"%args.label,'wb') as fout:
+      with open("%s_neutral.attr"%args.label,'w') as fout:
         fout.write("attribute: neutral\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
         for i,r in v.loc[v["dcode"]==0].iterrows():
-          fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],1.0))
+          fout.write("\t:%s.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],1.0))
       # Renumbered PDB
-      with open("%s_renum_neutral.attr"%args.label,'wb') as fout:
+      with open("%s_renum_neutral.attr"%args.label,'w') as fout:
         fout.write("attribute: neutral\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2183,14 +2199,14 @@ if __name__ == "__main__":
     # Write attribute file with pathogenic variants
     if pflag:
       # Original PDB numbering
-      with open("%s_pathogenic.attr"%args.label,'wb') as fout:
+      with open("%s_pathogenic.attr"%args.label,'w') as fout:
         fout.write("attribute: pathogenic\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
         for i,r in v.loc[v["dcode"]==1].iterrows():
-          fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],1.0))
+          fout.write("\t:%s.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],1.0))
       # Renumbered PDB
-      with open("%s_renum_pathogenic.attr"%args.label,'wb') as fout:
+      with open("%s_renum_pathogenic.attr"%args.label,'w') as fout:
         fout.write("attribute: pathogenic\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2198,7 +2214,7 @@ if __name__ == "__main__":
           fout.write("\t:%d.%s\t%.3f\n"%(r["unp_pos"],r["chain"],1.0))
     # Write attribute file with quantitative trait
     if qflag:
-      with open("%s_quantitative.attr"%args.label,'wb') as fout:
+      with open("%s_quantitative.attr"%args.label,'w') as fout:
         fout.write("attribute: quantitative\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2214,14 +2230,14 @@ if __name__ == "__main__":
     resetwarnings()
     # Write attribute file with all variants
     # Original PDB numbering
-    with open("%s_variants.attr"%args.label,'wb') as fout:
+    with open("%s_variants.attr"%args.label,'w') as fout:
       fout.write("attribute: pathogenicity\n")
       fout.write("match mode: 1-to-1\n")
       fout.write("recipient: residues\n")
       for i,r in vt.iterrows():
-        fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],r["dcode"]))
+        fout.write("\t:%s.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],r["dcode"]))
     # Renumbered PDB
-    with open("%s_renum_variants.attr"%args.label,'wb') as fout:
+    with open("%s_renum_variants.attr"%args.label,'w') as fout:
       fout.write("attribute: pathogenicity\n")
       fout.write("match mode: 1-to-1\n")
       fout.write("recipient: residues\n")
@@ -2419,14 +2435,14 @@ if __name__ == "__main__":
     # Neutral constraint
     if nflag:
       # Original PDB numbering
-      with open("%s_neutcon.attr"%args.label,'wb') as fout:
+      with open("%s_neutcon.attr"%args.label,'w') as fout:
         fout.write("attribute: neutcon\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
         for i,r in c.iterrows():
-          fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],r["neutcon"]))
+          fout.write("\t:%s.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],r["neutcon"]))
       # Renumbered PDB
-      with open("%s_renum_neutcon.attr"%args.label,'wb') as fout:
+      with open("%s_renum_neutcon.attr"%args.label,'w') as fout:
         fout.write("attribute: neutcon\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2435,14 +2451,14 @@ if __name__ == "__main__":
     # Pathogenic constraint
     if pflag:
       # Original PDB numbering
-      with open("%s_pathcon.attr"%args.label,'wb') as fout:
+      with open("%s_pathcon.attr"%args.label,'w') as fout:
         fout.write("attribute: pathcon\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
         for i,r in c.iterrows():
-          fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],r["pathcon"]))
+          fout.write("\t:%s.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],r["pathcon"]))
       # Renumbered PDB
-      with open("%s_renum_pathcon.attr"%args.label,'wb') as fout:
+      with open("%s_renum_pathcon.attr"%args.label,'w') as fout:
         fout.write("attribute: pathcon\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2451,14 +2467,14 @@ if __name__ == "__main__":
     # PathProx
     if nflag and pflag:
       # Original PDB numbering
-      with open("%s_pathprox.attr"%args.label,'wb') as fout:
+      with open("%s_pathprox.attr"%args.label,'w') as fout:
         fout.write("attribute: pathprox\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
         for i,r in c.iterrows():
-          fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],r["pathprox"]))
+          fout.write("\t:%s.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],r["pathprox"]))
       # Renumbered PDB
-      with open("%s_renum_pathprox.attr"%args.label,'wb') as fout:
+      with open("%s_renum_pathprox.attr"%args.label,'w') as fout:
         fout.write("attribute: pathprox\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2467,14 +2483,14 @@ if __name__ == "__main__":
     # Quantitative constraint
     if qflag:
       # Original PDB numbering
-      with open("%s_qtprox.attr"%args.label,'wb') as fout:
+      with open("%s_qtprox.attr"%args.label,'w') as fout:
         fout.write("attribute: qtprox\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
         for i,r in c.iterrows():
-          fout.write("\t:%d.%s\t%.3f\n"%(r["pdb_pos"],r["chain"],r["qtprox"]))
+          fout.write("\t:%d.%s\t%.3f\n"%(format_resid(r["pdb_pos"]),r["chain"],r["qtprox"]))
       # Renumbered PDB
-      with open("%s_renum_qtprox.attr"%args.label,'wb') as fout:
+      with open("%s_renum_qtprox.attr"%args.label,'w') as fout:
         fout.write("attribute: qtprox\n")
         fout.write("match mode: 1-to-1\n")
         fout.write("recipient: residues\n")
@@ -2487,14 +2503,17 @@ if __name__ == "__main__":
       LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","qtprox"]].sort_values( \
             by=["qtprox","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
     elif args.variants:
-      LOGGER.info("Neutral constraint scores for candidate missense variants:")
-      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","neutcon"]].sort_values( \
+      if nflag:
+        LOGGER.info("Neutral constraint scores for candidate missense variants:")
+        LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","neutcon"]].sort_values( \
             by=["neutcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
-      LOGGER.info("Pathogenic constraint scores for candidate missense variants:")
-      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
+      if pflag:
+        LOGGER.info("Pathogenic constraint scores for candidate missense variants:")
+        LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
             by=["pathcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
-      LOGGER.info("PathProx scores for candidate missense variants:")
-      LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
+        if nflag: # meaning, we had BOTH enough pathogenic and enough neutrals
+          LOGGER.info("PathProx scores for candidate missense variants:")
+          LOGGER.info(sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
             by=["pathprox","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
 
     # Write summary results to file
@@ -2509,20 +2528,23 @@ if __name__ == "__main__":
       muts = sdf.loc[sdf["dcode"]<0,["ref","unp_pos","alt"]]
       muts = muts["ref"].str.cat([muts["unp_pos"].astype(str),muts["alt"]])
       # PathProx scores
-      pp_vus = sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
+      if pflag and nflag:
+          pp_vus = sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
                 by=["pathprox","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean)
-      head.extend(["%s_pathprox"%m for m in muts])
-      vals.extend(list(pp_vus["pathprox"].values))
+          head.extend(["%s_pathprox"%m for m in muts])
+          vals.extend(list(pp_vus["pathprox"].values))
       # Pathogenic constraint scores
-      pc_vus = sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
+      if pflag:
+          pc_vus = sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
                 by=["pathcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean)
-      head.extend(["%s_pathcon"%m for m in muts])
-      vals.extend(list(pc_vus["pathcon"].values))
+          head.extend(["%s_pathcon"%m for m in muts])
+          vals.extend(list(pc_vus["pathcon"].values))
       # Neutral constraint scores
-      nc_vus = sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","neutcon"]].sort_values( \
+      if nflag:
+          nc_vus = sdf.loc[sdf["dcode"]<0,["unp_pos","ref","alt","neutcon"]].sort_values( \
                 by=["neutcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean)
-      head.extend(["%s_neutcon"%m for m in muts])
-      vals.extend(list(nc_vus["neutcon"].values))
+          head.extend(["%s_neutcon"%m for m in muts])
+          vals.extend(list(nc_vus["neutcon"].values))
 
     # Logically if any of these "nearest pathogenic residue" calculations are set, then the all should be
     # So output these in a way that will crash hard if they are not all set
@@ -2540,7 +2562,7 @@ if __name__ == "__main__":
     for summary_tuple in zip(head,vals):
       summary_strings.append("  %-15.15s %s"%(summary_tuple[0],summary_tuple[1]))
     LOGGER.info("Writing summary of pathprox results to %s:\n%s",summary_filename,'\n'.join(summary_strings))
-    with open(summary_filename,'wb') as fout:
+    with open(summary_filename,'w') as fout:
       writer = csv.writer(fout,delimiter='\t')
       writer.writerow(head)
       writer.writerow(vals)
@@ -2577,7 +2599,7 @@ if __name__ == "__main__":
     residuesOfInterest = {}  
    
     # Strip out all punctuation to make a reasonablly unique token if psb_rep.py needs to generate global variables in .html
-    residuesOfInterest['unique_div_name'] = os.path.basename(args.uniquekey).translate(None,string.punctuation)
+    residuesOfInterest['unique_div_name'] = os.path.basename(args.uniquekey).translate(str.maketrans('','',string.punctuation))
 
     # pdb_rep.py will point ngl to the psb with HELIX and SHEET information (Secondary Structure)
     residuesOfInterest['pdbSSfilename'] =  os.path.join(args.outdir,renumberedPDBfilenameSS)
