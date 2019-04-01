@@ -1,9 +1,9 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """Class PsbShared exposes static functions that psb_*.py modules employ
 to handle command line argument processing, default parameters, and config file reads"""
 
 import argparse
-import ConfigParser
+import configparser
 import os
 import stat
 import getpass
@@ -61,7 +61,7 @@ def read_config_files(args, required_config_items=None):
   """All psb_pipeline applications parse global and user-specific config files.  This
   function cals ConfigParser.SafeConfigParser to get the job done"""
 
-  config = ConfigParser.SafeConfigParser(allow_no_value=True)
+  config = configparser.SafeConfigParser(allow_no_value=True)
 
   config_file_list = [args.config, args.userconfig, args.caseconfig]
   LOGGER.info("Attempting to read config from " + str(config_file_list))
