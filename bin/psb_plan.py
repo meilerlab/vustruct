@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 #
 # Project        : PDBMap
 # Filename       : psb_plan.py
@@ -31,7 +31,7 @@ The three output files for each gene include:
   workplan.csv
 """
 
-print "%s: Pipeline execution plan generator.  -h for detailed help"%__file__
+print("%s: Pipeline execution plan generator.  -h for detailed help"%__file__)
 
 import logging,os,pwd,sys,grp,stat
 from logging.handlers import RotatingFileHandler
@@ -58,7 +58,7 @@ pd.set_option("display.width",1000)
 import numpy as np
 import time
 from get_structures import get_pdbs,get_modbase_swiss
-import argparse,ConfigParser
+import argparse,configparser
 from glob import glob
 from pdbmap import PDBMapIO,PDBMapProtein,PDBMapSwiss
 from lib.amino_acids import longer_names
@@ -223,12 +223,16 @@ logger.info("Results for patient case %s will be rooted in %s"%(args.project,col
 
 swiss_filename = os.path.join(config_dict['swiss_dir'],config_dict['swiss_summary'])
 if not infoLogging:
-  print "Loading swiss model JSON metadata from %s"%swiss_filename
+  print("Loading swiss model JSON metadata from %s"%swiss_filename)
 logger.info("Loading swiss model JSON metadata from %s"%swiss_filename)
+
+# import cProfile
+# cProfile.run("PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary'])")
+# sys.exit(0)
 PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary'])
 # In order to set the directories, we need the gene name worted out, interestingly enough
 if not infoLogging:
-  print "Loading idmapping file from %s"%config_dict['idmapping']
+  print("Loading idmapping file from %s"%config_dict['idmapping'])
 
 logger.info("Loading idmapping")
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
@@ -250,7 +254,7 @@ def repr_subset(df):
   cov = set([])
   template_set = set([])
   for _,row in tdf.iterrows():
-    s_cov = range(row['Seq Start'],row['Seq End'])
+    s_cov = list(range(row['Seq Start'],row['Seq End']))
     # Test if <10% of residues in *this model* overlap current coverage
     if row['PDB Template'] is None:
       templatePDB = row['Structure ID'] 
@@ -382,7 +386,7 @@ def makejob_udn_sequence(params):
   # Secondary structure prediction and sequence annotation
   return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
-           "-p %(collab)s -i %(project)s -g %(gene)s -t %(transcript_mutation)s")%params)
+           "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
 
 def makejob_udn_structure(params,method,sid,ch,pdb_mut_i):
   params['method'] = method
@@ -392,7 +396,7 @@ def makejob_udn_structure(params,method,sid,ch,pdb_mut_i):
   # ddg_monomer (plus redundant secondary structure/uniprot annotation)
   return makejob("ddG","udn_pipeline2.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
-           "-p %(collab)s -i %(project)s -g %(gene)s -s %(pdbid)s -c %(chain)s -m %(pdb_mutation)s -t %(transcript_mutation)s")%params) # options
+           "--project %(collab)s --patient %(project)s --gene %(gene)s --structure %(pdbid)s --chain %(chain)s --mutation %(pdb_mutation)s --transcript %(transcript_mutation)s")%params) # options
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
 # Fix this in python 3 - where we have additional local scoping options
@@ -795,7 +799,13 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
   elif (config_pathprox_dict['disease1_variant_sql_label'] == 'tcga') or \
        (config_pathprox_dict['disease2_variant_sql_label'] == 'tcga'):
     logger.error("The uniprot identifier must map to an ENST transcript ID in order use tcga variants",user_model,model_count)
+    sys.exit(1)
+
   if user_model: # Then add it to our structure report
+    if not ENST_transcript_ids:
+      logger.error("The uniprot identifier must map to an ENST transcript ID in order to incorporate a user model",user_model,model_count)
+      sys.exit(1)
+
     from Bio.PDB.PDBParser import PDBParser 
     p = PDBParser()
     structure = p.get_structure('user_model',user_model)
@@ -803,6 +813,7 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     chain_count = 0;
     chain_id = ' '
     for model in structure:
+      import pdb; pdb.set_trace()
       model_count += 1
       for chain in model:
         chain_id = chain.get_id()
@@ -816,10 +827,6 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
           if seq_start == -1:
             seq_start = residue.id[1]
           seq_end = residue.id[1]
-      sys.exit(1)
-
-    if not ENST_transcript_ids:
-      logger.error("The uniprot identifier must map to an ENST transcript ID in order to incorporate a user model",user_model,model_count)
 
     if model_count != 1:
       logger.error("User model %s must contain one and only one model, not %d",user_model,model_count)
@@ -1012,12 +1019,12 @@ def plan_casewide_work():
     
 
 if oneMutationOnly:
-  print "Planning work for one mutation only: %s %s %s %s"%(args.project,args.entity,args.refseq,args.mutation)
+  print("Planning work for one mutation only: %s %s %s %s"%(args.project,args.entity,args.refseq,args.mutation))
   df_all_jobs,workplan_filename,df,df_dropped,log_filename = plan_one_mutation(args.entity,args.refseq,args.mutation)
-  print "Workplan of %d jobs written to:"%len(df_all_jobs),workplan_filename
-  print "%3d structures/models will be processed."%len(df)
-  print "%3d structures/models were considered, but dropped."%len(df_dropped)
-  print "Full details in %s",log_filename
+  print("Workplan of %d jobs written to:"%len(df_all_jobs),workplan_filename)
+  print("%3d structures/models will be processed."%len(df))
+  print("%3d structures/models were considered, but dropped."%len(df_dropped))
+  print("Full details in %s",log_filename)
 else:
   phenotypes_filename = os.path.join(collaboration_dir,"Phenotypes","%s_phenotypes.txt"%args.project)
 
@@ -1031,19 +1038,19 @@ else:
     fulldir, filename = os.path.split(log_filename)
     fulldir, casewide_dir = os.path.split(fulldir)
     fulldir, project_dir = os.path.split(fulldir)
-    print " %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename))
+    print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
 
   # Now plan the per-mutation jobs
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
-  print "Retrieving project mutations from %s"%udn_csv_filename
-  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False)
-  print "Work for %d mutations will be planned"%len(df_all_mutations)
+  print("Retrieving project mutations from %s"%udn_csv_filename)
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8')
+  print("Work for %d mutations will be planned"%len(df_all_mutations))
 
   ui_final_table = pd.DataFrame()
   for index,row in df_all_mutations.iterrows():
-    print "Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???")
+    print("Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???"))
     if ('unp' in row) and ('user_model' in row):
-      print "....Including user_model %s"%row['user_model']
+      print("....Including user_model %s"%row['user_model'])
     ui_final = {}
     for f in ['gene','refseq','mutation','unp']:
       ui_final[f] = row[f]
@@ -1053,7 +1060,7 @@ else:
     fulldir, filename = os.path.split(log_filename)
     fulldir, mutation_dir = os.path.split(fulldir)
     fulldir, project_dir = os.path.split(fulldir)
-    print " %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s"%(len(df_structures),len(df_dropped),len(df_all_jobs),os.path.join(project_dir,mutation_dir,filename))
+    print(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s"%(len(df_structures),len(df_dropped),len(df_all_jobs),os.path.join(project_dir,mutation_dir,filename)))
     ui_final['retained'] = len(df_structures)
     ui_final['dropped'] = len(df_dropped)
     ui_final['jobs'] = len(df_all_jobs)
@@ -1066,7 +1073,7 @@ else:
   myLeftJustifiedUNP = lambda x: '%-9s'%x
   final_structure_info_table = ui_final_table.to_string(columns=['gene','refseq','mutation','unp','retained','dropped','jobs','planfile'],float_format="%1.0f",justify='center',
          formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq,'unp': myLeftJustifiedUNP, 'planfile': myLeftJustifiedPlanfile})
-  print ("Structure Report\n%s"%final_structure_info_table)
+  print(("Structure Report\n%s"%final_structure_info_table))
   logger.info("%s",final_structure_info_table)
 
   # It is so easy to forget to create this phenotypes file - so remind user again!

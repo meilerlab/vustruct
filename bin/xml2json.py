@@ -1,11 +1,11 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 # Chris Moth 2017-Nov 30
 # Extract ONLY human entries from the ~150GB match_complete.xml
 # The resulting match_human.xml file in the same directory (specify in -c configfile)
 # is used to help generate domain graphics for isoform-specific uniprot ACs in the pipeline
 # output reports
 
-import argparse,ConfigParser
+import argparse,configparser
 import json
 import traceback
 import sys,os,csv,time,pdb,glob,gzip,shutil
@@ -51,7 +51,7 @@ class Cxml2json(object):
     base_unp = uniprot_ac.split('-')[0]
     for child in Cxml2json.__root:
       if child.tag == 'protein' and child.get('id').startswith(base_unp):
-        print child.get('id')
+        print((child.get('id')))
         found_list.append(child)
     return found_list
 
@@ -63,10 +63,10 @@ class Cxml2json(object):
     # between base-unp and specific isoform, and then you can say YES!
     base_unp = unp_split[0]
     isoform_node = Cxml2json.__root.findall("protein/[@id='%s']"%uniprot_ac)
-    if len(isoform_node) <> 1:
+    if len(isoform_node) != 1:
       sys.exit("%s was not found in xml file"%uniprot_ac)
     baseunp_node = Cxml2json.__root.findall("protein/[@id='%s']"%base_unp)
-    if len(baseunp_node) <> 1:
+    if len(baseunp_node) != 1:
       sys.exit("%s was not found in xml file"%base_unp)
     return isoform_node[0].get('crc64') == baseunp_node[0].get('crc64')
 

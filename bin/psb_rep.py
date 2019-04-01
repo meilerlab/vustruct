@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3.7
 #
 # Project        : PSB Pipeline
 # Filename       : psb_monitor.py
@@ -11,7 +11,7 @@
 #                : (output from psb_launch.py)
 #=============================================================================#
 
-from __future__ import print_function
+
 
 """\
 Create final html and pdf reports for completed pipeline jobs from either
@@ -28,7 +28,7 @@ print ("4 of 4  %s Pipeline report generator.  -h for detailed help"%__file__)
 
 import logging,os,pwd,sys,grp,stat,string
 import time, datetime
-import argparse,ConfigParser
+import argparse,configparser
 import pprint
 from logging.handlers import RotatingFileHandler
 from logging import handlers
@@ -67,7 +67,7 @@ import shutil
 import numpy as np
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
-import io
+from io import StringIO
 import pycurl
 import json
 from xml2json import Cxml2json
@@ -197,7 +197,7 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
     genepair_dict_file = os.path.join(case_root,'casewide','MakeGeneDictionaries','%s.json'%case)
     try:
         with open(genepair_dict_file,'r') as fd:
-    	    genepair_dict = json.load(fd)
+          genepair_dict = json.load(fd)
     except:
         LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genepair_dict_file)
         return None,None,None,None
@@ -205,15 +205,15 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
     genes_filename = os.path.join(case_root,"%s_genes.txt"%case)
     try:
         with open(genes_filename) as fd:
-    	      unstripped_genes = fd.readlines()
+          unstripped_genes = fd.readlines()
     except:
         LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genes_filename)
         return None,None,None,None
 
     geneInteractions = {}
-    html_table =  io.BytesIO()
-    html_report = io.BytesIO()
-    text_report = io.BytesIO()
+    html_table =  StringIO()
+    html_report = StringIO()
+    text_report = StringIO()
 
     structure_positive_genes = [gene.strip() for gene in unstripped_genes]
     
@@ -224,20 +224,21 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
     pairs['other'] = []
 
     # We let the template html open the <table> with formatting as it prefers
-    html_table.write( "<thead><tr>\n" )
-    html_table.write("<th></th>\n" )  # top left is blank cell in header
+    # print >>html_table, "<table>" 
+    print >>html_table, "<thead><tr>" 
+    print >>html_table, "<th></th>"# top left is blank cell in header
     for gene1 in structure_positive_genes:
-      html_table.write("<th>" + gene1 + "</th>\n" )
-    html_table.write("</tr></thead>\n")
+      print >>html_table, "<th>" + gene1 + "</th>" 
+    print >>html_table, "</tr></thead>" 
 
     for gene1 in structure_positive_genes:
-        text_report.write("%s:\n"%gene1)
-        html_report.write('%s:\n'%gene1)
-        html_table.write("<tr><td>%s</td>\n"%gene1)
+        print >>text_report, "%s:"%gene1
+        print >>html_report, '%s:'%gene1
+        print >>html_table, "<tr><td>%s</td>"%gene1 
         if gene1 in genepair_dict:
-          html_report.write('<ul style="list-style: none;">\n')
+          print >>html_report, '<ul style="list-style: none;">'
         for gene2 in structure_positive_genes:
-          html_table.write("<td>")
+          print >>html_table, "<td>",
           if gene1 in genepair_dict and gene2 in genepair_dict[gene1] and ((not CheckInheritance) or (genepair_dict[gene1][gene2]['Inheritance'])):
               pairs_hits = []
               if genepair_dict[gene1][gene2]['Direct_Interaction']:
@@ -257,12 +258,13 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
                           if not gene2 in geneInteractions[gene1]:
                               geneInteractions[gene1].append(gene2)
                   logging.debug("Gene Interactions: %s %s %s"%(gene1, gene2, str(pairs_hits)))
-                  text_report.write(gene2 + str(pairs_hits) )
-                  html_report.write( "<li>" + gene2 + ':' + ", ".join(pairs_hits) + "</li>")
-                  html_table.write('<br>'.join(pairs_hits) + '\n')
-          html_table.write("</td>\n")
-        html_report.write('</ul>\n')
-        html_table.write("</tr>\n")
+                  print >>text_report, gene2, str(pairs_hits) 
+                  print >>html_report, "<li>",gene2 + ':', ", ".join(pairs_hits),"</li>"
+                  print >>html_table, '<br>'.join(pairs_hits) 
+          print >>html_table, "</td>" 
+        print >>html_report, '</ul>'
+        print >>html_table, "</tr>"
+    # print >>html_table, "</table>" 
     return geneInteractions,html_table.getvalue(),html_report.getvalue(),text_report.getvalue()
 
 # This complex routine gather PathProx, and ddG results from the pipeline run, where available
@@ -398,10 +400,11 @@ def report_one_mutation(structure_report,workstatus):
   def structure_html_vars(df_onerow,df_structure_report_onerow,thestruct):
     # Subset the dataframe to the results of this chain
     # This could need 2 rows - one for each pathprox - we just have to keep an eye onthis
+    map_punct_to_None = dict.fromkeys(string.punctuation) # for each punctuation character as key, the value is None
     structure  = {"structid":thestruct['pdbid'],
-  		"chain":thestruct['chain'],
-  		"html_id":(thestruct['pdbid'] + thestruct['chain']).translate(None, string. punctuation),
-  		"mutation":gathered_info['mutation']}
+      "chain":thestruct['chain'],
+      "html_id":(thestruct['pdbid'] + thestruct['chain']).translate(str.maketrans(map_punct_to_None)),
+      "mutation":gathered_info['mutation']}
 
   
     structure.update(df_structure_report_onerow.to_dict())
@@ -518,18 +521,18 @@ def report_one_mutation(structure_report,workstatus):
     """
     # Load the variant plots
     # Use  root-relative pathnames as inputs to the structure[] diction that flows into the html creation
-    # vus_var and neutral_var should be populated from either Clinvar or COSMIC calculations.  Get them we don't
+    # vus_var and exac_var should be populated from either Clinvar or COSMIC calculations.  Get them we don't
     # have them yet
 
     # If an image file is in the filesystem, great, else return empty string  
     def check_existence_add_to_website(plot_png,structure_dict,structure_key,value_if_missing=None):
       if os.path.exists(plot_png):
-	structure_dict[structure_key] = plot_png
+        structure_dict[structure_key] = plot_png
         website_filelist.append(os.path.join(web_dir,plot_png))
         return plot_png
       LOGGER.info("Graphic png file %s not found",plot_png)
       if value_if_missing is not None:
-	structure_dict[structure_key] = value_if_missing
+        structure_dict[structure_key] = value_if_missing
 
       return 0 
 
@@ -603,7 +606,7 @@ def report_one_mutation(structure_report,workstatus):
 
     # Load the Ripley's K results for Disease1(default ClinVar) and Disease2(default COSMIC)
 
-    # Don't re-do exac_K (neutral) graphic if already loaded from the other directory
+    # Don't re-do neutral_K (exac) graphic if already loaded from the other directory
     if (not "neutral_K" in structure) or len(structure["neutral_K"]) == 0:
       check_existence_add_to_website("%s/%s_neutral_K_plot.png"%(output_flavor_directory,PathProxPrefix),structure,"neutral_K","")
 
@@ -623,7 +626,7 @@ def report_one_mutation(structure_report,workstatus):
   def unp2PfamDomainGraphicString(unp,timeoutSeconds):
     url = 'http://pfam.xfam.org/protein/{0}/graphic'.format(unp.split(' ')[0].split('-')[0])
   
-    buffer = io.BytesIO()
+    buffer = StringIO()
   
     try:
       timeout = 60 #NOTE: using pycurl assures that this timeout is honored
@@ -678,7 +681,7 @@ def report_one_mutation(structure_report,workstatus):
     elif row['flavor'].endswith(config_pathprox_dict['disease2_variant_sql_label']):
       thestruct['disease2'] = row.to_dict()
     elif 'SequenceAnnotation' == row['flavor']: 
-      continue # UDN Sequence annotations are NOT a part of generated reports
+      centinue # UDN Sequence annotations are NOT a part of generated reports
     elif 'ddG' == row['flavor']: 
       thestruct['ddG'] = row.to_dict()
     else:
@@ -777,7 +780,7 @@ def report_one_mutation(structure_report,workstatus):
       print (msg)
     LOGGER.info(msg)
 
-  LOGGER.warn("REminder: DATABASE IS NOT BEING UPDATED")
+  LOGGER.warning("Reminder: DATABASE IS NOT BEING UPDATED")
  
   """ 
   # Upload results to the database
@@ -845,18 +848,18 @@ def report_one_mutation(structure_report,workstatus):
     if domainGraphicsJSONstr:
       domainGraphicsDict = json.loads(domainGraphicsJSONstr)
       # Add our mutation point of interest to this
-      mutationSiteDict = {u'colour': u'#e469fe',\
-       u'display': True,\
-       u'headStyle': u'diamond',\
-       u'lineColour': u'#333333',\
-       u'metadata': {u'database': u'UDN Case',\
-                u'description': u'%s'%mutation,\
-                u'start': mutation[1:-1],\
-                u'type': u'Mutation'} ,\
-       u'residue': u'X',\
-       u'start': mutation[1:-1],\
-       u'type': u'UDN Mutation site',\
-       u'v_align': u'top'}
+      mutationSiteDict = {'colour': '#e469fe',\
+       'display': True,\
+       'headStyle': 'diamond',\
+       'lineColour': '#333333',\
+       'metadata': {'database': 'UDN Case',\
+                'description': '%s'%mutation,\
+                'start': mutation[1:-1],\
+                'type': 'Mutation'} ,\
+       'residue': 'X',\
+       'start': mutation[1:-1],\
+       'type': 'UDN Mutation site',\
+       'v_align': 'top'}
       markupDictList = domainGraphicsDict.get('markups',None)
       if (markupDictList == None):
         markupDictList = []
@@ -1029,7 +1032,7 @@ def report_one_mutation(structure_report,workstatus):
   
     LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
   
-    logging.disable(sys.maxint)
+    logging.disable(sys.maxsize)
     HTML(string=html_out).write_pdf(pdf_fname,stylesheets=["../html/css/typography.css"])#,CSS(string="@page { size: A3 landscape; }")])
     logging.disable(logging.NOTSET)
     LOGGER.warning("weasyprint write_pdf() has returned.  Restoring logging")
@@ -1118,7 +1121,7 @@ else:
       print (msg)
     LOGGER.info(msg)
     if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
-	row['refseq'] = 'NA'
+      row['refseq'] = 'NA'
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
       LOGGER.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem.",mutation_dir)
@@ -1275,8 +1278,6 @@ fi
   else:
     print(lastmsg)
 
-
-
   if website_filelist:
     try:
       os.remove('index.html') # First time through will gen an exception.  That's A-OK
@@ -1284,6 +1285,7 @@ fi
       pass
     os.symlink(case_summary_filename,'index.html')
     website_filelist.append('index.html')
+
     website_filelist_filename = os.path.join(collaboration_dir,"%s_website_files.list"%args.projectORstructures) # The argument is an entire project UDN124356
     with open(website_filelist_filename,"w") as f:
       f.write('\n'.join((os.path.relpath(

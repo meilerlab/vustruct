@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 #
 # Project        : PSB Pipeline
 # Filename       : slurm.py
@@ -49,13 +49,13 @@ def slurm_scontrol_show_job(jobid):
         info = dict(tuple(info.split('=')) for info in stdout.split() if len(info.split('='))==2)
         if ("JobState" in info) and ("JobName" in info): # Great this is super!
           return info
-    elif "Socket timed out" in stderr:
+    elif b"Socket timed out" in stderr:
       # SLURM is lagging. Wait 30s then resubmit
       logging.getLogger(__name__).warn('Retrying because of cluster "Socket timed out" no stdout from slurm command %s'%command_line)
       sleep(30)
     else:
       # Our job could easily have finished and slurm does not know about it anymore
-      if ("Invalid job id specified" in stderr):
+      if (b"Invalid job id specified" in stderr):
         info["JobName"] = "UNKNOWN"
         info["JobId"] = str(jobid)
         info["JobState"] = "UNKNOWN"
@@ -88,7 +88,7 @@ def slurm_submit(job_submit):
       logging.getLogger(__name__).critical(msg)
       sys.exit(1)
     # Extract the job ID
-    if p.returncode == 0 and stdout.startswith("Submitted batch job "): # Case of clear success
+    if p.returncode == 0 and stdout.startswith(b"Submitted batch job "): # Case of clear success
       logging.getLogger(__name__).info('sbatch successfully launched: %s'%stdout)
       sbmt_fail = False
       break
@@ -100,7 +100,7 @@ def slurm_submit(job_submit):
       else:  
         # No stderr -> job submitted successfully
         sbmt_fail = False
-    elif "Socket timed out" in stderr:
+    elif b"Socket timed out" in stderr:
       # SLURM is lagging. Wait 30s then resubmit
       logging.getLogger(__name__).warn('Retrying because of cluster "Socket timed out" no stdout from slurm command %s'%job_submit)
       sleep(30)
@@ -111,6 +111,8 @@ def slurm_submit(job_submit):
       # Was raise Exception("%s\n"%stderr)       
   # Extract and return the jobid (e.g. "Submitted batch job 12345678")
   cluster_jobno = stdout.strip().split()[-1]
+  # Convert the bytes to str
+  cluster_jobno = cluster_jobno.decode('latin')
   return cluster_jobno
 
 class SlurmJob():

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 #
 # Project        : PSB Pipeline
 # Filename       : psb_launch.py
@@ -16,7 +16,7 @@ Launch jobs on a SLURM cluster given the UDN case ID
    or a specific workplan.csv previously output from psb_plan.py 
 """
 
-print "%s: Pipeline launcher.  Run after psb_plan.py.   -h for detailed help"%__file__
+print("%s: Pipeline launcher.  Run after psb_plan.py.   -h for detailed help"%__file__)
 
 import logging,os,pwd,sys,grp,stat
 import time, datetime
@@ -260,7 +260,7 @@ def launch_one_mutation(workplan):
       elif row['flavor'] in launch_strings: # Great for ddG, SequenceAnnocation, MakeGeneDicts
         launch_strings[row['flavor']].append(uniquekey_launchstring)
       else:
-        print "I don't know this job flavor: ",row['flavor']
+        print("I don't know this job flavor: ",row['flavor'])
         sys.exit(1)
 
       # Before launching the slurm lob, make path to its 
@@ -354,7 +354,7 @@ def launch_one_mutation(workplan):
         elif subdir == "MakeGeneDictionaries":
           slurmDict = dict(slurmParametersMakeGeneDictionaries)
         else:
-          print "I don't know what flavor(subdir) is: ",subdir
+          print("I don't know what flavor(subdir) is: ",subdir)
           sys.exit(1)
          
         slurmDict['output'] = "%s/%s.out"%(slurm_stdout_directory,"%s_%%A_%%a"%geneRefseqMutation_OR_casewideString)
@@ -428,13 +428,13 @@ fi
           f.write('Submitted')
 
   # Now create a new workstatus file
-  print "Recording %d jobids to %s"%(len(jobids),workstatus_filename)
+  print("Recording %d jobids to %s"%(len(jobids),workstatus_filename))
  
-  df_running_jobs = df_all_jobs.merge(pd.DataFrame(list(jobids.iteritems()),columns=['uniquekey','jobid']),on='uniquekey',how='left')
-  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(arrayids.iteritems()),columns=['uniquekey','arrayid']),on='uniquekey',how='left')
-  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(jobinfo.iteritems()),columns=['uniquekey','jobinfo']),on='uniquekey',how='left')
-  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(jobprogress.iteritems()),columns=['uniquekey','jobprogress']),on='uniquekey',how='left')
-  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(exitcodes.iteritems()),columns=['uniquekey','exitcodes']),on='uniquekey',how='left')
+  df_running_jobs = df_all_jobs.merge(pd.DataFrame(list(jobids.items()),columns=['uniquekey','jobid']),on='uniquekey',how='left')
+  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(arrayids.items()),columns=['uniquekey','arrayid']),on='uniquekey',how='left')
+  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(jobinfo.items()),columns=['uniquekey','jobinfo']),on='uniquekey',how='left')
+  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(jobprogress.items()),columns=['uniquekey','jobprogress']),on='uniquekey',how='left')
+  df_running_jobs = df_running_jobs.merge(pd.DataFrame(list(exitcodes.items()),columns=['uniquekey','exitcodes']),on='uniquekey',how='left')
   df_running_jobs.set_index(['uniquekey','jobid'],inplace=True)
   df_running_jobs.to_csv(workstatus_filename,sep='\t')
   return df_running_jobs,workstatus_filename
@@ -445,12 +445,12 @@ if oneMutationOnly:
   launch_one_mutation(args.projectORworkplan)  #  The argument is a complete workplan filename
 else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkplan) # The argument is an entire project UDN124356
-  print "Retrieving project mutations from %s"%udn_csv_filename
+  print("Retrieving project mutations from %s"%udn_csv_filename)
   df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
   df_all_mutations.fillna('NA',inplace=True);
-  print "Launching all jobs for %d mutations"%len(df_all_mutations)
+  print("Launching all jobs for %d mutations"%len(df_all_mutations))
   for index,row in df_all_mutations.iterrows():
-    print "Launching %-10s %-10s %-6s"%(row['gene'],row['refseq'],row['mutation'])
+    print("Launching %-10s %-10s %-6s"%(row['gene'],row['refseq'],row['mutation']))
     if 'GeneOnly' in row['refseq']:
       row['refseq'] = 'NA'
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
@@ -463,9 +463,9 @@ else:
     launch_one_mutation(workplan_filename)  #  The argument is a complete workplan filename
   casewide_workplan_filename = "casewide/casewide_workplan.csv"
   if os.path.exists(casewide_workplan_filename):
-    print "Launching casewide job(s) listed in %s"%casewide_workplan_filename
+    print("Launching casewide job(s) listed in %s"%casewide_workplan_filename)
     launch_one_mutation(casewide_workplan_filename)  #  The argument is a complete workplan filename
   else:
-    print "No casewide file (%s) was found.  No casewide jobs will be started"%casewide_workplan_filename
+    print("No casewide file (%s) was found.  No casewide jobs will be started"%casewide_workplan_filename)
   
 sys.exit(0)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 #
 # Project        : PSB Pipeline
 # Filename       : psb_monitor.py
@@ -28,11 +28,11 @@ Configuration supplied by:
    -u user.config overrides
 """
 
-print "%s: Pipeline monitor for launched jobs.  -h for detailed help."%__file__
+print("%s: Pipeline monitor for launched jobs.  -h for detailed help."%__file__)
 
 import logging,os,pwd,sys
 import time, datetime
-import argparse,ConfigParser
+import argparse,configparser
 import pprint
 from logging.handlers import RotatingFileHandler
 from logging import handlers
@@ -250,16 +250,16 @@ def monitor_one_mutation(workstatus):
   if df_all_jobs_original_status.to_msgpack() == df_all_jobs_status.to_msgpack():
     if len(df_incomplete) == 0:
       # This happens out to right of earlier printing...
-      print "   All %d jobs completed successfully"%len(df_all_jobs_status)
+      print("   All %d jobs completed successfully"%len(df_all_jobs_status))
       return
     if "casewide" in workstatus:
-      print "     No updates to status of casewide jobs"
+      print("     No updates to status of casewide jobs")
     else:
-      print "     No updates to status of jobs for this mutation"
+      print("     No updates to status of jobs for this mutation")
   else:
     os.rename(workstatus,previous_workstatus_filename)
   
-    print "\nRecording all updates to %s"%workstatus
+    print("\nRecording all updates to %s"%workstatus)
     try:
       df_all_jobs_status.to_csv(workstatus,sep='\t',index=True)
     except Exception as ex:
@@ -270,10 +270,10 @@ def monitor_one_mutation(workstatus):
       sys.exit(1)
   
   if len(df_incomplete) == 0:
-    print "All %d jobs completed successfully"%len(df_all_jobs_status)
+    print("All %d jobs completed successfully"%len(df_all_jobs_status))
   else:
-    print "%d of %d jobs still incomplete:"%(len(df_incomplete),len(df_all_jobs_status))
-    print "%15s:%-20s  %s"%('Jobid','Flavor',"Info")
+    print("%d of %d jobs still incomplete:"%(len(df_incomplete),len(df_all_jobs_status)))
+    print("%15s:%-20s  %s"%('Jobid','Flavor',"Info"))
     for index,row in df_incomplete.iterrows():
       infostring = ""
       if 'jobinfo' in row and len(row['jobinfo']) > 1:
@@ -281,7 +281,7 @@ def monitor_one_mutation(workstatus):
       elif 'JobState' in row and len(row['JobState']) > 1:
         infostring = row['JobState']
   
-      print "%15s:%-20s    %s"%(row['jobid'],index,infostring)
+      print("%15s:%-20s    %s"%(row['jobid'],index,infostring))
   
 # Main logic here.  A period in the argument means the user wants to launch one mutation only,
 # directly from a single mutation output file of psb_plan.py
@@ -289,15 +289,15 @@ if oneMutationOnly:
   monitor_one_mutation(args.projectORworkstatus)  #  The argument is a complete workstatus filename
 else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkstatus) # The argument is an entire project UDN124356
-  print "Retrieving project mutations from %s"%udn_csv_filename
+  print("Retrieving project mutations from %s"%udn_csv_filename)
   df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
-  print "Monitoring all jobs for %d mutations"%len(df_all_mutations)
+  print("Monitoring all jobs for %d mutations"%len(df_all_mutations))
   df_all_mutations.fillna('NA',inplace=True)
   for index,row in df_all_mutations.iterrows():
     # print without a newline - monitor_one_mutation will add one
-    print "%d of %d: %-10s %-10s %-6s"%(index+1,len(df_all_mutations),row['gene'],row['refseq'],row['mutation']),
+    print("%d of %d: %-10s %-10s %-6s"%(index+1,len(df_all_mutations),row['gene'],row['refseq'],row['mutation']), end=' ')
     if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
-	row['refseq'] = 'NA'
+      row['refseq'] = 'NA'
     mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
     if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
       logging.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem."%mutation_dir)
@@ -306,13 +306,13 @@ else:
     workstatus_filename = "%s/%s_%s_%s_workstatus.csv"%(mutation_dir,row['gene'],row['refseq'],row['mutation'])
     # print workstatus_filename
     monitor_one_mutation(workstatus_filename)  #  The argument is a complete workstatus filename
-    print "-" * 80
+    print("-" * 80)
   # Finally monitor the job(s) under the casewide banner (Gene Dictionary creation)
   workstatus_filename = "casewide/casewide_workstatus.csv"
   if os.path.exists(workstatus_filename):
     # print workstatus_filename
-    print "Casewide jobs.....                      ",
+    print("Casewide jobs.....                      ", end=' ')
     monitor_one_mutation(workstatus_filename)  #  The argument is a complete workstatus filename
   else:
-    print "No casewide work (no %s) to monitor"%workstatus_filename
-  print "-" * 80
+    print("No casewide work (no %s) to monitor"%workstatus_filename)
+  print("-" * 80)

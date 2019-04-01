@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 """\
 This script will parse a UDN Patient Report (excel format) and 
 save all of the mutations to a structured .csv file which is
@@ -16,7 +16,7 @@ import sys,csv,os
 import re,string
 import subprocess as sp
 import pandas as pd
-import argparse,ConfigParser
+import argparse,configparser
 import json
 from lib.amino_acids import longer_names
 from pdbmap import PDBMapProtein,PDBMapModel,PDBMapSwiss
@@ -65,12 +65,12 @@ logger.info('Excel file read successfully with dimensions (pandas shape) of %s'%
 dfRows = df.shape[0]
 
 genes = {}
-gene_patterns={u'\u25cf\u25cb':'Het',
-   u'\u25cb\u25cb':'WT',
-   u'\u25cf\u25cf':'Homo',
-   u'\u25cfy':'Het/Y',
-   u'\u25cby':'WT/Y',
-   u'\u25cf?':'Het/?'}
+gene_patterns={'\u25cf\u25cb':'Het',
+   '\u25cb\u25cb':'WT',
+   '\u25cf\u25cf':'Homo',
+   '\u25cfy':'Het/Y',
+   '\u25cby':'WT/Y',
+   '\u25cf?':'Het/?'}
 
 # Replaced with line below by ChrisMoth PDBMapProtein.load_idmapping("/dors/capra_lab/data/uniprot/idmapping/HUMAN_9606_idmapping_sprot.dat.gz")
 # This really needs to come out of config file!!!!
@@ -99,15 +99,15 @@ while i < dfRows:
   # print i, row[0]
   if GeneWordEncountered: # Until we see "Gene" - we just keep looping
     try:
-      possible_gene = row[0].strip().encode('utf-8')
+      possible_gene = row[0].strip() # .encode('utf-8')
     except:
       i += 1
       continue
 
+    # if isinstance(possible_gene,str):
+    #  cleaned_possible_gene = remove_ascii_control_characters(possible_gene)
+    #  possible_gene = cleaned_possible_gene
     if isinstance(possible_gene,str):
-      cleaned_possible_gene = remove_ascii_control_characters(possible_gene)
-      possible_gene = cleaned_possible_gene
-    elif isinstance(possible_gene,unicode):
       cleaned_possible_gene = remove_unicode_control_characters(possible_gene)
       possible_gene = cleaned_possible_gene
 
@@ -142,7 +142,7 @@ while i < dfRows:
     if mat:
       gene = mat.group(1)
     else:
-      gene = possible_gene_split[0].translate(None,string.punctuation)
+      gene = possible_gene_split[0].translate(str.maketrans('','', string.punctuation))
 
     # Skip out if our gene is common text that we immediately recognize as uninteresting
     if gene in ['Gene','Secondary','Heterozygous','Homozygous','Compound','None','Structural','DeNovo', 'De', 'Medically', 'Primary', 'Primary/Diagnostic','PrimaryDiagnostic','Table']:
@@ -157,7 +157,7 @@ while i < dfRows:
       if isinstance(effect,str):
          cleaned_effect = remove_ascii_control_characters(effect)
          effect = cleaned_effect
-      elif isinstance(effect,unicode):
+      elif isinstance(effect,str):
          cleaned_effect = remove_unicode_control_characters(effect)
          effect = cleaned_effect
       else:
@@ -264,6 +264,6 @@ if csv_rows:
   logger.info("%d rows written to %s successfully"%(df.shape[0],missense_csv_filename))
       
 else:
-   print "No suitable mutations were found in the source excel file"
+   print("No suitable mutations were found in the source excel file")
 
 # Exit 0 (default)      

@@ -1,6 +1,10 @@
 # Ignore directories provided by other means
 pdbmap/
 anaconda2/
+anaconda3/
+
+## File types ##
+*.bak
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

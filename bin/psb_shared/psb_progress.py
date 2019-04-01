@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 def sys_exit_failure(info):
   __write_info_progress(info, "%s: %s\n"%(__file__, inspect.currentframe().f_back.f_lineno))
   # Mark this job as failed

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 
 ClinvarFilename = '/tmp/allClinvar.csv'  # Welcome to change
 COSMICFilename = '/tmp/allCOSMIC.csv'    # Welcome to change
@@ -16,17 +16,17 @@ for root, subFolders, files in os.walk(rootdir):
   for f in files:
     if "_exac_D_summary.csv" in f:  # Have we found a pathprox summary file
       filename = os.path.join(root,f)
-      print filename
+      print(filename)
       df = pd.DataFrame.from_csv(filename,sep='\t')
       if len(df) != 1:
-        print "Something profoundly wrong in %s"%filename
+        print(("Something profoundly wrong in %s"%filename))
         sys.exit(1)
       # Fish out the struct id from the filename
       m = re.search("^\./.*/(.*)/PathProx.*$",filename)
       if m:
         df['Struct ID'] = m.group(1)
       else:
-        print "%s does not seem to contain a struct id"
+        print("%s does not seem to contain a struct id")
         sys.exit(1)
 
       # Fish out the refseq from the filename
@@ -34,7 +34,7 @@ for root, subFolders, files in os.walk(rootdir):
       if m:
         df['refseq'] = m.group(1)
       else:
-        print "%s does not seem to contain a refseq"
+        print("%s does not seem to contain a refseq")
         sys.exit(1)
 
       # Fish out the mutation from the filename
@@ -53,7 +53,7 @@ for root, subFolders, files in os.walk(rootdir):
             # print "************** got a mutation %s in %s"%(mut,filename)
             df = df.rename(columns={"%s_pathprox"%mut: "pathprox", "%s_pathcon"%mut: "pathcon", "%s_neutcon"%mut: "neutcon"})
       else:
-        print "%s does not seem to contain a mutation"
+        print("%s does not seem to contain a mutation")
         sys.exit(1)
 
       if 'linvar_exac' in f:
@@ -61,13 +61,13 @@ for root, subFolders, files in os.walk(rootdir):
       elif 'osmic_exac' in f:
         df_COSMIC = df_COSMIC.append(df)
       else:
-        print "%s does not seem to be either cosmic of clinvar!"
+        print("%s does not seem to be either cosmic of clinvar!")
         sys.exit(1)
     
 
 df_Clinvar.sort_values('pathprox',ascending = False).to_csv(ClinvarFilename,sep='\t')
 df_COSMIC.sort_values('pathprox',ascending = False).to_csv(COSMICFilename,sep='\t')
 
-print 'That which ye seek is in %s and %s'%(ClinvarFilename,COSMICFilename)
+print(('That which ye seek is in %s and %s'%(ClinvarFilename,COSMICFilename)))
       
   # sys.exit(0)
