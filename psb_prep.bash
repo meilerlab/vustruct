@@ -20,6 +20,11 @@ echo "Script cannot be run as you invoked it.  You must instead 'source $(readli
 exit
 fi
 
+# When accessing genomic coordinates, we open the database specified in this configuration file
+# This .conf file must be updated when new versions of the genome, or the Ensembl PERL API are loaded
+export ENSEMBL_REGISTRY=$PIPELINE_ROOT/pdbmap/EnsEMBL/ensembl_registry.conf
+
+export LC_ALL="en_US.UTF-8"
 # PERL binaries, and Ensembl are NOT copied to
 # the development environment.  Not worth trouble
 PSBADMIN_PERL_ROOT=/dors/capra_lab/users/psbadmin
@@ -30,6 +35,7 @@ newPATH=$newPATH:$PSBADMIN_PERL_ROOT/localperl/bin
 newPATH=$newPATH:$PIPELINE_ROOT/bin
 newPATH=$newPATH:$PIPELINE_ROOT/pdbmap
 newPATH=$newPATH:$PIPELINE_ROOT/pathprox
+newPATH=$newPATH:$PIPELINE_ROOT/htslib-1.9
 newPATH=$newPATH:/dors/capra_lab/opt/ensembl-tools-release-87/scripts/variant_effect_predictor
 newPATH=$newPATH:/dors/capra_lab/opt/ensembl-tools-release-87/scripts/id_history_converter
 newPATH=$newPATH:/dors/capra_lab/bin/vcftools/bin
@@ -59,6 +65,7 @@ newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-variation/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-compara/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-funcgen/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-tools/modules
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-io/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/bioperl-1.2.3
 unset OPT
 echo -ne "Prepending to PERL5LIB:\n\t"
@@ -66,7 +73,6 @@ echo $newPERL5LIB | sed 's/:/\n\t/g'
 export PERL5LIB=$newPERL5LIB:${PERL5LIB}
 
 echo
-# newPYTHONPATH=$PIPELINE_ROOT/pdbmap:/dors/capra_lab/psbadmin/bin
 newPYTHONPATH=$PIPELINE_ROOT/pdbmap:$PIPELINE_ROOT/bin
 echo -ne "Prepending to PYTHONPATH:\n\t"
 echo $newPYTHONPATH | sed 's/:/\n\t/g'
