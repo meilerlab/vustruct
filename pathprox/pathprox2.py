@@ -597,19 +597,24 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
     for m in s:
       for c in list(m.get_chains()):
         # Align pdb residue numbers to the reference sequence
-        residues_list = list(c.get_residues())
-        renumbered_chain = Chain(c.id)
+        if not c.alignment.trivial_alignment: # Then we need to renumber things a bit
+          residues_list = list(c.get_residues())
+          renumbered_chain = Chain(c.id)
 
-        for r in residues_list:
-          LOGGER.info("%s",str(r))
-          LOGGER.info("%s",str(c.alignment.pdb2seq[r.id]))
-          new_id = (' ',c.alignment.pdb2seq[r.id],' ')
-          r.detach_parent()
-          r.id = new_id 
-          renumbered_chain.add(r)
+          for r in residues_list:
+            LOGGER.info("%s",str(r))
+            LOGGER.info("%s",str(c.alignment.pdb2seq[r.id]))
+            new_id = (' ',c.alignment.pdb2seq[r.id],' ')
+            r.id = new_id 
+            renumbered_chain.add(r)
 
-        m.detach_child(c.id)
-        m.add(renumbered_chain)
+          m.detach_child(c.id)
+
+          # Chris Moth does NOT like the monkey patching
+          # But next bit of code needs the c.alignment.perc_identity
+          renumbered_chain.alignment = c.alignment
+
+          m.add(renumbered_chain)
 
         
           
@@ -1982,6 +1987,7 @@ if __name__ == "__main__":
     LOGGER.info("Processing %s[%s]..."%(sid,bio))
 
     # Read and renumber the coordinate file:
+    # import pdb; pdb.set_trace()
     LOGGER.info("Reading coordinates from %s..."%cf)
     s_renum,_,_,_    = read_coord_file(cf,sid,bio,chain=args.chain,
                                     fasta=args.fasta,residues=args.use_residues,
