@@ -251,7 +251,7 @@ def run_ddg(DEST_PATH, rosetta_pdb, selected_chain,processed_mutations,prefix,qu
 
     makedirs_capra_lab(DEST_PATH,'run_ddg')
 
-    copyfile(rosetta_pdb,"%s/%s" % (DEST_PATH,os.path.basename(rosetta_pdb)))
+    copyfile(rosetta_pdb,os.path.join(DEST_PATH,os.path.basename(rosetta_pdb)))
 
     try:
         os.chdir(DEST_PATH)
@@ -369,6 +369,8 @@ def run_unp(DEST_PATH,gene,processed_mutations,prefix):
     LOGGER.info("run_unp() called with parameters:\n%s"%pprint.pformat(locals()))
     makedirs_capra_lab(DEST_PATH,'run_unp')
 
+    save_cwd = os.getcwd()
+
     try:
         os.chdir(DEST_PATH)
     except OSError:
@@ -397,7 +399,8 @@ def run_unp(DEST_PATH,gene,processed_mutations,prefix):
     fastafile = "%s.fasta" % gene
     if not os.path.isfile(fastafile):
         LOGGER.info("Fasta file %s not found, unable to run ss predictions" % fastafile)
-        return None
+        os.chdir(save_cwd)
+        return
     ss = predict_ss(fastafile,processed_mutations,scripts_path = SS_SCRIPTS)
     ss_outcome,ss_results = ss.run()
     ssoutfile = "%s_ss.results" % prefix
@@ -416,6 +419,7 @@ def run_unp(DEST_PATH,gene,processed_mutations,prefix):
             LOGGER.info("SS visualization created %s/%s" % (DEST_PATH,visoutfile))
         else:
             LOGGER.info("Failed to generate visual file")
+    os.chdir(save_cwd)
            
 def get_mutations(mutation):
     with open(mutation) as infile:
@@ -510,7 +514,7 @@ def evaluate_Swiss(modelid):
   return False
     
 ##### MAIN
-
+# import pdb; pdb.set_trace()
 #Process arguments and generate constants based on arguments
 # Chris Moth replaced wtih config_dict['outdir'] wAS 
 # ROOT_PATH = '/dors/capra_lab/projects/psb_collab/%s' % args.project if not test else '/dors/meilerlab/home/sliwosgr/psb_collab/%s' % args.roject
@@ -603,6 +607,8 @@ isSwiss = False
 pdbfile = None
 #Check if args.structure is local file and set quality = command line and biounits to local file
 #DDG and other routines require full rooted path name to the structure file
+# import pdb; pdb.set_trace()
+is_local_pdb = False
 if os.path.isfile(args.structure):
   if args.quality is None:
     args.quality = False
@@ -616,6 +622,7 @@ if os.path.isfile(args.structure):
   biounits = [pdbfile]
   isModbase = False
   LOGGER.info("%s found as pdbfile=%s"%(args.structure,pdbfile))
+  is_local_pdb = True
 else: # The normal case, which is that the structure must be tracked down in our rcsb, modbase13, modbase16, or swiss respositories
   PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
 
@@ -695,7 +702,10 @@ for item in biounits:
         biounittext.append(os.path.basename(item))
 
 #Destination path conventions
-struct_prefix = "%s_%s_%s" % (os.path.basename(args.structure),args.chain,args.mutation)
+if is_local_pdb and args.structure.endswith('.pdb'):
+    struct_prefix = "%s_%s_%s" % (os.path.basename(args.structure)[0:-4],args.chain,args.mutation)
+else:  
+    struct_prefix = "%s_%s_%s" % (os.path.basename(args.structure),args.chain,args.mutation)
 cleaned_pdb_path = os.path.abspath(os.path.join(args.outdir,"clean_pdbs"))
 ddg_path = os.path.abspath(os.path.join(args.outdir,"ddg"))
 interface_path = os.path.abspath(os.path.join(args.outdir,"interface"))

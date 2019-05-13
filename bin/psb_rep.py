@@ -67,7 +67,7 @@ import shutil
 import numpy as np
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
-from io import StringIO
+from io import StringIO, BytesIO
 import pycurl
 import json
 from xml2json import Cxml2json
@@ -626,27 +626,28 @@ def report_one_mutation(structure_report,workstatus):
   def unp2PfamDomainGraphicString(unp,timeoutSeconds):
     url = 'http://pfam.xfam.org/protein/{0}/graphic'.format(unp.split(' ')[0].split('-')[0])
   
-    buffer = StringIO()
+    buffer = BytesIO()
   
     try:
       timeout = 60 #NOTE: using pycurl assures that this timeout is honored
       c = pycurl.Curl()
       c.setopt(pycurl.CONNECTTIMEOUT, timeoutSeconds)
       c.setopt(pycurl.TIMEOUT, timeoutSeconds)
-      c.setopt(pycurl.WRITEFUNCTION, lambda x: None)
+      # c.setopt(pycurl.WRITEFUNCTION, lambda x: None)
       c.setopt(pycurl.WRITEFUNCTION, buffer.write)
       c.setopt(pycurl.HEADERFUNCTION, lambda x: None)
       c.setopt(pycurl.NOSIGNAL, 1)
       c.setopt(pycurl.URL, url)
       c.setopt(pycurl.HTTPGET, 1)
-      graphicJSON = str(c.perform())
+
+      c.perform()
       c.close()
   
     except Exception as ex:
      LOGGER.exception('Failed to get JSON string from %s: %s'%(url,str(ex)))
      return None
   
-    JSONstr= buffer.getvalue()
+    JSONstr= buffer.getvalue().decode('latin')
     if len(JSONstr) > 3 and JSONstr[0] == '[':
       JSONstr = JSONstr[1:-1]
     return JSONstr
