@@ -248,13 +248,13 @@ def repr_subset(df):
   # Convert these sequence start/end fields to ints
   tdf['rndlen'] = (tdf['Seq End'] - tdf['Seq Start']).round(-1)
   tdf['mutcov'] = tdf['Distance to Boundary']==0
-  tdf['ispdb']  = tdf['Resolution (PDB)'].notnull()
+  tdf['ispdb']  = pd.notna(tdf['Resolution (PDB)'])
   tdf = tdf.sort_values(by=['mutcov','ispdb','rndlen','Resolution (PDB)','Seq Identity'],ascending=[False,False,False,True,False])
   nr_cov = pd.DataFrame()
   cov = set([])
   template_set = set([])
   for _,row in tdf.iterrows():
-    s_cov = list(range(row['Seq Start'],row['Seq End']))
+    s_cov = list(range(int(row['Seq Start']),int(row['Seq End'])))
     # Test if <10% of residues in *this model* overlap current coverage
     if row['PDB Template'] is None:
       templatePDB = row['Structure ID'] 
@@ -813,7 +813,6 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     chain_count = 0;
     chain_id = ' '
     for model in structure:
-      import pdb; pdb.set_trace()
       model_count += 1
       for chain in model:
         chain_id = chain.get_id()
@@ -839,7 +838,7 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     for chain in structure: # This leaves chain referencing the first chain
       break
 
-    df = df.append({'Gene': gene, 'Label': 'UserModel', 'Method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'Structure ID': user_model, 'PDB Template': 'N/A', "Analyzable?": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
+    df = df.append({'Gene': gene, 'Label': 'UserModel', 'Method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'Structure ID': user_model, 'PDB Template': 'N/A', "Analyzable?": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "Seq Identity":float('nan'), "Resolution (PDB)":float('nan'),"Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
  
  
   # df could be empty or not....
