@@ -6,21 +6,25 @@ IMPORTANT: All steps must be run as user psbadmin
 
 2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/psbadmin/pdbmap
 
-3) Download Anaconda2  and install to /dors/capra_lab/users/psbadmin/anaconda2
+3) Download Anaconda3  and install to /dors/capra_lab/users/psbadmin/anaconda3
 
 4) Install add-on libraries with:
 
+# To avoid LOTS of trouble:
+pip install --upgrade setuptools
+
+# As of March 2019 python 3, pandas seems to have been loaded by default
 pip install pandas
 # Biopython requires, and will include, numpy library
 pip install biopython
-# Grab an Entity.py from pre 1.69 version and patch the new one!
 
-pip install MySQL-python
+pip install mysql-connector-python
 pip install mysqlclient
 pip install --upgrade pip
 pip install argparse
 # WeasyPrint no longer supports Python 2
-pip install WeasyPrint==0.42.3
+# pip install WeasyPrint==0.42.3
+pip install WeasyPrint
 pip install PyVCF
 
 # Newer versions of networkx have incompatible data file formats
