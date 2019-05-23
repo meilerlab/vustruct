@@ -185,7 +185,12 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
   variants_filename_key = "%s_variant_filename"%disease1_or_2_or_neutral
   if variants_filename_key in config_pathprox_dict:
     config_str = config_pathprox_dict[variants_filename_key]
-    return "--pathogenic %s --pathogenic_label %s"%(config_str,config_pathprox_dict["%s_variant_sql_label"%disease1_or_2_or_neutral]) if 'neutral' not in variants_filename_key else "--neutral %s"%config_str
+    variants_pathprox_args = ''
+    if 'neutral' in variants_filename_key:
+       variants_pathprox_args = "--neutral %s --neutral_label %s"%(config_str,config_pathprox_dict["%s_variant_sql_label"%disease1_or_2_or_neutral])
+    else:
+       variants_pathprox_args = "--pathogenic %s --pathogenic_label %s"%(config_str,config_pathprox_dict["%s_variant_sql_label"%disease1_or_2_or_neutral])
+    return variants_pathprox_args
   else:
     variants_sql_label_key = "%s_variant_sql_label"%disease1_or_2_or_neutral
     if variants_sql_label_key not in config_pathprox_dict:
