@@ -605,8 +605,9 @@ def read_coord_file(coord_filename,sid,bio,chain,fasta=None,residues=None,renumb
             LOGGER.info("%s",str(r))
             LOGGER.info("%s",str(c.alignment.pdb2seq[r.id]))
             new_id = (' ',c.alignment.pdb2seq[r.id],' ')
-            r.id = new_id 
-            renumbered_chain.add(r)
+            new_residue = r.copy()
+            new_residue.id = new_id 
+            renumbered_chain.add(new_residue)
 
           m.detach_child(c.id)
 
@@ -1639,6 +1640,8 @@ if __name__ == "__main__":
                       help="Label for User-defined pathogenic variants")
   cmdline_parser.add_argument("--neutral",type=str,
                       help="User-defined set of neutral variants")
+  cmdline_parser.add_argument("--neutral_label",type=str,
+                      help="Label for User-defined neutral variants")
   cmdline_parser.add_argument("--quantitative",type=str,
                       help="User-defined set of residue quantitative traits")
   cmdline_parser.add_argument("--qlabel",type=str,
@@ -1866,6 +1869,11 @@ if __name__ == "__main__":
     args.label += "_exac"
   if args.add_gnomad:
     args.label += "_gnomad"
+  if args.neutral:
+    if args.neutral_label:
+      args.label += '_%s'%args.neutral_label
+    else:
+      args.label += '_neutral'
   if args.add_1kg:
     args.label += "_1kg"
   # Add the radius type and bounds if NeighborWeight
