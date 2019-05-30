@@ -248,13 +248,13 @@ def repr_subset(df):
   # Convert these sequence start/end fields to ints
   tdf['rndlen'] = (tdf['Seq End'] - tdf['Seq Start']).round(-1)
   tdf['mutcov'] = tdf['Distance to Boundary']==0
-  tdf['ispdb']  = tdf['Resolution (PDB)'].notnull()
+  tdf['ispdb']  = pd.notna(tdf['Resolution (PDB)'])
   tdf = tdf.sort_values(by=['mutcov','ispdb','rndlen','Resolution (PDB)','Seq Identity'],ascending=[False,False,False,True,False])
   nr_cov = pd.DataFrame()
   cov = set([])
   template_set = set([])
   for _,row in tdf.iterrows():
-    s_cov = list(range(row['Seq Start'],row['Seq End']))
+    s_cov = list(range(int(row['Seq Start']),int(row['Seq End'])))
     # Test if <10% of residues in *this model* overlap current coverage
     if row['PDB Template'] is None:
       templatePDB = row['Structure ID'] 
@@ -372,7 +372,6 @@ def makejobs_pathprox(params,method,sid,ch,pdb_mut_i):
       disease_variant_sql_label = config_pathprox_dict['%s_variant_sql_label'%disease_1or2]
       params['diseaseArgument'] = pathprox_arguments[disease_1or2]
       params['neutralArgument'] = pathprox_arguments['neutral']
-      # import pdb; pdb.set_trace()
       j = makejob("PathProx_%s"%disease_variant_sql_label,"pathprox2.py",params,
         ("-c %(config)s -u %(userconfig)s %(pdbid)s %(refseq)s %(pp_mut)s " +
          "--chain=%(chain)s %(diseaseArgument)s %(neutralArgument)s --radius=D " + 
@@ -516,6 +515,7 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
 
   for i in range(len(df)):
     row = df.iloc[i]
+    # print (i, row['Label'])
     if row['Label'] == 'pdb':
       df.iat[i,df.columns.get_loc('Seq Identity')] = float('nan')
     elif row['Label'] == 'swiss':
@@ -545,7 +545,8 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     # df.iloc[(df["PDB Pos"].isnull()) & (df["Distance to Boundary"]==0),df.columns.get_loc("Analyzable?")] = "Maybe"
   elif not mutation:
     df["PDB Pos"] = np.nan
-  
+ 
+  df_dropped = pd.DataFrame() 
   if not df.empty: #ChrisMoth added this line and indented as the code below that makes no sense for empty df
     df["Gene"] = gene
     df = df[["Gene","Label","Structure ID","Chain","Method","Resolution (PDB)","Seq Identity",
@@ -813,7 +814,6 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     chain_count = 0;
     chain_id = ' '
     for model in structure:
-      import pdb; pdb.set_trace()
       model_count += 1
       for chain in model:
         chain_id = chain.get_id()
@@ -839,7 +839,7 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
     for chain in structure: # This leaves chain referencing the first chain
       break
 
-    df = df.append({'Gene': gene, 'Label': 'UserModel', 'Method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'Structure ID': user_model, 'PDB Template': 'N/A', "Analyzable?": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
+    df = df.append({'Gene': gene, 'Label': 'UserModel', 'Method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'Structure ID': user_model, 'PDB Template': 'N/A', "Analyzable?": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "Seq Identity":float('nan'), "Resolution (PDB)":float('nan'), "Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
  
  
   # df could be empty or not....
@@ -924,7 +924,6 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
       pdb_muts = [None]*len(df)
       transcript_muts = [None]*len(df)
  
-    # import pdb; pdb.set_trace() 
     # Launch pathprox analyses on all structures
     df_all_jobs = df_all_jobs.append([makejobs_pathprox(params,method,sid,ch,transcript_muts[i]) \
       for i,(method,sid,ch) in enumerate(df[["Method","Structure ID","Chain"]].values) ],ignore_index = True)
@@ -1054,7 +1053,7 @@ else:
     ui_final = {}
     for f in ['gene','refseq','mutation','unp']:
       ui_final[f] = row[f]
-   
+  
     df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
 
     fulldir, filename = os.path.split(log_filename)
