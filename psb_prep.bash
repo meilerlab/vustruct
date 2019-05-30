@@ -66,7 +66,7 @@ newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-compara/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-funcgen/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-tools/modules
 newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/ensembl-io/modules
-newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/bioperl-1.2.3
+newPERL5LIB=$newPERL5LIB:$PSBADMIN_PERL_ROOT/ensembl/bioperl-live
 unset OPT
 echo -ne "Prepending to PERL5LIB:\n\t"
 echo $newPERL5LIB | sed 's/:/\n\t/g'
@@ -89,7 +89,13 @@ echo
 
 if $isProduction; then
 export UDN=/dors/capra_lab/projects/psb_collab/UDN
-export PS1='\r\n\[$(/usr/bin/tput setaf 15; /usr/bin/tput setab 4)\]   PSB Pipeline    host:\h  user:\u         \[$(/usr/bin/tput sgr0)\]\r\n\w\$ '
+foreGround=15
+backGround=4
+if [ `whoami` == 'psbadmin' ]
+then
+backGround=1
+fi
+export PS1='\r\n\[$(/usr/bin/tput setaf '$foreGround'; /usr/bin/tput setab '$backGround')\]   PSB Pipeline    host:\h  user:\u         \[$(/usr/bin/tput sgr0)\]\r\n\w\$ '
 else
 export UDN=/dors/capra_lab/users/mothcw/UDNtests
 # export PS1='\[$(/usr/bin/tput setaf 15; /usr/bin/tput setab 1)\] DEV \[$(/usr/bin/tput sgr0)\] '$PS1
