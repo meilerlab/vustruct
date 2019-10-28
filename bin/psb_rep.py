@@ -907,9 +907,15 @@ def report_one_mutation(structure_report,workstatus):
       'end': motif['end']} )
   
   for region in domainGraphicsDict.get('regions',[]):
+    domain_text = "n/a" # Rare that there is not a href/link
+    if 'href' in region: # Most typical
+      domain_text = "<a href=" + region['href'] + ">" + region['text'] + "</a>",
+    elif 'text' in region:
+      domain_text = region['text']
+        
     table_rows.append( {
       'type': region['metadata']['type'],
-      'domain': "<a href=" + region['href'] + ">" + region['text'] + "</a>",
+      'domain': domain_text,
       'start': region['start'],
       'end': region['end']} )
   
@@ -1268,6 +1274,9 @@ fi
     with open(case_summary_filename,"w") as f:
       f.write(html_out)
     lastmsg = "The case summary report is: " + case_summary_filename
+    case_summary_json = os.path.join(collaboration_dir,"%s.json"%args.projectORstructures) # The argument is an entire project UDN124356
+    with open(case_summary_json,'w') as fp:
+        json.dump(final_gathered_info,fp)
   else:
     lastmsg = "No mutation summaries - bummer"
 
