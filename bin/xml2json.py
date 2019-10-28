@@ -14,10 +14,7 @@ from multiprocessing import cpu_count
 from collections import defaultdict
 
 import logging
-from logging.handlers import RotatingFileHandler
-from logging import handlers
-logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-    datefmt='%d-%m-%Y:%H:%M:%S',)
+LOGGER = logging.getLogger(__name__)
 
 import xml.etree.ElementTree as ET
 import sys
@@ -59,15 +56,23 @@ class Cxml2json(object):
     unp_split = uniprot_ac.split('-')
     if len(unp_split) < 2:
       return True  # no dash means you gave a canonical unp
+    # DO NOT CHECK IN THIS TERRIBLE PATCH BELOW
+    # if uniprot_ac == 'Q10981-1':
+    #  return True
+    # DO NOT CHECK IN THIS TERRIBLE PATCH ^^^ ABOVE
     # When given ABC-n, you want to make sure the sequence CRC64 matches
     # between base-unp and specific isoform, and then you can say YES!
     base_unp = unp_split[0]
     isoform_node = Cxml2json.__root.findall("protein/[@id='%s']"%uniprot_ac)
     if len(isoform_node) != 1:
-      sys.exit("%s was not found in xml file"%uniprot_ac)
+      failure_message = "%s was not found in xml file.  Return 'not canonical'"%uniprot_ac
+      LOGGER.critical(failure_message)
+      sys.exit(failure_message)
     baseunp_node = Cxml2json.__root.findall("protein/[@id='%s']"%base_unp)
     if len(baseunp_node) != 1:
-      sys.exit("%s was not found in xml file"%base_unp)
+      failure_message = "%s was not found in xml file"%base_unp
+      LOGGER.critical(failure_message)
+      sys.exit(failure_message)
     return isoform_node[0].get('crc64') == baseunp_node[0].get('crc64')
 
   def PFAMgraphicsJSONfromUnp(self,uniprot_ac):
