@@ -1115,7 +1115,7 @@ def permute(y,N):
   for i in range(N):
     yield np.random.permutation(y)
     
-def Kest(D,y,T=[],P=9999):
+def Kest(D,y,T=[],P=99999):
   """ Ripley's K-Function Estimator for Spatial Cluster Analysis (w/ Positional Constraints) (w/o Edge Correction)
 
   Parameters:
@@ -1261,7 +1261,7 @@ def pstats(Pmat):
       [Kpathogenic(t) - Kneutral(t)] matrix
 
       The First column of the matrix must contain the observation.
-      Remaining (9999 etc) columns are the permutations
+      Remaining (99999 etc) columns are the permutations
  """
   o = Pmat[0] # observed [Kpathogenic(t) - Kneutral(t)] matrix
 
@@ -1399,7 +1399,7 @@ def saveDplot(T,D,Dz,lce,hce,label="",weights=False):
   plt.savefig("%s_D_plot.png"%args.label,dpi=300,bbox_inches='tight')
   plt.close(fig)
 
-def uniK_calc_and_plot(D,y,P=9999,label="",weights=False):
+def uniK_calc_and_plot(D,y,P=99999,label="",weights=False):
   """ Univariate (i.e. neutral or pathogenic) K(t)
   calculation, with plot, and final return of K statistics
   of highest Z score.
@@ -1452,7 +1452,7 @@ def uniK_calc_and_plot(D,y,P=9999,label="",weights=False):
 
   return T,K_ofMaxKz,Kz_ofMaxKz,T_ofMaxKz,P_ofMaxKz
 
-def biD(pathogenicCoordinates,neutralCoordinates,P=9999,label=""):
+def biD(pathogenicCoordinates,neutralCoordinates,P=99999,label=""):
   """Compute Pathogenic less Neutral Bivariate D
   This is empirical null is calculated, via P permutations
   Arguments:
@@ -1539,7 +1539,7 @@ def biD(pathogenicCoordinates,neutralCoordinates,P=9999,label=""):
   LOGGER.info("Also returning optimal KPathLessKNeutral[%1.1f A]=%.2f KPathLessKNeutral_pvalue[%1.1f A]=%1.2e",T[maxMagnitudeKzIndex],KPathogenicLessKNeutral[maxMagnitudeKzIndex],T[maxMagnitudeKzIndex],K_PlN_pvalues[maxMagnitudeKzIndex])
   return T,KPathogenicLessKNeutral[maxMagnitudeKzIndex],K_PlN_zscores[maxMagnitudeKzIndex],T[maxMagnitudeKzIndex],K_PlN_pvalues[maxMagnitudeKzIndex]
 
-def ripley(sdf,permutations=9999):
+def ripley(sdf,permutations=99999):
   """ Handles Ripley's univariate K and bivariate D
       analyses using variant pathogenic and neutral
       labels and a constructed inter-residue distance matrix
@@ -1686,7 +1686,7 @@ if __name__ == "__main__":
                       help="Upper bound on the NeighborWeight function")
   cmdline_parser.add_argument("--ripley",action='store_true',default=False,
                       help="Perform univariate K and bivariate D analyses. True by default if '--radius=K' or '--radius=D'.")
-  cmdline_parser.add_argument("--permutations",type=int,default=9999,
+  cmdline_parser.add_argument("--permutations",type=int,default=99999,
                       help="Number of permutations for Ripley's K/D analyses")
 
   # Output parameters
@@ -1995,7 +1995,6 @@ if __name__ == "__main__":
     LOGGER.info("Processing %s[%s]..."%(sid,bio))
 
     # Read and renumber the coordinate file:
-    # import pdb; pdb.set_trace()
     LOGGER.info("Reading coordinates from %s..."%cf)
     s_renum,_,_,_    = read_coord_file(cf,sid,bio,chain=args.chain,
                                     fasta=args.fasta,residues=args.use_residues,
