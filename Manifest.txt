@@ -28,13 +28,16 @@ pip install WeasyPrint
 pip install PyVCF
 
 # Newer versions of networkx have incompatible data file formats
-pip install networkx==1.9
+# Await news from Souhrid pip install networkx==1.9
 
 pip install fuzzywuzzy
 pip install python-Levenshtein
 pip install jinja2
 
-4d) Use "ln" so two perl scripts in pdbmap/lib visible in pdbmap directory
+4d) Use "ln -s" so three perl scripts in pdbmap/lib visible in pdbmap directory
+
+cd $psbadmin/../pdbmap
+ln -sv lib/*.pl .
 
 5) Precompile all python modules as user psbadmin.  Currently, accomplished with
 

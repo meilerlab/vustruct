@@ -80,20 +80,24 @@ def slurm_submit(job_submit):
   sbmt_fail = True
   while sbmt_fail:
     logging.getLogger(__name__).info(job_submit)
-    try:
-      p = sp.Popen(job_submit,stdout=sp.PIPE,stderr=sp.PIPE)
-      stdout,stderr = p.communicate()
-    except OSError as e:
-      msg = "Failed to run '%s'\n%s\n--->>> You do not seem to be logged in to a slurm cluster.\n"%(job_submit,str(e))
-      logging.getLogger(__name__).critical(msg)
-      sys.exit(1)
+    with sp.Popen(job_submit,stdout=sp.PIPE,stderr=sp.PIPE) as proc:
+      try:
+        stdout,stderr = proc.communicate()
+        proc_returncode = proc.returncode
+      except TimeoutExpired:
+        proc.kill()
+        logging.getLogger(__name__).warn('sbatch timeout on %s'%job_submit)
+      except OSError as e:
+        msg = "Failed to run '%s'\n%s\n--->>> You do not seem to be logged in to a slurm cluster.\n"%(job_submit,str(e))
+        logging.getLogger(__name__).critical(msg)
+        sys.exit(1)
     # Extract the job ID
-    if p.returncode == 0 and stdout.startswith(b"Submitted batch job "): # Case of clear success
+    if proc_returncode == 0 and stdout.startswith(b"Submitted batch job "): # Case of clear success
       logging.getLogger(__name__).info('sbatch successfully launched: %s'%stdout)
       sbmt_fail = False
       break
     else: # Non-zero return code
-      logging.getLogger(__name__).warn('Dubious return of p.communicate() for job "%s" with returncode %s\nstdout: %s\nstderr: %s'%(job_submit,p.returncode,stdout,stderr))
+      logging.getLogger(__name__).warn('Dubious return of proc.communicate() for job "%s" with returncode %s\nstdout: %s\nstderr: %s'%(job_submit,proc_returncode,stdout,stderr))
     if not stderr:
       if len(stdout.strip().split() ) < 2:
         logging.getLogger(__name__).warn('Retrying because of no stdout from slurm command %s'%job_submit)

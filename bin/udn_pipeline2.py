@@ -16,6 +16,7 @@ based mutations must be provided if the structure numbering differs from the seq
 import sys,os,shutil,gzip,grp,stat
 import logging
 
+from Bio.PDB import *
 from logging.handlers import RotatingFileHandler
 from logging import handlers
 capra_group = grp.getgrnam('capra_lab').gr_gid
@@ -80,7 +81,7 @@ from udn_pipeline_classes import ddg_monomer,interface_analyzer,dssp,ligands,uni
 RES_PATH = '/dors/capra_lab/projects/psb_collab/psb_pipeline/data/pdb_cmpd_res.idx'
 # now config_dict['modbase2016_summary'] # WAS MODEL_METRICS = '/dors/capra_lab/data/modbase/H_sapiens_2016/Homo_sapiens_2016.summary.txt'
 # now config_dict['modbase2013_summary']MODEL_METRICS_2013 = '/dors/capra_lab/data/modbase/H_sapiens_2013/H_sapiens_2013_GRCh37.70.pep.all.summary.txt'
-SS_SCRIPTS = os.path.join(udnpipepath,"/udn_helper_scripts")
+SS_SCRIPTS = os.path.join(udnpipepath,"helper_scripts")
 RES_QUALITY_CUTOFF = 2.5
 
 from psb_shared import psb_config
@@ -112,7 +113,7 @@ cmdline_parser.add_argument("--uniquekey",type=str,required=True,
                       help="A gene/refseq/mutation/structure/chain/flavor unique identifer for this particular job")
 cmdline_parser.add_argument('--ddg', type=int, 
   help='Number of ddg_monomer iterations to run. If 0, ddg_monomer is skipped. Default = 50', required=False, default=50)
-cmdline_parser.add_argument('--quality', action='store_true',default=False,required=False,
+cmdline_parser.add_argument('--quality', action='store_true',default=None,required=False,
   help='Overall automatic assignment of high quality to high res pdbids and low quality to modbase models low res pdbids. True forces high quality. False forces low quality.')
 cmdline_parser.add_argument('--test', action='store_true',default=False,required=False,
   help='For testing. Redirect all file output to test directory.')
@@ -442,6 +443,26 @@ def get_resolution_from_RES_PATH(pdbid):
     LOGGER.info("%s not found in pdb resolution file. Assuming low quality. Returning -1.0" % pdbid)
     return -1.
 
+def get_resolution_from_pdb(pdbfile):
+    
+    structure = PDBParser().get_structure(pdbfile.split('.')[0],pdbfile)
+    resolution = 0.0
+    if structure.header and 'resolution' in structure.header:
+        resolution = float(structure.header['resolution'])
+        LOGGER.info("Resolution found in file %s pdb header = %f"%(pdbfile,resolution))
+    else:
+        LOGGER.info("Resolution (REMARK 2) not found in file %s"%pdbfile)
+          
+    return resolution
+   
+
+def quality_from_resolution(res):
+    if res<=RES_QUALITY_CUTOFF and res >0:
+        LOGGER.info("structure has high resolution (%f <= %f), setting quality high"%(res,RES_QUALITY_CUTOFF))
+        return True
+    LOGGER.info("structure has low resolution (%f > %f or = 0.0), setting quality low"%(res,RES_QUALITY_CUTOFF))
+    return False
+        
 
 
 def evaluate_Modbase(model,old=False):
@@ -610,8 +631,6 @@ pdbfile = None
 # import pdb; pdb.set_trace()
 is_local_pdb = False
 if os.path.isfile(args.structure):
-  if args.quality is None:
-    args.quality = False
   if os.path.isfile(os.path.abspath(args.structure)):
     pdbfile = os.path.abspath(args.structure)
   else:
@@ -622,6 +641,9 @@ if os.path.isfile(args.structure):
   biounits = [pdbfile]
   isModbase = False
   LOGGER.info("%s found as pdbfile=%s"%(args.structure,pdbfile))
+  if args.quality is None:
+    res = get_resolution_from_pdb(pdbfile)
+    args.quality = quality_from_resolution(res)
   is_local_pdb = True
 else: # The normal case, which is that the structure must be tracked down in our rcsb, modbase13, modbase16, or swiss respositories
   PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
@@ -644,12 +666,7 @@ else: # The normal case, which is that the structure must be tracked down in our
     if os.path.isfile(pdbfile):
       if not args.quality:
         res = get_resolution_from_RES_PATH(args.structure)
-        if res<=RES_QUALITY_CUTOFF and res >0:
-            LOGGER.info("pdb is high resolution, setting quality high")
-            args.quality = True
-        else:
-            LOGGER.info("pdb is low resolution, setting quality low")
-            args.quality = False
+        args.quality = quality_from_resolution(res)
   #    if quality is None:
   #        quality = True
       biounits = glob.glob("%s/%s.pdb?.gz" % (os.path.join(config_dict['pdb_dir'],"biounit/coordinates/all"), args.structure.lower()))        

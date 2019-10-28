@@ -185,7 +185,6 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
   variants_filename_key = "%s_variant_filename"%disease1_or_2_or_neutral
   if variants_filename_key in config_pathprox_dict:
     config_str = config_pathprox_dict[variants_filename_key]
-    variants_pathprox_args = ''
     if 'neutral' in variants_filename_key:
        variants_pathprox_args = "--neutral %s --neutral_label %s"%(config_str,config_pathprox_dict["%s_variant_sql_label"%disease1_or_2_or_neutral])
     else:
@@ -440,6 +439,11 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
   if not gene:
     logger.critical("A gene name was not matched to the refseq or uniprot ID.  Gene will be set to %s",entity)
     gene=entity
+
+  if gene != entity:
+    logger.critical("Plan halted becausae gene %s != entity %s for mutation %s",(gene,entity,mutation))
+    sys.exit(1)
+    
   
   mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(gene,refseq,mutation))
   psb_permissions.makedirs(mutation_dir)
@@ -551,6 +555,7 @@ def plan_one_mutation(entity,refseq,mutation,user_model=None,unp=None):
   elif not mutation:
     df["PDB Pos"] = np.nan
   
+  df_dropped = pd.DataFrame() 
   if not df.empty: #ChrisMoth added this line and indented as the code below that makes no sense for empty df
     df["Gene"] = gene
     df = df[["Gene","Label","Structure ID","Chain","Method","Resolution (PDB)","Seq Identity",
