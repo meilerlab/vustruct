@@ -1434,9 +1434,10 @@ class uniprot(object):
         final_set = []
         fastafile = "%s.fasta" % (self._gene)
         seen_annotations = set()
-        urladd = "http://www.uniprot.org/uniprot/%s.txt" % unp
+        urladd = "https://www.uniprot.org/uniprot/%s.txt" % unp.split('-')[0]
+        LOGGER.info("Annotation/fasta URL = %s",urladd)
         url = urlopen(urladd)
-        raw_data = [x.rstrip() for x in url.readlines() if len(x.strip())>0]
+        raw_data = [x.decode("utf-8").rstrip() for x in url.readlines() if len(x.strip())>0]
         url.close()
         try:
             assert len(raw_data)>0
