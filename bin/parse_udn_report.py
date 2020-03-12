@@ -136,9 +136,9 @@ while i < dfRows:
     # Gene names are upper case, or numbers, underscore, dash with 
     # possibly a lower case orf, then back to more numbers, upper case, and
     # possibly a terminating # or @ character
-    reg = re.compile("([0-9A-Z_\-]+(orf){0,1}[0-9A-Z_\-]*[#@]{0,1})$")
+    gene_name_reg = re.compile("([0-9A-Z_\-]+(orf){0,1}[0-9A-Z_\-]*[#@]{0,1})$")
 
-    mat = reg.match(possible_gene_split[0])
+    mat = gene_name_reg.match(possible_gene_split[0])
     if mat:
       gene = mat.group(1)
     else:
@@ -179,17 +179,26 @@ while i < dfRows:
         logger.info("Row %3d: %-8s skipped, non mis-sense mutation(%s)"%(i,gene,effect.replace('\n','')))
         i += 2
         continue
+      refseq_reg = re.compile("([XN]M_.*[0-9.]{2,30})")
+      def refseq_match(possible_refseq: str) -> bool:
+          mat = refseq_reg.match(possible_refseq.split()[0])
+          return mat.group(1) if mat else None
+
       if len(possible_gene_split) > 1:
-        refseq = possible_gene_split[-1]
+          refseq = None
+          word_count = len(possible_gene_split)
+          while not refseq and word_count > 1:
+              refseq = refseq_match(possible_gene_split[word_count-1])
+              word_count -= 1
       else: # Try to fish NM_ out of the cell immediately below Gene cell.  Sometimes the clinic sticks things there
         nextrow = df.iloc[i+1]
         possible_refseq = str(nextrow[0]).strip().encode('utf-8')
-        if possible_refseq.startswith('NM_'):
+        if possible_refseq and type(possible_refseq) == str and refseq_match(possible_refseq):
           refseq = possible_refseq
         else:
           nextrow = df.iloc[i+2]
           possible_refseq = str(nextrow[0]).strip().encode('utf-8')
-          if possible_refseq.startswith('NM_'):
+          if possible_refseq and type(possible_refseq) == str and refseq_match(possible_refseq):
             refseq = possible_refseq
 
       if len(refseq) > 0:
