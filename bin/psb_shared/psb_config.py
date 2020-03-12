@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 statusdir = None
 
 
-def create_default_argument_parser(callers_docstring,user_config_dirname):
+def create_default_argument_parser(callers_docstring,user_config_dirname,add_help=True):
   """All psb_pipeline command lines share common features which are initialized
   in this function.  These include auto-setting of the default case name to the
   current last component of the path, setting of a global configuration file based on
@@ -34,7 +34,7 @@ def create_default_argument_parser(callers_docstring,user_config_dirname):
       "global.config" if is_production else "dev_global.config")
   cmdline_parser = argparse.ArgumentParser(
       description=callers_docstring,
-      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+      formatter_class=argparse.ArgumentDefaultsHelpFormatter,add_help=add_help)
   cmdline_parser.add_argument(
       "-c", "--config",
       help="PDBMap configuration profile for database access and global parameters",
