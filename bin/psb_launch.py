@@ -451,7 +451,7 @@ if oneMutationOnly:
 else:
     udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkplan) # The argument is an entire project UDN124356
     print("Retrieving project mutations from %s"%udn_csv_filename)
-    df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
+    df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
     df_all_mutations.fillna('NA',inplace=True);
     print("Launching all jobs for %d mutations"%len(df_all_mutations))
     for index,row in df_all_mutations.iterrows():

@@ -243,6 +243,7 @@ def monitor_one_mutation(workstatus):
   
   # Take all the non-NA values from df_job_updates, and modify df_all_jobs_status to include them
   df_all_jobs_original_status = df_all_jobs_status.copy()
+  # import pdb; pdb.set_trace()
   df_all_jobs_status.update(df_job_updates)
   df_incomplete = df_all_jobs_status[df_all_jobs_status['ExitCode'] != '0']
 
@@ -290,7 +291,7 @@ if oneMutationOnly:
 else:
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkstatus) # The argument is an entire project UDN124356
   print("Retrieving project mutations from %s"%udn_csv_filename)
-  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
   print("Monitoring all jobs for %d mutations"%len(df_all_mutations))
   df_all_mutations.fillna('NA',inplace=True)
   for index,row in df_all_mutations.iterrows():
