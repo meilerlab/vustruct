@@ -72,7 +72,10 @@ import argparse,configparser
 from glob import glob
 from lib import PDBMapSIFTSdb
 from pdbmap import PDBMapProtein,PDBMapSwiss
+from lib import PDBMapModbase2016
+from lib import PDBMapModbase2013
 from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
+from lib.PDBMapTranscriptEnsembl import PDBMapTranscriptEnsembl
 from lib.PDBMapAlignment import PDBMapAlignment
 from lib.amino_acids import longer_names
 import pprint
@@ -103,6 +106,10 @@ elif args.verbose:
   sh.setLevel(logging.INFO)
 # If neither option, then logging.WARNING (set at top of this code) will prevail for stdout
 
+# If we can reload from RAM, it saves a ton of time
+from copy import deepcopy
+MMCIF_DICT_CACHE = {}
+MMCIF_STRUCTURE_CACHE = {}
 
 required_config_items = ["dbhost","dbname","dbuser","dbpass",
   "collaboration",
@@ -122,6 +129,10 @@ required_config_items = ["dbhost","dbname","dbuser","dbpass",
 # parser.add_argument("udn_csv",type=str,help="Parsed output pipeline filename (e.g. filename.csv)")
 
 config,config_dict = psb_config.read_config_files(args,required_config_items)
+
+keep_pdbs = []
+if 'KeepPDBs' in config:
+    keep_pdbs = dict(config.items('KeepPDBs'))['keeppdbs'].upper().split(',')
 
 from psb_shared import psb_perms
 psb_permissions = psb_perms.PsbPermissions(config_dict)
@@ -405,11 +416,20 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             params['diseaseArgument'] = pathprox_arguments[disease_1or2]
             params['neutralArgument'] = pathprox_arguments['neutral']
             pathprox_flavor="PP_%s_%s"%("complex" if multimer else "monomer",disease_variant_sql_label)
+            structure_designation = ''
+            if ci_row['label'] == 'usermodel':
+                structure_designation = "--usermodel=%s --label=%s_%s "%(ci_row['struct_filename'],ci_row['structure_id'],params['chain'])
+            elif ci_row['label'] == 'swiss':
+                structure_designation = "--swiss=%s "%ci_row['structure_id'] # <- Pathprox will make label from this and --chain
+            elif ci_row['label'] == 'modbase':
+                structure_designation = "--modbase=%s "%ci_row['structure_id'] # <- Pathprox will make label from this and --chain
+            else:
+                structure_designation = "--%s=%s "%("biounit" if multimer else "pdb",params['structure_id'].lower())
             j = makejob(pathprox_flavor,"pathprox3.py",params,
                 ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_mutation)s' " +
-                 ("--biounit=%s "%params['structure_id'].lower() if not multimer else "--pdb=%s "%params['structure_id']) +
-                 "--chain%(chain)sunp=%(unp)s " +
-                 ("--chain=%s "%ci_row['chain_id'] if not multimer else "") + 
+                 "--chain%(chain)sunp='%(unp)s' " +
+                 structure_designation +
+                 ("--chain='%s' "%ci_row['chain_id'] if not multimer else "") + 
                  "%(diseaseArgument)s %(neutralArgument)s --radius=D " + 
                  ## deprecated -> "--sqlcache=%(sqlcache)s " + 
                  (("--permutations=%s "%params['pathprox_permutations']) if 'pathprox_permutations' in params else '') + 
@@ -424,17 +444,13 @@ def makejob_udn_sequence(params):
           ("--config %(config)s --userconfig %(userconfig)s " +
            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
 
-def makejob_udn_structure(params,method,structure_id,chain_id,mers,pdb_mut_i):
+def makejob_udn_structure(params,pdb_mut_i):
   params = params.copy()
-  params['method'] = method
-  params['pdbid'] = structure_id 
-  params['chain'] = chain_id
-  params['mers'] = mers
   params['pdb_mutation'] = pdb_mut_i
   # ddg_monomer (plus redundant secondary structure/uniprot annotation)
   return makejob("ddG","udn_pipeline2.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
-           "--project %(collab)s --patient %(project)s --gene %(gene)s --structure %(pdbid)s --chain %(chain)s --mutation %(pdb_mutation)s --transcript %(transcript_mutation)s")%params) # options
+           "--project %(collab)s --patient %(project)s --gene %(gene)s --structure %(struct_filename)s --chain %(chain)s --mutation %(pdb_mutation)s --transcript %(transcript_mutation)s")%params) # options
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
 # Fix this in python 3 - where we have additional local scoping options
@@ -457,10 +473,10 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
         newunp = unps[0]
         # If the refseq - looked-up-unp is materially different from the supplied unp, make some noise
         if unp and ( 
-             (newunp.split('-')[0] != unp.split('-')[0])  # Clearly A12345 is NOT Same as J54321
-             or # We know both match to first 6 positions....  Do their Uniparc IDs match
-             PDBMapProtein.unp2uniparc(unp) != PDBMapProtein.unp2uniparc(newunp)):
-                    LOGGER.warning("unp %s determined from refseq %s will override provided %s",newunp,refseq,unp)
+            (newunp.split('-')[0] != unp.split('-')[0])  # Clearly A12345 is NOT Same as J54321
+            or # We know both match to first 6 positions....  Do their Uniparc IDs match
+            PDBMapProtein.unp2uniparc(unp) != PDBMapProtein.unp2uniparc(newunp)):
+                LOGGER.warning("unp %s determined from refseq %s will override provided %s",newunp,refseq,unp)
         unp = newunp
         gene = PDBMapProtein.unp2hgnc(unp)
         del unps
@@ -527,7 +543,9 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
     c.close()
     """
     
-
+    ################################################
+    # Load relevant PDBs for consideration         # 
+    ################################################
     pdbs_chains = PDBMapSIFTSdb.pdbs_chains_for_all_unp_isoforms(unp)
 
     LOGGER.info("%d Deposited PDB Chains are for unp=%s"%(len(pdbs_chains),unp.split('-')[0]))
@@ -571,6 +589,7 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                 else:
                     biounit_fin = open(biounit_filename,'rt')
                 biounit =  pdb_parser.get_structure(pdb_id,biounit_fin)
+                biounit_fin.close()
                 biounits_dict[pdb_id] = biounit
             else: # _Maybe_ the biounit is in an mmCIF file (big CRYO-em for example)
                 biounit_filename = os.path.join(config_dict['pdb_dir'],'biounit',"mmCIF",'divided',pdb_id[1:3],"%s-assembly1.cif.gz"%pdb_id)
@@ -581,33 +600,44 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                     else:
                         biounit_fin = open(biounit_filename,'rt')
                     biounit =  mmCIF_parser.get_structure(pdb_id,biounit_fin)
+                    biounit_fin.close()
                     biounits_dict[pdb_id] = biounit
                 else:
                     LOGGER.debug("No biounit PDB or mmCIF file found for pdbid=%s",pdb_id)
 
             # All assymetric units are available in mmCIF format - so grab that
-            structure_filename = os.path.join(config_dict['pdb_dir'],'structures','divided','mmCIF',pdb_id[1:3],"%s.cif.gz"%pdb_id)
-            if os.path.exists(structure_filename):
-                LOGGER.debug("Loading %s",structure_filename)
-                if structure_filename.endswith(".gz"):
-                    structure_fin = gzip.open(structure_filename,'rt')
-                else:
-                    structure_fin = open(structure_filename,'rt')
-                structure =  mmCIF_parser.get_structure(pdb_id,structure_fin)
-                mmCIF_dict = mmCIF_parser._mmcif_dict # << This is a little dangerous but the get_structure code above looks quite clean
-                mmCIFDicts_dict[pdb_id] = mmCIF_dict
-                structures_dict[pdb_id] = structure
+            if pdb_id in MMCIF_DICT_CACHE:
+                mmCIFDicts_dict[pdb_id] = deepcopy(MMCIF_DICT_CACHE[pdb_id])
+                structures_dict[pdb_id] = MMCIF_STRUCTURE_CACHE[pdb_id].copy()
             else:
-                LOGGER.critical("%s: No structure file %s",pdb_id,structure_filename)
+                structure_filename = os.path.join(config_dict['pdb_dir'],'structures','divided','mmCIF',pdb_id[1:3],"%s.cif.gz"%pdb_id)
+                if os.path.exists(structure_filename):
+                    LOGGER.debug("Loading %s",structure_filename)
+                    if structure_filename.endswith(".gz"):
+                        structure_fin = gzip.open(structure_filename,'rt')
+                    else:
+                        structure_fin = open(structure_filename,'rt')
+                    structure =  mmCIF_parser.get_structure(pdb_id,structure_fin)
+                    structure_fin.close()
+                    mmCIF_dict = mmCIF_parser._mmcif_dict # << This is a little dangerous but the get_structure code above looks quite clean
+                    mmCIFDicts_dict[pdb_id] = mmCIF_dict
+                    MMCIF_DICT_CACHE[pdb_id] = deepcopy(mmCIF_dict)
+                    MMCIF_STRUCTURE_CACHE[pdb_id] = structure.copy()
+                    structures_dict[pdb_id] = structure
+                else:
+                    LOGGER.critical("%s: No structure file %s",pdb_id,structure_filename)
 
     # Life is much easier if we have a class that knows 'everything' relevant about ranking pdb structures
     class ChainInfo(object):
         def __init__(self,_label: str = 'N/A'):
             self.label = _label        # Typically pdb, swiss, modbase, usermodel
             self.structure_id = None   # unique ID (filename base) of the structure within the domain of pdb/swiss/modbase
+            self.structure_url = None  # url for more information from rcsb, swissmodel, etc
+            self.struct_filename = None# Required for user models as argument to pathprox.  Nice to gather as we can for others
             self.mers = 'monomer'      # Could be dimer/trimer/etc - Processing of an entire complex is a top level idea, with the other chains peer calculations
             self.pdb_template = None   # For models, the deposited PDB structure upon which the model was created
             self.template_identity = None # For models, the Swiss/Modbase provided seq identity number between transcript and pdb template
+            self.template_chain = None # The chain ID of the template primarily used to build the model
             self.chain_id = None       # The .cif chain letter A/B/C.... possibly #s and lower letters for large cryoEM
             self.biounit = None        # Boolean to record whether a biounit file is available
             self.method = None         # X-RAY...  CRYO-EM, etc
@@ -628,33 +658,229 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
             self.trans_first_aligned = None # The 1..len(transcript) transcript position of the first aligned amino acid
             self.trans_last_aligned = None  # The 1..len(transcript) transcript position of the last aligned amino acid
 
+        def __str__(self):
+            return str(vars(self))
+
+        def __repr__(self):
+            return "ChainInfo:" +  str(self)
+
+        def set_alignment_profile(self,alignment: PDBMapAlignment,structure): 
+            self.perc_aligned = alignment.perc_aligned
+            self.perc_identity = alignment.perc_identity
+            self.aln_score = alignment.aln_score
+
+            sorted_align_seqs = sorted(alignment.seq_to_resid.keys())
+            self.trans_first_aligned = sorted_align_seqs[0]
+            self.trans_last_aligned = sorted_align_seqs[-1]
+
+            chain_aa_letter = None
+            self.continuous_to_left = -1
+            self.continuous_to_right = -1
+            if self.trans_mut_pos: # Typically we have a transcript position nutation number
+                if self.trans_first_aligned <= self.trans_mut_pos <= self.trans_last_aligned:
+                    self.distance_from_aligned = 0 # I.e., our mutation of interest inside the aligned transcript aa_seq range
+                elif self.trans_mut_pos < self.trans_first_aligned: # Our mutation of interest to 'left' of first aligned transcript sequence
+                    self.distance_from_aligned = self.trans_first_aligned - self.trans_mut_pos 
+                else: # Our mutation of interest to 'right' of last aligned transcript aa_seq
+                    self.distance_from_aligned = self.trans_mut_pos - self.trans_last_aligned
+                if self.distance_from_aligned == 0:
+                    self.analyzable = 'Yes'
+                elif self.distance_from_aligned <= args.maybe:
+                    self.analyzable = 'Maybe'
+                else:
+                    self.analyzable = 'No'
+
+                resid = alignment.seq_to_resid.get(self.trans_mut_pos,None)
+                if resid:
+                    self.continuous_to_left = 0
+                    self.continuous_to_right = 0
+                    self.mut_pdb_res = resid[1]
+                    self.mut_pdb_icode = resid[2]
+                    chain_aa_letter = seq1(structure[0][self.chain_id][resid].get_resname().lower())
+                    while True:
+                        test_left = self.trans_mut_pos - self.continuous_to_left - 1
+                        if (test_left <= 0) or (test_left not in alignment.seq_to_resid):
+                            break
+                        self.continuous_to_left += 1
+                    while True:
+                        test_right = self.trans_mut_pos + self.continuous_to_right + 1
+                        if (test_right > transcript.len) or (test_right not in alignment.seq_to_resid):
+                            break
+                        self.continuous_to_right += 1
+
+        def mers_string(self,chain_count: int) -> str:
+            return { # dimer/trimer... or 7-mer/9-mer via .get default
+                1: 'mono',
+                2: 'di',
+                3: 'tri',
+                4: 'tetra',
+                5: 'penta',
+                6: 'hexa',
+                8: 'octa',
+               10: 'deca'}.get(chain_count,"%d-"%chain_count) + 'mer'
+
     # Now that we have all the candidate pdbs and biounits in memory.....
     # Create the dataframe that we will use to pick the 'best' pdb(s) for pipeline analysis
     df_columns = vars(ChainInfo()).keys()
     ci_pdbs_df = pd.DataFrame(columns=df_columns).astype({'biounit':bool})
     ci_modbase_swiss_df = ci_pdbs_df.copy(deep = True)
+    ci_usermodel_df = ci_pdbs_df.copy(deep = True)
+
+    ################################################
+    # Load relevant swiss models for consideration # 
+    ################################################
+    swiss_modelids = PDBMapSwiss.unp2modelids(unp,IsoformOnly = True)
+    for swiss_modelid in swiss_modelids:
+        info = PDBMapSwiss.get_info(swiss_modelid)
+        ci = ChainInfo('swiss')
+        ci.struct_filename= PDBMapSwiss.get_coord_file(swiss_modelid)
+        
+        if not os.path.exists(ci.struct_filename):
+            LOGGER.critical("Swiss model %s in meta data not found at %s",swiss_modelid,ci.struct_filename)
+            continue
+        ci.structure_id = info['modelid']
+        ci.structure_url = "https://swissmodel.expasy.org/repository/%s/report"%info['coordinate_id']
+        ci.biounit = False
+        ci.pdb_template = info['template']
+        # Swiss templates always formatted as pdb_id.1.chain_id
+        ci.template_chain = ci.pdb_template[-1]
+
+        if mutation:
+            ci.trans_mut_pos = int(mutation[1:-1])
+        else:
+            ci.trans_mut_pos = None
+
+        remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(swiss_modelid)
+        ci.method = remark3_metrics['mthd']
+
+        LOGGER.info("Loading Swiss model from %s"%ci.struct_filename)
+        swiss_structure = PDBParser().get_structure(ci.structure_id,ci.struct_filename)
+
+        ci.chain_id = next(swiss_structure[0].get_chains()).get_id()
+        assert ci.chain_id not in [' ',''],"UUGH - this swiss model has blank chain ID"
+
+        ci.nresidues = len(list(swiss_structure[0][ci.chain_id].get_residues()))
+        ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
+        ci.mers = ci.mers_string(ci.biounit_chains)
+        alignment = PDBMapAlignment(swiss_structure,ci.chain_id,None,'trivial')
+        success,errormsg = alignment.align_trivial(transcript,swiss_structure,ci.chain_id)
+        assert success,errormsg
+        ci.method = 'swiss'
+        ci.set_alignment_profile(alignment,swiss_structure)
+
+        ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+        chain_count = 0
+        for chain in swiss_structure[0]:
+            chain_count += 1
+        if chain_count > 1:
+            LOGGER.info("Adding swiss model as %d-mer"%chain_count) 
+            ci.biounit_chains = chain_count
+            ci.mers = ci.mers_string(ci.biounit_chains)
+            ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+
+    ################################################################
+    # Load relevant Modbase2016  AND Modbase2013 for consideration # 
+    ################################################################
+    ensp_proteins = PDBMapProtein.unp2ensp(unp)
+    enst_transcripts = PDBMapProtein.unp2enst(unp)
+    if ensp_proteins:
+        for enst_transcript in [PDBMapTranscriptEnsembl(enst_id) for enst_id in enst_transcripts]:
+            if enst_transcript.aa_seq == transcript.aa_seq:
+                break
+            LOGGER.critical("Ensembl transcript for %s does not match Uniprot transcript sequence for %s:\nENST:%s\nUniprot:%s",
+                 enst_transcript.id,transcript.id,enst_transcript.aa_seq,transcript.aa_seq)
+            LOGGER.critical("No Ensembl models will be considered for %s",enst_transcript.id)
+        else:
+            enst_transcript = None # We looped through and no transcript had aa_seq like
+        # for modbase_class in [PDBMapModbase16, PDBMapModbase13]
+        for modbase in [PDBMapModbase2016(config_dict), PDBMapModbase2013(config_dict)] if enst_transcript else []:
+            for ensp_protein in ensp_proteins:
+                modbase_modelids = modbase.ensp2modelids(ensp_protein)
+                for modbase_modelid in modbase_modelids:
+                    info = modbase.get_info(modbase_modelid)
+                    ci = ChainInfo('modbase')
+                    ci.struct_filename= modbase.get_coord_file(modbase_modelid)
+            
+                    if not os.path.exists(ci.struct_filename):
+                        LOGGER.critical("Modbase model %s in meta data not found at %s",modbase_modelid,ci.struct_filename)
+                        continue
+                    ci.structure_id = modbase_modelid
+                    # URL per Alex at Sali lab - thanks!
+                    # This method (column model_id) not available for modbase 2013
+                    if "model_id" in info:
+                        ci.structure_url = "https://salilab.org/modbase/searchbyid?modelID=%s&displaymode=moddetai"%info['model_id']
+                    ci.template_identity = float(info['sequence identity'])
+
+                    ci.biounit = False
+                    ci.pdb_template = info['pdb_code']
+
+                    if mutation:
+                        ci.trans_mut_pos = int(mutation[1:-1])
+                    else:
+                        ci.trans_mut_pos = None
+
+                    ci.method = None
+
+                    LOGGER.info("Opening Modbase Model File %s"%ci.struct_filename)
+                    if ci.struct_filename.endswith(".gz"):
+                        modbase_structure_fin = gzip.open(ci.struct_filename,'rt')
+                    else:
+                        modbase_structure_fin = open(ci.struct_filename,'rt')
+                    modbase_structure = PDBParser().get_structure(ci.structure_id,modbase_structure_fin)
+                    modbase_structure_fin.close()
+                    # Modbase models do not enclode chain IDs to match template - so just grab what we have
+                    # I.e. get_chains() is an iterator, and we want to first element that comes back
+                    # without setting up a for loop - so next() is perfect
+                    modbase_chainid = next(modbase_structure[0].get_chains()).get_id()
+                    if modbase_chainid in [' ','']:
+                        modbase_structure[0][modbase_chainid].id= 'A'
+                        ci.chain_id = 'A'
+                    else:
+                        ci.chain_id = modbase_chainid
+                    
+                    # Modbase super-annoying because the chain_id is often missing
+                    ci.nresidues = len(list(modbase_structure[0][ci.chain_id].get_residues()))
+                    ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
+                    ci.mers = ci.mers_string(ci.biounit_chains)
+                    alignment = PDBMapAlignment(modbase_structure,ci.chain_id,None,'trivial')
+                    success,errormsg = alignment.align_trivial(transcript,modbase_structure,ci.chain_id)
+                    if not success:
+                        LOGGER.critical("Modbase Model %s fails to align to transcript - skipping.  Error:\n%s",
+                            ci.structure_id,errormsg)
+                        continue
+                    ci.method = 'modbase'
+                    ci.set_alignment_profile(alignment,modbase_structure)
+
+                    ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+        
+    LOGGER.info("%d modbase swiss identified."%len(ci_modbase_swiss_df))
+
+    ###########################################################################################################################
+
     full_complexes = set() # A set of pdbids for which we have noted a full complex is to be considered
-    for _pdb_upper_id,_chain_id in pdbs_chains:
+    for pdb_upper_id,_chain_id in pdbs_chains:
+        LOGGER.info("Processing the next tuple: %s %s",pdb_upper_id,_chain_id)
         ci = ChainInfo('pdb')
         # Extract the mutation position
         if mutation:
             ci.trans_mut_pos = int(mutation[1:-1])
         else:
             ci.trans_mut_pos = None
-        ci.structure_id = _pdb_upper_id.lower()
+        ci.structure_id = pdb_upper_id.lower()
         ci.chain_id = _chain_id
         if ci.structure_id not in structures_dict:
-            LOGGER.warning("Not considering SIFTS suggestion %s.%s as missing from filesystem"%(pdb_id,chain_id))
+            LOGGER.warning("Not considering SIFTS suggestion %s.%s as missing from filesystem"%(ci.structure_id,ci.chain_id))
             continue
-        ci.biounit = (pdb_id in biounits_dict)
+        ci.structure_url = "https://www.rcsb.org/structure/%s"%ci.structure_id.upper()
+        ci.biounit = (ci.structure_id in biounits_dict)
         ci.biounit_chains = 1
-        structure = structures_dict[pdb_id]
+        structure = structures_dict[ci.structure_id]
 
         # UUGH - trying to duplicate the old REMARK 2 RESOLUTION entry in the old pdb format - still in process
         # At first Ezra.Peisach@rcsb.org wrote that the replacement is _reflns.d_resolution_high.
         # But, when I hit a wall of that entry being missing in some structures, he said sorry
         # and that _refine.ls_d_res_high is the right replacement
-        mmCIF_dict = mmCIFDicts_dict[pdb_id]
+        mmCIF_dict = mmCIFDicts_dict[ci.structure_id]
         ci.method = mmCIF_dict['_exptl.method'][0]
         raw_deposition_date = mmCIF_dict.get('_pdbx_database_status.recvd_initial_deposition_date',None)
         if raw_deposition_date: # Split into YYYY-MM-DD
@@ -687,9 +913,9 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
         if not ci.resolution and ci.method.find('X-RAY') > 0:
             LOGGER.warning("pdb %s is method=%s with no resolution entry"%(method,resolution))
 
-        if biounit: # In case of biounit we have good chance of a multi-chain complex to process
+        if ci.biounit: # In case of biounit we have good chance of a multi-chain complex to process
             chain_ATOM_residues = {}
-            for chain in biounits_dict[pdb_id][0]:
+            for chain in biounits_dict[ci.structure_id][0]:
                for residue in chain:
                    if 0 == len(residue.id[0].strip()): # Then it is an ^ATOM entry (not HETERO or WAT)
                        count = chain_ATOM_residues.get(chain.id,0)
@@ -697,91 +923,45 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
             ci.biounit_chains = len(chain_ATOM_residues)
             ci.nresidues = sum(chain_ATOM_residues.values())
         else:
-            ci.nresidues = len(list(structure[0][chain_id].get_residues()))
+            ci.nresidues = len(list(structure[0][ci.chain_id].get_residues()))
             
-        alignment = PDBMapAlignment(structure,chain_id,None,'trivial')
+        alignment = PDBMapAlignment(structure,ci.chain_id,None,'trivial')
         assert ci.chain_id in structure[0],"Chain ID %s not found in file %s"%(ci.chain_id,structure_filename)
         success = False
-        success,errormsg = alignment.align_trivial(transcript,structure,chain_id)
+        success,errormsg = alignment.align_trivial(transcript,structure,ci.chain_id)
         if not success:
             LOGGER.debug("Trivial alignment failed - which is common: %s",errormsg)
             if unp_is_canonical:
-                success,errormsg = alignment.align_sifts_canonical(transcript,structure,chain_id)
-            else:
-                success,errormsg = alignment.align_sifts_isoform_specific(transcript,structure,chain_id)
+                success,errormsg = alignment.align_sifts_canonical(transcript,structure,ci.chain_id)
+            if not success:
+                pdb_seq_resid_xref = PDBMapAlignment.create_pdb_seq_resid_xref(mmCIF_dict)
+                success,errormsg = alignment.align_sifts_isoform_specific(transcript,structure,pdb_seq_resid_xref,chain_id=ci.chain_id,is_canonical=unp_is_canonical)
     
             if not success:
                 LOGGER.warning("Unable to align with sifts: %s",errormsg)
-                LOGGER.warning("Attempting to align chain %s with biopython call",chain_id)
-                success,errormsg = alignment.align_biopython(transcript,structure,chain_id)
+                LOGGER.warning("Attempting to align chain %s with biopython call",ci.chain_id)
+                success,errormsg = alignment.align_biopython(transcript,structure,ci.chain_id)
                 if not success:
                     LOGGER.critical("Also Unable to align with biopython: %s",errormsg)
 
         if not success:
-            LOGGER.critical("Skipping %s:%s because of alignment failure"%(pdb_id,chain_id))
+            LOGGER.critical("Skipping %s:%s because of alignment failure"%(ci.structure_id,ci.chain_id))
             continue
 
-        ci.perc_aligned = alignment.perc_aligned
-        ci.perc_identity = alignment.perc_identity
-        ci.aln_score = alignment.aln_score
+        ci.set_alignment_profile(alignment,structure)
 
-        sorted_align_seqs = sorted(alignment.seq_to_resid.keys())
-        ci.trans_first_aligned = sorted_align_seqs[0]
-        ci.trans_last_aligned = sorted_align_seqs[-1]
-
-        chain_aa_letter = None
-        ci.continuous_to_left = -1
-        ci.continuous_to_right = -1
-        if ci.trans_mut_pos: # Typically we have a transcript position nutation number
-            if ci.trans_first_aligned <= ci.trans_mut_pos <= ci.trans_last_aligned:
-                ci.distance_from_aligned = 0 # I.e., our mutation of interest inside the aligned transcript aa_seq range
-            elif ci.trans_mut_pos < ci.trans_first_aligned: # Our mutation of interest to 'left' of first aligned transcript sequence
-                ci.distance_from_aligned = ci.trans_first_aligned - ci.trans_mut_pos 
-            else: # Our mutation of interest to 'right' of last aligned transcript aa_seq
-                ci.distance_from_aligned = ci.trans_mut_pos - ci.trans_last_aligned
-            if ci.distance_from_aligned == 0:
-                ci.analyzable = 'Yes'
-            elif ci.distance_from_aligned <= args.maybe:
-                ci.analyzable = 'Maybe'
-            else:
-                ci.analyzable = 'No'
-
-            resid = alignment.seq_to_resid.get(ci.trans_mut_pos,None)
-            if resid:
-                ci.continuous_to_left = 0
-                ci.continuous_to_right = 0
-                ci.mut_pdb_res = resid[1]
-                ci.mut_pdb_icode = resid[2]
-                chain_aa_letter = seq1(structure[0][chain_id][resid].get_resname().lower())
-                while True:
-                    test_left = ci.trans_mut_pos - ci.continuous_to_left - 1
-                    if (test_left <= 0) or (test_left not in alignment.seq_to_resid):
-                        break
-                    ci.continuous_to_left += 1
-                while True:
-                    test_right = ci.trans_mut_pos + ci.continuous_to_right + 1
-                    if (test_right > transcript.len) or (test_right not in alignment.seq_to_resid):
-                        break
-                    ci.continuous_to_right += 1
 
         ci_pdbs_df = ci_pdbs_df.append(vars(ci),ignore_index=True)
 
         # If this is a multi-chain structure, add a row to process as complex
         if ci.biounit_chains > 1 and ci.structure_id not in full_complexes:
             full_complexes.add(ci.structure_id)
-            ci.mers = {
-                2: 'di',
-                3: 'tri',
-                4: 'tetra',
-                5: 'penta',
-                6: 'hexa',
-                8: 'octa',
-               10: 'deca'}.get(ci.biounit_chains,"%d-"%ci.biounit_chains) + 'mer'
+            ci.mers = ci.mers_string(ci.biounit_chains)
             full_complex = True
             ci_pdbs_df = ci_pdbs_df.append(vars(ci),ignore_index=True)
            
-    ci_pdbs_df.to_csv('/tmp/ci_pdbs_df.tsv',sep='\t',index=True)
-    #    # alignments_dict[(pdb_id,chain_id)] = alignment
+    # ci_pdbs_df.to_csv('/tmp/ci_pdbs_df.tsv',sep='\t',index=True)
+    #    # alignments_dict[(pdb_id,ci.chain_id)] = alignment
     
     LOGGER.info("Selecting 'best' chains from %d unique pdb chains based on length, coverage, alignments"%len(ci_pdbs_df))
 
@@ -789,8 +969,9 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
     # LOGGER.info("Identifying PDB/ModBase/Swiss structures of %s %s unp=%s..."%(gene,refseq,unp))
     # ci_pdbs_df = get_pdbs(io,unp,ci.trans_mut_pos,maybe_threshold = args.maybe)
     #LOGGER.info("%d pdbs identified."%len(ci_pdbs_df))
-    # ci_modbase_swiss_df = get_modbase_swiss(io,unp,ci.trans_mut_pos,maybe_threshold = args.maybe)
-    LOGGER.info("%d modbase swiss identified."%len(ci_modbase_swiss_df))
+
+   
+
 
     # Funny bug - but if ci_pdbs_df is empty, the pd.concat turns all the second dF_modbase_swiss columns from ints to floats
     if len(ci_pdbs_df) == 0:
@@ -816,22 +997,6 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
             remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(ci_row['structure_id'])
             ci_df.iat[i,ci_df.columns.get_loc('template_identity')] = float(remark3_metrics['sid'])
             
-    # Query the PDB position for this position in the transcript
-    if not ci_df.empty and mutation:
-        LOGGER.info("Extracting the position of %s in each PDB/ModBase/Swiss structure..."%mutation)
-    
-        # This appears to be a kind of cleanup.  get_structures() above will already have marked
-        # the structures as "Maybe" in case of "Distance to Boundary" < 20
-        # This appears to be a situation where we have an experimental structure and the
-        # PDB Pos of the mutation is missing.
-        maybe_list = np.where( (ci_df["distance_from_aligned"] > 0) & (ci_df["mut_pdb_res"].isnull()) )
-        if len(maybe_list) > 0:
-            maybe_list = maybe_list[0]
-            if len(maybe_list) > 0:
-                ci_df.iloc[maybe_list,ci_df.columns.get_loc("analyzable")] = "Maybe"
-        
-        # df.iloc[(df["PDB Pos"].isnull()) & (df["Distance to Boundary"]==0),df.columns.get_loc("Analyzable?")] = "Maybe"
-    
     if not ci_df.empty: #ChrisMoth added this line and indented as the code below that makes no sense for empty df
         # df["Gene"] = gene
         # df = df[["gene","label","structure_id","Chain","method","Resolution (PDB)","template_identity",
@@ -846,6 +1011,10 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
             global df_dropped
             if keeping >= 0: # Add the other structure ID being kept, to the reason text, if asked 
                 reason += ' vs %s.%s'%(ci_df.iloc[keeping]['structure_id'],ci_df.iloc[keeping]['chain_id'])
+            if ci_df.iloc[k]['structure_id'].upper() in keep_pdbs:
+                LOGGER.warning( "Retaining %s.%s because it is the keep list, even though:\n%s",
+                    ci_df.iloc[k]['structure_id'],ci_df.iloc[k]['chain_id'],reason)
+                return False
             LOGGER.info( "Dropping ci_df duplicate row %d because %s %s"%(k,ci_df.iloc[k]['structure_id'],reason))
  
             # Record the removed model for the drop report
@@ -856,13 +1025,15 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
     
             # Remove model from set to process
             ci_df.drop(ci_df.index[k],inplace=True) 
+            return True
 
         # Jonathan requested that all "No" structures be dropped - so let's do that first 
         i = 0
         while i < ci_df.shape[0]:
             row_i = ci_df.iloc[i]
             if row_i['analyzable'] == 'No':
-                    drop_df_row(i,"Not Analyzable")
+                if not drop_df_row(i,"Not Analyzable"):
+                    i += 1
             else:
                 i += 1
 
@@ -890,17 +1061,17 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                     # If we have a "maybe",then drop the nos
                     if row_i['analyzable'] != row_j['analyzable']:
                         if row_i['analyzable'] == 'No':
-                            drop_df_row(i,"is not as analyzable",j)
-                            break
+                            if drop_df_row(i,"is not as analyzable",j):
+                                break
                         elif row_j['analyzable'] == 'No':
-                            drop_df_row(j,"is not as analyzable",i)
-                            breaktest_SCN11A_psb_plan.log
+                            if drop_df_row(j,"is not as analyzable",i):
+                                break
                         elif row_i['analyzable'] == 'Maybe':
-                            drop_df_row(i,"is not as analyzable",j)
-                            break
+                            if drop_df_row(i,"is not as analyzable",j):
+                                break
                         elif row_j['analyzable'] == 'Maybe':
-                            drop_df_row(j,"is not as analyzable",i)
-                            break
+                            if drop_df_row(j,"is not as analyzable",i):
+                                break
                     else: # Both experimental structures _are_ (or are not) analyzable - same level...
                         if row_i['analyzable'] == 'Yes': # Generally this is good - but some peptides appear 100x in pdb and we do not need all that
                             if row_i['method'] != row_j['method']: # Don't throw away an xray for a cryo-em or nmr
@@ -912,40 +1083,40 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                                 row_i_resolution = row_i['resolution']
                                 row_j_resolution = row_j['resolution']
                                 if row_j_resolution == row_i_resolution: # Two structures with same resolution - let one go
-                                    drop_df_row(i,"is same resolution",j)
-                                    break
-                                if float(row_i_resolution) > float(row_j_resolution): # Then keep jth
-                                    drop_df_row(i,"is lower resolution",j)
-                                    break
+                                    if drop_df_row(i,"is same resolution",j):
+                                        break
+                                elif float(row_i_resolution) > float(row_j_resolution): # Then keep jth
+                                    if drop_df_row(i,"is lower resolution",j):
+                                        break
                                 else:
                                     # row_j_resolution > row_i_resolution: # Then keep ith
-                                    drop_df_row(j,"is lower resolution",i)
-                                    break
+                                    if drop_df_row(j,"is lower resolution",i):
+                                        break
                             elif ((row_i_aligned_len > row_j_aligned_len) 
                                          and  (row_i['trans_first_aligned'] <= row_j['trans_first_aligned']) 
                                          and (row_i['trans_last_aligned'] >= row_j['trans_first_aligned'])):
-                                drop_df_row(j,"is shorter",i)
-                                break
+                                if drop_df_row(j,"is shorter",i):
+                                    break
                             elif ((row_j_aligned_len > row_i_aligned_len) 
                                          and (row_j['trans_first_aligned'] <= row_i['trans_first_aligned']) 
                                          and (row_j['trans_last_aligned'] >= row_i['trans_first_aligned'])):
-                                drop_df_row(i,"is shorter",j)
-                                break
+                                if drop_df_row(i,"is shorter",j):
+                                    break
                             # Otherwise, the structures might overlap - but these are experimental structures - do not throw away! 
     
                         elif row_i['analyzable'] == 'No' or row_i['analyzable'] == 'Maybe': # Neither is very analyzable
                             if int(row_i['distance_from_aligned']) > int(row_j['distance_from_aligned']):
-                                drop_df_row(i,"is farther from mutation",j)
-                                break
+                                if drop_df_row(i,"is farther from mutation",j):
+                                    break
                             elif int(row_i['distance_from_aligned']) < int(row_j['distance_from_aligned']):
-                                drop_df_row(j,"is farther from mutation",i)
-                                break
+                                if drop_df_row(j,"is farther from mutation",i):
+                                    break
                             if row_i_aligned_len > row_j_aligned_len:
-                                drop_df_row(j,"is shorter",i)
-                                break
+                                if drop_df_row(j,"is shorter",i):
+                                    break
                             elif row_j_aligned_len > row_i_aligned_len:
-                                drop_df_row(i,"is shorter",j)
-                                break
+                                if drop_df_row(i,"is shorter",j):
+                                    break
                             else: # Both 'Np' structures have same length.   Eliminate by resolution difference
                                 row_i_resolution = row_i['resolution']
                                 row_j_resolution = row_j['resolution']
@@ -954,75 +1125,82 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                                     row_i_structid = row_i['structure_id']
                                     row_j_structid = row_j['structure_id']
                                     if (row_i_structid > row_j_structid):
-                                        drop_df_row(i,"is same length and resolution, but greater structid ID",j)
+                                        if drop_df_row(i,"is same length and resolution, but greater structid ID",j):
+                                            break
                                     else:
-                                        drop_df_row(j,"is same length and resolution, but greater than or same structid ID",i)
-                                    break
+                                        if drop_df_row(j,"is same length and resolution, but greater than or same structid ID",i):
+                                            break
                                 elif float(row_i_resolution) > float(row_j_resolution):
-                                    drop_df_row(i,"is higher resolution",j)
-                                    break
+                                    if drop_df_row(i,"is higher resolution",j):
+                                        break
                                 else:
                                     # row_j_resolution > row_i_resolution:
-                                    drop_df_row(j,"is higher resolution",i)
-                                    break
+                                    if drop_df_row(j,"is higher resolution",i):
+                                        break
                         else: # Both structures are "yes" to analyzable - and much greater caution before dropping one
                             pass
                 # Don't remove anything if comparing an experimental structure to a model
                 elif row_i['label'] == 'pdb' or row_j['label'] == 'pdb':
                     pass
                 else: # We are going to compare two models (not comparing experimental structures)
-                    row_j_template = row_j['PDB Template'].split('.')[0].upper()
+                    row_j_template = row_j['pdb_template'].split('.')[0].upper()
                     if (row_i_template == row_j_template): # If both models use same template, we need to drop one of them
                         # If both are ENSP models, then we need to just get rid of the 2013 one, and keep the 2016 one containing a period
                         if row_i['label'] == 'modbase' and row_j['label'] == 'modbase':
                             if (('.' in row_i['structure_id'] and '.' in row_j['structure_id']) or # if Both structures modbase16
                                     ('.' not in row_i['structure_id'] and '.' not in row_j['structure_id'])): # or if Both structures modbase13
                                 if row_i_aligned_len > row_j_aligned_len:
-                                    drop_df_row(j,"is shorter modbase",i)
+                                    if drop_df_row(j,"is shorter modbase",i):
+                                        break
                                 elif row_j_aligned_len > row_i_aligned_len:
-                                    drop_df_row(i,"is shorter modbase",j)
+                                    if drop_df_row(i,"is shorter modbase",j):
+                                        break
                                 else: # The two modbase models are on the same structure - but must be two different chains
                                     # The Modbase structure_id has the chain after the final . in the name
                                     row_i_chain = row_i['structure_id'].split('.')[-1].upper()
                                     row_j_chain = row_j['structure_id'].split('.')[-1].upper()
                                     if (row_i_chain > row_j_chain):
-                                        drop_df_row(i,"is same length, but greater chain ID",j)
+                                        if drop_df_row(i,"is same length, but greater chain ID",j):
+                                            break
                                     else:
-                                        drop_df_row(j,"is same length, but greater than or same chain ID",i)
-                                break;
+                                        if drop_df_row(j,"is same length, but greater than or same chain ID",i):
+                                            break
                             elif '.' in row_i['structure_id']: # Then row_i is Modbase2016 - so drop row_j
-                                drop_df_row(j,"is modbase13",i)
-                                break
+                                if drop_df_row(j,"is modbase13",i):
+                                    break
                             elif '.' in row_j['structure_id']: # Then row_j is Modbase2016 - so drop row_i
-                                drop_df_row(i,"is modbase13",j)
-                                break
+                                if drop_df_row(i,"is modbase13",j):
+                                    break
                         # If one of the same-template models is swiss, other modebase
                         # Kepp swiss
                         elif row_i['label'] == 'swiss' and row_j['label'] == 'modbase':
-                            drop_df_row(j,"is modbase (keeping swiss)",i)
-                            break
+                            if drop_df_row(j,"is modbase (keeping swiss)",i):
+                                break
                         elif row_i['label'] == 'modbase' and row_j['label'] == 'swiss':
-                            drop_df_row(i,"is modbase (keeping swiss)",j)
-                            break
+                            if drop_df_row(i,"is modbase (keeping swiss)",j):
+                                break
                         # If they are both swiss, then keep the longer chain... or lower chain ID if same length chains
                         elif row_i['label'] == 'swiss' and row_j['label'] == 'swiss':
                             if row_i_aligned_len > row_j_aligned_len:
-                                drop_df_row(j,"is shorter swissmodel",i)
+                                if drop_df_row(j,"is shorter swissmodel",i):
+                                    break
                             elif row_j_aligned_len > row_i_aligned_len:
-                                drop_df_row(i,"is shorter swissmodel",j)
+                                if drop_df_row(i,"is shorter swissmodel",j):
+                                    break
                             else: # The two swiss models are on the same structure - but must be two different chains
                                 # The Swiss structure_id has the chain after the final . in the name
                                 row_i_chain = row_i['structure_id'].split('.')[-1].upper()
                                 row_j_chain = row_j['structure_id'].split('.')[-1].upper()
                                 if (row_i_chain > row_j_chain):
-                                    drop_df_row(i,"is same length, but greater chain ID",j)
+                                    if drop_df_row(i,"is same length, but greater chain ID",j):
+                                        break
                                 else:
-                                    drop_df_row(j,"is same length, but greater than or same chain ID",i)
-                            break;
+                                    if drop_df_row(j,"is same length, but greater than or same chain ID",i):
+                                        break
                 # end of dup drops in models
     
                 j += 1
-            else: # Do not increment i if a row was dropped (and break was called)
+            else: # Applies to outer while.  Do not increment i if a row was dropped (and break was called)
                 i += 1
     
         # Important: This function drops by index, not the physical row number as the duplicate drop code above
@@ -1101,39 +1279,88 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
 
         from Bio.PDB.PDBParser import PDBParser 
         p = PDBParser()
-        structure = p.get_structure('user_model',user_model)
+        user_model_split = user_model.split(':')
+        if len(user_model_split) > 2:
+            LOGGER.error("I don't understand user model %s.  Use only one colon to delimit filename from chain please",user_model)
+            sys.exit(1)
+
+        ci = ChainInfo('usermodel')
+        # If chain ID specified in missense.csv
+        if len(user_model_split) == 2:
+            ci.chain_id = user_model_split[1]
+
+        ci.struct_filename = user_model_split[0]
+        ci.structure_id = ci.struct_filename.split('.')[0] # Drop the .mmcif or .pdb from user model
+
+        structure = p.get_structure('user_model',ci.struct_filename)
+
         model_count = 0
         chain_count = 0;
-        chain_id = ' '
+
         for model in structure:
             model_count += 1
+            if model_count > 1:
+                LOGGER.critical("User model %s must contain one and only one model, not %d",user_model,model_count)
+                sys.exit(1)
             for chain in model:
-                chain_id = chain.get_id()
+                # If no chain ID specified in missense.csv
+                if len(user_model_split) == 1:
+                    ci.chain_id = chain.get_id()
                 chain_count += 1
-                seq_start = -1 
-                seq_end = -1
-                for residue in chain:
-                    resid = residue.id
-                    assert((resid[0] == None or resid[0] == ' ') and ('User model residues cannot be WAT or HET entries'))
-                    assert((resid[2] == None or resid[2] == ' ') and ('User model insertion codes must be blank'))
-                    if seq_start == -1:
-                        seq_start = residue.id[1]
-                    seq_end = residue.id[1]
+                # If multi-chain model, and chain NOT specified by user
+                # then we cannot continue
+                if chain_count > 1 and len(user_model_split) == 1: 
+                    LOGGER.critical("User_model %s has multiple chains.  You must specifiy a :ChainID for pathprox",user_model)
+                    sys.exit(1)
 
-        if model_count != 1:
-            LOGGER.error("User model %s must contain one and only one model, not %d",user_model,model_count)
+        ci.mers = ci.mers_string(chain_count)
+
+        ci.trans_mut_pos = int(mutation[1:-1])
+        if ci.chain_id not in structure[0]:
+            LOGGER.critical("Chain ID %s specified is not in user model %s",ci.chain_id.ci.structure_id)
             sys.exit(1)
 
-        if chain_count != 1:
-            LOGGER.error("User model %s must contain one and only one chain, not %d",user_model,chain_count)
+        if (' ',ci.trans_mut_pos,' ') in structure[0][ci.chain_id]:
+             ci.mut_pdb_res = ci.trans_mut_pos
+             ci.mut_pdb_icode = ' ' 
+        else:
+             LOGGER.warning("Mutation POS %d is not in user model %s",ci.trans_mut_pos,ci.structure_id)
+
+
+        """seq_start = -1 
+        seq_end = -1
+        for residue in structure[0][ci.chain_id]:
+            resid = residue.id
+            assert((resid[0] == None or resid[0] == ' ') and ('User model residues cannot be WAT or HET entries'))
+            assert((resid[2] == None or resid[2] == ' ') and ('User model insertion codes must be blank'))
+            if seq_start == -1:
+                seq_start = residue.id[1]
+            seq_end = residue.id[1]"""
+
+        # ci_usermodel_df = ci_usermodel_df.append(vars(ci),ignore_index=True)
+        alignment = PDBMapAlignment(structure,ci.chain_id,None,'trivial')
+        assert ci.chain_id in structure[0],"Chain ID %s not found in file %s"%(ci.chain_id,structure_filename)
+        success = False
+        success,errormsg = alignment.align_trivial(transcript,structure,ci.chain_id)
+        if not success:
+            LOGGER.critical("Trivial alignment failed - which is bad for user model",errormsg)
+    
+            success,errormsg = alignment.align_biopython(transcript,structure,ci.chain_id)
+            if not success:
+                LOGGER.critical("Also Unable to align with biopython: %s",errormsg)
+
+        if not success:
+            LOGGER.critical("Halting on usermodel %s:%s because of alignment failure"%(ci.structure_id,ci.chain_id))
             sys.exit(1)
 
-        for chain in structure: # This leaves chain referencing the first chain
-            break
+        ci.method = 'usermodel'
+        ci.set_alignment_profile(alignment,structure)
 
-        #### FIX THIS INTEGRATION FO A USER MODEL
-        ci_df = ci_df.append({'Gene': gene, 'label': 'UserModel', 'method': 'UserModel', 'transcript': ENST_transcript_ids[0], 'structure_id': user_model, 'PDB Template': 'N/A', "analyzable": 'Yes', 'Chain': chain_id, "Transcript Pos": mut_pos, "PDB Pos": mut_pos, "Distance to Boundary": 0.0, "template_identity":float('nan'), "Resolution (PDB)":float('nan'),"Seq Start":seq_start, "Seq End": seq_end},ignore_index=True);
- 
+        ci_usermodel_df = ci_usermodel_df.append(vars(ci),ignore_index=True)
+      
+        # Make the user model to go first in all processing and reports
+        ci_df = pd.concat([ci_usermodel_df,ci_df],ignore_index = True).reset_index(drop = True)
+
  
     # df could be empty or not....
     structure_report_filename = "%s/%s_%s_%s_structure_report.csv"%(mutation_dir,gene,refseq,mutation)
@@ -1174,38 +1401,27 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
     
     
         # If the script made it to this point, set this mutation to "complete"
-        sql  = "UPDATE psb_collab.MutationSummary SET complete=True WHERE "
-        sql += "collab=%s AND project=%s AND gene=%s AND mutation=%s "
-        c = io._con.cursor()
-        c.execute(sql,(config_dict['collaboration'],args.project,gene,mutation))
-        c.close()
+        # sql  = "UPDATE psb_collab.MutationSummary SET complete=True WHERE "
+        # sql += "collab=%s AND project=%s AND gene=%s AND mutation=%s "
+        # c = io._con.cursor()
+        # c.execute(sql,(config_dict['collaboration'],args.project,gene,mutation))
+        # c.close()
     else:
-        # Generate a PDB-indexed mutation string for each chain
-        # Chains that do not cover the mutation site are set to None in this array
+        # Launch ddG on all structures with coverage
         if mutation:
-            pdb_mut_tuples = ci_df[['mut_pdb_res','mut_pdb_icode']].apply(tuple,axis=1)
-            pdb_muts = [(mutation[0] +str(int(mut_pdb_res)) +str(mut_pdb_icode.strip()) + mutation[-1]) if (mut_pdb_res and (not np.isnan(mut_pdb_res))) else None for mut_pdb_res,mut_pdb_icode in pdb_mut_tuples]
-            # pdb_muts = [mutation[0]+str(int(mut_pdb_res))+str(mut_pdb_icode.strip())+mutation[-1] if not np.isnan(mut_pdb_res) else (None,None) for mut_pdb_res,mut_pdb_icode in zip(df["mut_pdb_res"].values,df["mut_pdb_icode"].values)]
-            transcript_muts = [mutation[0]+str(int(transcript_pos))+mutation[-1] if not np.isnan(transcript_pos) else None for transcript_pos in ci_df['trans_mut_pos'].values]
-        else:
-            pdb_muts = [None]*len(ci_df)
-            transcript_muts = [None]*len(ci_df)
-        if mutation:
-            LOGGER.info("Evaluating mutation: %s"%(mutation))
-            LOGGER.info("Corresponding PDB/ModBase mutations:")
-            for i,(structure_id,chain_id) in enumerate(ci_df[["structure_id","chain_id"]].values):
-                if transcript_muts[i]:
-                    LOGGER.info("%s\t%s\t%s\tPDB pos: %s"%(structure_id,chain_id,transcript_muts[i],pdb_muts[i]))
-                else:
-                    LOGGER.info("%s\t%s\t%s"%(structure_id,chain_id,"Not covered by structure."))
-
-    
-        # Launchain_id structural analyses on all structures
-        for i,(method,structure_id,chain_id,mers) in enumerate(ci_df[["method","structure_id","chain_id","mers"]].values):
-            # Only launchain_id the udn_structure (ddG) script if there is mutation coverage
-            # and if the structure is being treated as a monomer
-            if pdb_muts[i] and mers=='monomer': 
-                df_all_jobs = df_all_jobs.append(makejob_udn_structure(params,method,structure_id,chain_id,mers,pdb_muts[i]),ignore_index = True)
+            for index,ci_row in ci_df.iterrows():  # For each chain_info record...
+                # Don't run ddg unless this is a simple monomer
+                if ci_row['mut_pdb_res'] and ci_row['mers'] == 'monomer':
+                    _params = params.copy() # Dont affect the dictionary passed in  Shallow copy fine
+                    _params['method'] = ci_row['method']
+                    _params['structure_id'] = ci_row['structure_id']
+                    _params['struct_filename'] = ci_row['struct_filename'] if ci_row['struct_filename'] else ci_row['structure_id']
+                    _params['chain'] = "%s"%ci_row['chain_id']  # Quote it in case the IDentifier is a space, as in many models
+                    _params['mers'] = ci_row['mers']
+                    # Only launchain_id the udn_structure (ddG) script if there is mutation coverage
+                    pdb_mut = mutation[0] + str(int(ci_row['mut_pdb_res'])) + str(ci_row['mut_pdb_icode']).strip() + mutation[-1]
+                    LOGGER.info("ddG will be run at %s of %s"%(pdb_mut,ci_row['struct_filename']))
+                    df_all_jobs = df_all_jobs.append(makejob_udn_structure(_params,pdb_mut),ignore_index = True)
 
         
         # Launch sequence and spatial jobs on a minimally overlapping subset of structures
@@ -1356,7 +1572,7 @@ else:
   # Now plan the per-mutation jobs
   udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
   print("Retrieving project mutations from %s"%udn_csv_filename)
-  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
   print("Work for %d mutations will be planned"%len(df_all_mutations))
 
   ui_final_table = pd.DataFrame()
