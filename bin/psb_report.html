@@ -8,7 +8,7 @@
 		<style media="print" type="text/css">
 		h4{text-align:center;margin:0;padding:0.1in;}
 		h5{text-align:center;margin:0;padding:0.1in;}
-		.container{width:6.5in;float:left;}
+		.container{width:8in;float:left;}
 		.box{width:2in;float:left;height:auto;}
 		.big-box{width:3in;float:left;height:auto;}
 		</style>
@@ -208,15 +208,15 @@ img {
 	</tr>
 	<tr>
 		<th style="text-align:right">Case</th>
-		<td>{{ project }}</td>
+		<td><a href="../index.html">{{ project }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Gene</th>
-		<td>{{ gene }}</td>
+		<td><a href="https://ghr.nlm.nih.gov/gene/{{ gene }}">{{ gene }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Protein</th>
-		<td>{{ unp }}</td>
+		<td><a href="https://www.uniprot.org/uniprot/{{ unp }}">{{ unp }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Mutation</th>
@@ -260,8 +260,8 @@ img {
 		<!-- Structure Plots -->
 		<div class="container">
 			<h4>Location of {{ structure['mutation'] }} in {{ structure['structid'] }}.{{ structure['chain'] }}</h4>
-			<img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto">
-         <h4>NGL Viewer of same </h4>
+			<!-- <img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto"> -->
+         <h4>NGL Viewer: </h4>
 
 		   <script>
 		    document.addEventListener("DOMContentLoaded", function () {
@@ -278,7 +278,10 @@ img {
 		      var stage = new NGL.Stage("viewport_{{ structure['unique_div_name'] }}", { backgroundColor : "white" } );
 		      stage.loadFile("{{ structure['pdbSSfilename'] }}").then(function (o) {
 		      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
+            // Clearly color any HETATMs floating around
+            o.addRepresentation("licorice", { sele: "hetero", color: "element", radius: "0.4" })
             chainColorIndex = 0;  color_chains_consecutively(o,chainColorIndex);
+            <!-- stage.setSize("80%","50%") -->
             stage.autoView()
 
 function addElement (el) {
