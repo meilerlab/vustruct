@@ -200,6 +200,8 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
 # PDBMap
 from lib import PDBMapSwiss
+from lib import PDBMapModbase2013
+from lib import PDBMapModbase2016
 from lib import PDBMapProtein
 # from lib.amino_acids import longer_names
 
@@ -237,11 +239,10 @@ def load_structure(id,coord_filename):
     return structure
 
 
-def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first):
+def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transcript):
     """From a pdb ID, load the structure, and sifts-align its chains to the best uniprot IDs
        (as returned by sifts"""
     chain_to_alignment = {}
-    chain_to_transcript = {}
     is_biounit = 0
     structure = None
     if try_biounit_first:
@@ -253,19 +254,52 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first):
             LOGGER.info("The biounit file %s was not found.  Attempting normal pdb"%os.path.basename(coord_filename))
   
     if not structure: 
-        coord_filename = os.path.join(config_dict['pdb_dir'],"structures","pdb%s.ent.gz"%pdb_id.lower())
+        coord_filename = os.path.join(config_dict['pdb_dir'],"structures","divided","pdb",pdb_id.lower()[1:3],"pdb%s.ent.gz"%pdb_id.lower())
         structure = load_structure(pdb_id,coord_filename)
         LOGGER.info("Success loading %s",coord_filename)
 
-    chain_to_best_unp = sifts_best_unps(structure)
-    for chain_letter in chain_to_best_unp:
-        best_unp_transcript = PDBMapTranscriptUniprot(chain_to_best_unp[chain_letter])
+    sifts_chain_to_best_unp = sifts_best_unps(structure)
+    for chain_letter in sifts_chain_to_best_unp:
+        if chain_letter not in structure[0]:
+            continue  # It is A-OK to have a biounit which lacks chains from sifts
+        if chain_letter in chain_to_transcript:
+            best_unp_transcript = chain_to_transcript[chain_letter] # Use the transcript inited from command line
+        else:
+            # Before we get too excited about an isoform specific ID
+            # If there is no cross-ref'd ENST transcript from idmapping, then revert to canonical
+            ensemble_transcript_ids = PDBMapProtein.unp2enst(sifts_chain_to_best_unp[chain_letter])
+            if not ensemble_transcript_ids:
+                LOGGER.critical("Unp %s is best for chain %s. HOWEVER it lacks ENST*.. so reverting to canonical",sifts_chain_to_best_unp[chain_letter],chain_letter)
+                sifts_chain_to_best_unp[chain_letter] = PDBMapProtein.best_unp(sifts_chain_to_best_unp[chain_letter].split('-')[0])
+                LOGGER.critical("For chain %s, unp now=%s",chain_letter,sifts_chain_to_best_unp[chain_letter])
+
+            best_unp_transcript = PDBMapTranscriptUniprot(sifts_chain_to_best_unp[chain_letter])
 
         alignment = PDBMapAlignment()
-        if PDBMapProtein.isCanonicalByUniparc(best_unp_transcript.id):
-            (success,message) = alignment.align_sifts_canonical(best_unp_transcript,structure,chain_id=chain_letter)
+        (success,message) = alignment.align_trivial(best_unp_transcript,structure,chain_id=chain_letter)
+        if success:
+            LOGGER.info("%s to chain %s Trivial align successful for residues in [%d,%d]\n%s"%(best_unp_transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
         else:
-            (success,message) = alignment.align_sifts_isoform_specific(best_unp_transcript,structure,chain_id=chain_letter)
+            LOGGER.info("Unable to trivially align transcript %s to %s.%s"%(best_unp_transcript.id,structure.id,chain_letter))
+            is_canonical = PDBMapProtein.isCanonicalByUniparc(best_unp_transcript.id)
+            if is_canonical:
+                (success,message) = alignment.align_sifts_canonical(best_unp_transcript,structure,chain_id=chain_letter)
+            if not success: 
+                from Bio.PDB import MMCIFParser
+                mmCIF_parser = MMCIFParser(QUIET=True)
+                mmcif_structure_filename = os.path.join(config_dict['pdb_dir'],'structures','divided','mmCIF',pdb_id.lower()[1:3],"%s.cif.gz"%pdb_id)
+                if os.path.exists(mmcif_structure_filename):
+                    LOGGER.debug("Loading %s",mmcif_structure_filename)
+                    if mmcif_structure_filename.endswith(".gz"):
+                        structure_fin = gzip.open(mmcif_structure_filename,'rt')
+                    else:
+                        structure_fin = open(mmcif_structure_filename,'rt')
+                    temp_structure =  mmCIF_parser.get_structure(pdb_id.lower(),structure_fin)
+                    mmCIF_dict = mmCIF_parser._mmcif_dict # << This is a little dangerous but the get_structure code above looks quite clean
+                    pdb_seq_resid_xref = PDBMapAlignment.create_pdb_seq_resid_xref(mmCIF_dict)
+
+                    (success,message) = alignment.align_sifts_isoform_specific(best_unp_transcript,temp_structure,pdb_seq_resid_xref,chain_id=chain_letter,is_canonical=is_canonical)
+
         assert success,message
         chain_to_alignment[chain_letter] = alignment
         chain_to_transcript[chain_letter] = best_unp_transcript
@@ -364,15 +398,21 @@ def structure_renumber_per_alignments(structure):
     for model in structure:
         renumbered_model = Model(model.id)
         for chain in model:
-            if chain not in chain_to_alignment:
-                renumbered_model.add(chain.copy())
+            if chain.id not in chain_to_alignment:
+                # This is ugly - but we are just pointing at the old chain
+                # It solves the problem of having disordered residues that are not brought over by .copy()
+                renumbered_model.add(chain)
             else:
                 alignment = chain_to_alignment[chain.id]
                 renumbered_chain = Chain(chain.id)
                 for residue in chain:
-                    if residue.id in alignment.residue_to_seq:
+                    if residue.id in alignment.resid_to_seq:
                         renumbered_residue = residue.copy()
-                        renumbered_residue.id = (' ',alignment.residue_to_seq[residue.id],' ')
+                        renumbered_residue.id = (' ',alignment.resid_to_seq[residue.id],' ')
+                        # The above copy routines fail to copy disorder properly - so just wipe out all notion of disorder
+                        for atom in renumbered_residue:
+                            atom.disordered_flag = 0
+                        renumbered_residue.disordered = 0
                         renumbered_chain.add(renumbered_residue)
                 renumbered_model.add(renumbered_chain)
 
@@ -599,39 +639,39 @@ def query_tcga(io,sid,refid=None,chains=None,indb=False):
   res = [r+[c] for r in res for c in chains]
   return res
 
-def get_coord_files(entity,io):
-  """ Returns the relevant coordinate file or None if no file found """
-  # Check if the entity is a filename. If so, assume PDB/ENT format
-  global unp_flag
-  if os.path.isfile(entity):
-    exts = 1 + int(os.path.basename(entity).split('.')[-1]=='gz')
-    sid  = '.'.join(os.path.basename(entity).split('.')[:-exts]) 
-    return [(sid,-1,entity)]
-  else:
-    LOGGER.info("Attempting to identify entity: %s..."%entity)
-    etype = io.detect_entity_type(entity)
-    if   etype == "structure":
-      LOGGER.info("Input is a PDB ID. Locating coordinate file...")
-      return structure_lookup(io,entity,args.chain is None)
-    elif etype == "model":
-      LOGGER.info("Input is a ModBase model ID. Locating coordinate file...")
-      return model_lookup(io,entity)
-    elif etype == "swiss":
-      LOGGER.info("Input is a Swissmodel ID. Locating coordinate file...")
-      return swiss_lookup(io,entity)
-    elif etype == "unp":
-      unp_flag = True
-      LOGGER.info("Input is a UniProt AC. Identifying all relevant PDB structures and ModBase models...")
-      return uniprot_lookup(io,entity)
-    elif etype: # HGNC returned a UniProt ID
-      unp_flag = True
-      LOGGER.info("Input is an HGNC gene name. Identifying all relevant PDB structures and ModBase models...")
-      LOGGER.info("HGNC: %s => UniProt: %s..."%(entity,etype))
-      return uniprot_lookup(io,etype)
-    else:
-      msg = "Could not identify %s."%entity
-      LOGGER.critical(msg);
-      sys_exit_failure(msg)
+# def get_coord_files(entity,io):
+#   """ Returns the relevant coordinate file or None if no file found """
+#   # Check if the entity is a filename. If so, assume PDB/ENT format
+#   global unp_flag
+#   if os.path.isfile(entity):
+#     exts = 1 + int(os.path.basename(entity).split('.')[-1]=='gz')
+#     sid  = '.'.join(os.path.basename(entity).split('.')[:-exts]) 
+#     return [(sid,-1,entity)]
+#   else:
+#     LOGGER.info("Attempting to identify entity: %s..."%entity)
+#     etype = io.detect_entity_type(entity)
+#     if   etype == "structure":
+#       LOGGER.info("Input is a PDB ID. Locating coordinate file...")
+#       return structure_lookup(io,entity,args.chain is None)
+#     elif etype == "model":
+#       LOGGER.info("Input is a ModBase model ID. Locating coordinate file...")
+#       return model_lookup(io,entity)
+#     elif etype == "swiss":
+#       LOGGER.info("Input is a Swissmodel ID. Locating coordinate file...")
+#       return swiss_lookup(io,entity)
+#     elif etype == "unp":
+#       unp_flag = True
+#       LOGGER.info("Input is a UniProt AC. Identifying all relevant PDB structures and ModBase models...")
+#       return uniprot_lookup(io,entity)
+#     elif etype: # HGNC returned a UniProt ID
+#       unp_flag = True
+#       LOGGER.info("Input is an HGNC gene name. Identifying all relevant PDB structures and ModBase models...")
+#       LOGGER.info("HGNC: %s => UniProt: %s..."%(entity,etype))
+#       return uniprot_lookup(io,etype)
+#     else:
+#       msg = "Could not identify %s."%entity
+#       LOGGER.critical(msg);
+#       sys_exit_failure(msg)
 
           
 # The parser has to cope with AnnnB, AaaNNNBbb, and up to chain_id|transcript_id:p.AaaNNNBbb (official) input formats
@@ -698,27 +738,31 @@ class PDBMapVariantSet():
             first_one = False
         transcript_in_str += ')'
         
-        query_str = ("SELECT distinct protein_pos,ref_amino_acid,alt_amino_acid,"
-                     " GenomicConsequence.chrom as chrom,GenomicConsequence.pos as pos,end,"
-                     " GenomicConsequence.id as id,transcript,allele,ref_codon,alt_codon\n"
-                     " FROM GenomicConsequence\n")
+        query_str = ("SELECT distinct GC.protein_pos,GC.ref_amino_acid,GC.alt_amino_acid,\n"
+                     "GC.chrom as chrom,GC.pos as pos,GC.end as end,GC.id as id,\n"
+                     "GC.transcript,GC.allele,GC.ref_codon,GC.alt_codon\n"
+                     " FROM GenomicConsequence AS GC\n")
         if label == 'clinvar':
-            query_str += "INNER JOIN clinvar on GenomicConsequence.chrom = clinvar.chrom and GenomicConsequence.pos = clinvar.pos\n"
+            query_str += "INNER JOIN clinvar on GC.chrom = clinvar.chrom and GC.pos = clinvar.pos\n"
             query_str += "  AND clinvar.clnsig %s ('Likely_pathogenic','Pathogenic','Pathogenic/Likely_pathogenic')" %('NOT IN' if variants_flavor == 'Neutral' else 'IN')
         elif label == 'drug':
-            query_str += "INNER JOIN clinvar on GenomicConsequence.chrom = clinvar.chrom and GenomicConsequence.pos = clinvar.pos"
+            query_str += "INNER JOIN clinvar on GC.chrom = clinvar.chrom and GC.pos = clinvar.pos"
             query_str  += " AND clinvar.clnsig like '%drug%'\n"
             label = 'clinvar' # <- careful.  This is a clinvar query in the end: clinvar drug variants...
         elif label == 'cosmic': 
-            query_str += "INNER JOIN cosmic on GenomicConsequence.chrom = cosmic.chrom and GenomicConsequence.pos = cosmic.pos"
+            query_str += "INNER JOIN cosmic on GC.chrom = cosmic.chrom and GC.pos = cosmic.pos"
             query_str  += " AND cosmic.cnt > 1\n"  # COSMIC queries only include count > 1
         elif label == 'tcga': 
-            query_str += "INNER JOIN tcga on GenomicConsequence.chrom = tcga.chrom and GenomicConsequence.pos = tcga.pos"
+            query_str += "INNER JOIN tcga on GC.chrom = tcga.chrom and GC.pos = tcga.pos"
+        elif label == 'gnomad': 
+            query_str += "INNER JOIN GenomicData ON GC.label = GenomicData.label AND GC.chrom = GenomicData.chrom"
+            query_str += " AND GC.pos = GenomicData.pos AND GC.end = GenomicData.end"
+            query_str += " AND GenomicData.maf >= 1E-5 \n"  # GNOMAD only include maf of 1 in 10,000 or more to be neutral
 
-        query_str += ( " WHERE label=%s and " + transcript_in_str +
+        query_str += ( " WHERE GC.label=%s and " + transcript_in_str +
                        " and consequence LIKE '%%missense_variant%%' and length(ref_amino_acid)=1 and length(alt_amino_acid)=1 ")
 
-        query_str += "ORDER BY protein_pos,ref_amino_acid,alt_amino_acid"
+        query_str += "ORDER BY GC.protein_pos,GC.ref_amino_acid,GC.alt_amino_acid"
 
         """ # With kwargs, a caller can append "and pathogenic=1' to the query
         for kwarg in kwargs:
@@ -787,13 +831,13 @@ class PDBMapVariantSet():
                 sys_exit_failure(msg)
             if len(split_at_colon) == 2:
                 dict_key = split_at_colon[0]   # Could be a chain, unp, or enst...
-                variant_str_remaining = split_at_colon[1]
+                variant_str_remaining = split_at_colon[1].upper()
 
             # Add to variants for this flavor, creating a new set if needed
             variant_set = id_to_variant_set.get(dict_key,PDBMapVariantSet(variants_flavor))
 
-            if variant_str_remaining.startswith("p."):
-                variant_str_remaining = variant_str_remaining[2]
+            if variant_str_remaining.startswith("P."):
+                variant_str_remaining = variant_str_remaining[2:]
 
             force_chain = None
             # There _could_ be a chain ID at the very end - which is rarely used holdover
@@ -1068,7 +1112,6 @@ def var2coord(s,p,n,c,q=[]):
     ndf["qt"]    = np.nan
     vdf = vdf.append(ndf)
   if c: # List of Candidate variants
-    import pdb; pdb.set_trace()
     cdf = pd.DataFrame(c,columns=["unp_pos","ref","alt","chain"])
     cdf["dcode"] = -1
     cdf["qt"]    = np.nan
@@ -1745,7 +1788,7 @@ def write_input_variants_to_chimera_attributes(dcode_filtered_df: pd.DataFrame,
     if not attribute_text:
         attribute_text = variant_type
 
-    LOGGER.info("%d variants of type %s to write as chimera attributes %s*%s.attr",len(dcode_filtered_df),args.label,variant_type)
+    LOGGER.info("%d variants of type %s to write as chimera attributes %s*%s.attr",len(dcode_filtered_df),variant_type,args.label,variant_type)
     if len(dcode_filtered_df) < 1: # Don't write anything if no rows in the dataframe
         return
 
@@ -1902,6 +1945,7 @@ if __name__ == "__main__":
       with open(new_progress_filename,'w') as f:
         f.write("%s: %s\n"%(__file__,inspect.currentframe().f_back.f_lineno))
       os.rename(new_progress_filename,'%s/progress'%statusdir)
+      return info
 
     statusdir_info('Begun')
 
@@ -1965,21 +2009,131 @@ if __name__ == "__main__":
     structure = None
     chain_to_alignment = {}
     chain_to_transcript = {}
+
+    # Step 1 is to parse out the assignments of chains to ids
+    PDBMapProtein.load_idmapping(config_dict['idmapping'])
+
+    # PROCESS USER-SPECIFIED transcript<->chain mappings
+    # if the user has any transcript->chain assignments, parse them from command line
+    chain_to_transcript = {}
+    transcript_parser = argparse.ArgumentParser()
+    chain_X_unp_re = re.compile('^--chain(.)unp=(.*)$')
+    chain_X_enst_re = re.compile('^--chain(.)enst=(.*)$')
+    chain_X_fasta_re = re.compile('^--chain(.)fasta=(.*)$')
+    transcript = None
+    for arg in args_remaining:
+        re_match =  chain_X_unp_re.match(arg)
+        unp = None
+        enst = None
+        fasta = None
+        chain_letter = None
+
+        if re_match: # A uniprot ID transcript ID was explicitly assigned to the chain
+            chain_letter = re_match.group(1)
+            unp = re_match.group(2)
+            transcript = PDBMapTranscriptUniprot(unp)
+            # if chain_letter in chain_to_transcript and transcript.id == chain_to_transcript[chain_letter].id:
+            #    LOGGER.warning("argument %s is redundant.  Pathprox automatically assigned/aligned")
+            LOGGER.info("Successful load of Uniprot transcript %s"%unp)
+        else:
+            re_match =  chain_X_enst_re.match(arg)
+            if re_match: # An ENSEMBL transcript ID was explicitly assigned to the chain
+                chain_letter = re_match.group(1)
+                enst = re_match.group(2)
+                transcript = PDBMapTranscriptEnsembl(enst)
+                LOGGER.info("Successful load of Ensembl transcript %s"%enst)
+            else:
+                re_match =  chain_X_fasta_re.match(arg)
+                if re_match: # A fasta amino acid string was explicitly assigned to the chain
+                    chain_letter = re_match.group(1)
+                    fasta = re_match.group(2)
+                    transcript = PDBMapTranscriptFasta(fasta)
+                    LOGGER.info("Successful load of fasta transcript %s"%fasta)
+                else:
+                    exitmsg = "Command line argument %s is invalid"%arg
+                    LOGGER.critical(exitmsg)
+                sys_exit_failure(exitmsg)
+
+        if transcript:
+            """alignment = PDBMapAlignment()
+            (success,message) = alignment.align_trivial(transcript,structure,chain_id=chain_letter)
+            if success:
+                LOGGER.info("%s to chain %s Trivial align successful for residues in [%d,%d]\n%s"%(transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
+            else:
+                LOGGER.warning("Unable to trivially align transcript %s to %s.%s"%(transcript.id,structure.id,chain_letter))
+                if args.pdb or args.biounit and unp: # Then user is mapping a deposited chain to a unp
+                   if PDBMapProtein.isCanonicalByUniparc(transcript.id):
+                       success,errormsg = alignment.align_sifts_canonical(transcript,structure,chain_id=chain_letter)
+                   else:
+                       success,errormsg = alignment.align_sifts_isoform_specific(transcript,structure,chain_id=chain_letter)
+
+                if success:
+                    LOGGER.info("Sifts alignment identity %f.  Align str:\n%s"%(alignment.perc_identity,alignment.aln_str))
+                else:
+                    (success,message) = alignment.align_biopython(transcript,structure,chain_id=chain_letter)
+                    assert success,statusdir_info(message)
+                    LOGGER.info("Biopython identity %f.  Align str:\n%s"%(alignment.perc_identity,alignment.aln_str))"""
+
+            # chain_to_alignment[chain_letter] = alignment
+            chain_to_transcript[chain_letter] = transcript
+
     is_biounit = 0  # Flag only set to 1 _If_ it is a PDB we load and _IF_ found in biounits
-    if args.pdb:
-        structure,is_biounit,chain_to_transcript,chain_to_alignment = PDBMapComplex_load_pdb_align_chains(args.pdb,True)
+    if args.pdb: # Then this is going to be a single chain calculation - so do try a biounit which may lack chain of interest
+        structure,is_biounit,chain_to_transcript,chain_to_alignment = PDBMapComplex_load_pdb_align_chains(args.pdb,False,chain_to_transcript)
     if args.biounit:
         is_biounit = 1
-        structure,is_biounit,chain_to_transcript,chain_to_alignment = PDBMapComplex_load_pdb_align_chains(args.biounit,is_biounit)
+        structure,is_biounit,chain_to_transcript,chain_to_alignment = PDBMapComplex_load_pdb_align_chains(args.biounit,is_biounit,chain_to_transcript)
     elif args.usermodel:
         if not args.label:
             exitmsg = "--label is required on the command line when loading a --usermodel"
             LOGGER.critical(exitmsg)
             sys_exit_failure(exitmsg)
         structure = load_structure(args.label,args.usermodel)
+    elif args.swiss: # This is a lenghty-ish swiss model ID, NOT the file location
+        PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
+        structure = load_structure(args.swiss,PDBMapSwiss.get_coord_file(args.swiss))
+
+        assigned_chain_id = next(iter(chain_to_transcript))
+
+        # Swiss _could_ be a homo-oliomer - and we want to capture that!
+        # by pointing the additional chain IDs at the same alignment
+        for chain in structure[0]:
+            if chain.id not in chain_to_transcript:
+                first_residue = next(iter(structure[0][chain.id]))
+                # Swiss model seems to put some HETATMs in some of the chains.  DO NOT align to those!
+                if first_residue.id[0] == ' ':
+                    chain_to_transcript[chain.id] = chain_to_transcript[assigned_chain_id]
+            
+    elif args.modbase: # This is a ENSP.... modbase file.  Could be either Modbase13 or 16 - so look in both places
+        modbase16 = PDBMapModbase2016(config_dict)
+        modbase16_structure_filename = modbase16.get_coord_file(args.modbase)
+        if os.path.exists(modbase16_structure_filename):
+            structure = load_structure(args.modbase,modbase16_structure_filename)
+        else:
+            modbase13 = PDBMapModbase2013(config_dict)
+            modbase13_structure_filename = modbase13.get_coord_file(args.modbase)
+            if os.path.exists(modbase13_structure_filename):
+                structure = load_structure(args.modbase,modbase13_structure_filename)
+            else:
+                LOGGER.critical("Modbase model id %s not found in either modbase2013/2016 config directories");
+
+    # Finally - if the chain left has no id, set the id to A for sanity
+    for chain in list(structure.get_chains()):
+        if chain.id in ('',' '):
+            LOGGER.info('Renaming blank/missing chain ID to A')
+            chain.id = 'A'
+
+    if args.usermodel or args.swiss or args.modbase:
+        alignment = PDBMapAlignment()
+        for chain_letter in chain_to_transcript:
+            alignment = PDBMapAlignment()
+            (success,message) = alignment.align_trivial(chain_to_transcript[chain_letter],structure,chain_id=chain_letter)
+            assert success,statusdir_info(message)
+            LOGGER.info("%s to chain %s Trivial align successful for residues in [%d,%d]\n%s"%(transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
+            chain_to_alignment[chain_letter] = alignment
 
 
-    assert structure,"A structure file must be specified via --pdb, --biounit, --swiss, --modbase, or --usermodel"
+    assert structure,statusdir_info("A structure file must be specified via --pdb, --biounit, --swiss, --modbase, or --usermodel")
     # Preprocess structural properties
     # Pathprox cannot use models beyond the 0th one - so drop those right away
     models = list(structure.get_models())
@@ -2003,11 +2157,6 @@ if __name__ == "__main__":
                 model.detach_child(chain.id)
 
     # Finally - if the chain left has no id, set the id to A for sanity
-    for chain in list(model.get_chains()):
-        if chain.id in ('',' '):
-            LOGGER.info('Renaming blank/missing chain ID to A')
-            chain.id = 'A'
-
     chain_count = len(list(model.get_chains()))
 
     residue_coms = {}
@@ -2018,71 +2167,6 @@ if __name__ == "__main__":
             natom = float(len([atom for atom in residue]))
             com = sum([atom.coord for atom in residue]) / natom
             residue_coms[(chain.id,residue.id)] = com
-
-    PDBMapProtein.load_idmapping(config_dict['idmapping'])
-
-    # PROCESS USER-SPECIFIED transcript<->chain mappings
-    # if the user has any transcript->chain assignments, parse them from command line
-    transcript_parser = argparse.ArgumentParser()
-    chain_X_unp_re = re.compile('^--chain(.)unp=(.*)$')
-    chain_X_enst_re = re.compile('^--chain(.)enst=(.*)$')
-    chain_X_fasta_re = re.compile('^--chain(.)fasta=(.*)$')
-    transcript = None
-    for arg in args_remaining:
-        re_match =  chain_X_unp_re.match(arg)
-        unp = None
-        enst = None
-        fasta = None
-        chain_letter = None
-
-        if re_match: # A uniprot ID transcript ID was explicitly assigned to the chain
-            chain_letter = re_match.group(1)
-            unp = re_match.group(2)
-            transcript = PDBMapTranscriptUniprot(unp)
-            if chain_letter in chain_to_transcript and transcript.id == chain_to_transcript[chain_letter].id:
-                LOGGER.warning("argument %s is redundant.  Pathprox automatically assigned/aligned")
-            LOGGER.info("Successful load of Uniprot transcript %s"%unp)
-        else:
-            re_match =  chain_X_enst_re.match(arg)
-            if re_match: # An ENSEMBL transcript ID was explicitly assigned to the chain
-                chain_letter = re_match.group(1)
-                enst = re_match.group(2)
-                transcript = PDBMapTranscriptEnsembl(enst)
-                LOGGER.info("Successful load of Ensembl transcript %s"%enst)
-            else:
-                re_match =  chain_X_fasta_re.match(arg)
-                if re_match: # A fasta amino acid string was explicitly assigned to the chain
-                    chain_letter = re_match.group(1)
-                    fasta = re_match.group(2)
-                    transcript = PDBMapTranscriptFasta(fasta)
-                    LOGGER.info("Successful load of fasta transcript %s"%fasta)
-                else:
-                    exitmsg = "Command line argument %s is invalid"%arg
-                    LOGGER.critical(exitmsg)
-                sys_exit_failure(exitmsg)
-
-        if transcript:
-            alignment = PDBMapAlignment()
-            (success,message) = alignment.align_trivial(transcript,structure,chain_id=chain_letter)
-            if success:
-                LOGGER.info("%s to chain %s Trivial align successful for residues in [%d,%d]\n%s"%(transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
-            else:
-                LOGGER.warning("Unable to trivially align transcript %s to %s.%s"%(transcript.id,structure.id,chain_letter))
-                if args.pdb or args.biounit and unp: # Then user is mapping a deposited chain to a unp
-                   if PDBMapProtein.isCanonicalByUniparc(transcript.id):
-                       success,errormsg = alignment.align_sifts_canonical(transcript,structure,chain_id=chain_letter)
-                   else:
-                       success,errormsg = alignment.align_sifts_isoform_specific(transcript,structure,chain_id=chain_letter)
-
-                if success:
-                    LOGGER.info("Sifts alignment identity %f.  Align str:\n%s"%(alignment.perc_identity,alignment.aln_str))
-                else:
-                    (success,message) = alignment.align_biopython(transcript,structure,chain_id=chain_letter)
-                    assert success,message
-                    LOGGER.info("Biopython identity %f.  Align str:\n%s"%(alignment.perc_identity,alignment.aln_str))
-
-            chain_to_alignment[chain_letter] = alignment
-            chain_to_transcript[chain_letter] = transcript
 
     for chain in structure[0]:
         if chain.id not in chain_to_alignment:
@@ -2284,8 +2368,8 @@ if __name__ == "__main__":
                 if not ensembl_transcript.aa_seq:
                     LOGGER.warning("Ensembl transcript %s has no associated aa_seq.  Skipping"%ensembl_transcript_id)
                     continue
-                assert transcript.aa_seq == ensembl_transcript.aa_seq, "UNP and ENS AA sequences differ:\n%s"%(
-                    PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                assert transcript.aa_seq == ensembl_transcript.aa_seq, statusdir_info("UNP and ENS AA sequences differ:\n%s"%(
+                    PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript)))
                 LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
                 if ensembl_transcript not in ENST_transcripts:
                     ENST_transcripts.append(ensembl_transcript)
@@ -2338,7 +2422,7 @@ if __name__ == "__main__":
                 df = variant_set[transcript_id].to_DataFrame()
                 # df['chain'] _must_ come from a chain-override in the user input unless this is a single chain structure
                 if chain_count == 1 and len(df) and (df.iloc[0]['chain'] == None or df.iloc[0]['chain'] == np.NaN):
-                    df['chain'] = list(structure.model[0].get_chains())[0].id
+                    df['chain'] = list(structure[0].get_chains())[0].id
             else: # Gather up _all_ the chains associated with the transcript ID and map variants to all fo them
                 if transcript_id not in transcript_to_chains:
                     if dcode == -1 and len(transcript_id) < 6: # Then the transcript is really a specific chain_id override on the variant
@@ -2578,22 +2662,23 @@ if __name__ == "__main__":
         sorted_complex_df = pd.DataFrame([])
 
 
-    # Dump the neutral variants which have been loaded
-    write_input_variants_to_chimera_attributes(sorted_complex_df.loc[sorted_complex_df["dcode"]==0],"neutral")
-    # Dump the pathological variants which have been loaded
-    write_input_variants_to_chimera_attributes(sorted_complex_df.loc[sorted_complex_df["dcode"]==1],"pathogenic")
-
-    write_input_variants_to_chimera_attributes(sorted_complex_df.loc[sorted_complex_df["qt"].notnull()],"quantitative",third_column="qt")
-
-    # WAIT - these double neutral+pathogenic character ones should no long be in there
-    # Label as 0.5 if both neutral and pathogenic variants are mapped to a residue
-    filterwarnings('ignore')
     if not sorted_complex_df.empty:
+        # Dump the neutral variants which have been loaded
+        write_input_variants_to_chimera_attributes(sorted_complex_df.loc[sorted_complex_df["dcode"]==0],"neutral")
+        # Dump the pathological variants which have been loaded
+        write_input_variants_to_chimera_attributes(sorted_complex_df.loc[sorted_complex_df["dcode"]==1],"pathogenic")
+
+        write_input_variants_to_chimera_attributes(sorted_complex_df.loc[sorted_complex_df["qt"].notnull()],"quantitative",third_column="qt")
+
+        # WAIT - these double neutral+pathogenic character ones should no long be in there
+        # Label as 0.5 if both neutral and pathogenic variants are mapped to a residue
+        filterwarnings('ignore')
         vt          = sorted_complex_df.drop_duplicates(["chain","resid"])
         vt["dcode"] = sorted_complex_df.groupby(["chain","resid"]).apply(lambda x: np.mean(x["dcode"])).values
+        resetwarnings()
     else:
         vt = pd.DataFrame([])
-    resetwarnings()
+
     # Write attribute file with dcode for all the variants, with the "attribute:" set to pathogenicty
     write_input_variants_to_chimera_attributes(vt, "variants", attribute_text="pathogenicity", third_column="dcode")
 
@@ -2986,7 +3071,6 @@ if __name__ == "__main__":
       LOGGER.info("Processing %s[%s]..."%(sid,bio))
 
       # Read and renumber the coordinate file:
-      # import pdb; pdb.set_trace()
       LOGGER.info("Reading coordinates from %s..."%cf)
       s_renum,_,_,_    = read_coord_file(cf,sid,bio,chain=args.chain,
                                       fasta=args.fasta,residues=args.use_residues,
