@@ -378,7 +378,10 @@ def report_one_mutation(structure_report,workstatus):
 
 # Load the structure details of all jobs that were not dropped
     nan_values = ['-1.#IND', '1.#QNAN', '1.#IND', '-1.#QNAN', '#N/A','N/A', '#NA', 'NULL', 'NaN', '-NaN', 'nan', '-nan']
-    df_structure_report = pd.read_csv(structure_report,'\t',keep_default_na=False,na_values = nan_values,dtype={'Resolution': float, 'Seq Identity': float})
+    df_structure_report = pd.read_csv(structure_report,'\t',keep_default_na=False,na_values = nan_values,
+         # EM structures often have integer chain_ids that confuse the pipeline
+         # Resolution and Seq Identites are floats, but nanS for some kinds of models and structures
+         dtype={'Resolution': float, 'Template Identity': float,'Trans Identity': float, 'chain_id': str})
 
     df_structure_report['structure_id'].replace("^(.*)\.pdb$",r"\1", regex=True,inplace=True)
 
@@ -407,14 +410,15 @@ def report_one_mutation(structure_report,workstatus):
     xlate_columns_dict={'label':"Label",
         'analyzable':"Analyzable?",
         'distance_from_aligned':"Distance to Boundary",
-        'perc_identity':'Seq Identity',
+        'perc_identity':'Trans Identity',
         'pdb_template':'PDB Template',
+        'template_identity':'Template Identity',
         'biounit_chains': 'Chains',
         'nresidues':'Residues',
         'resolution':'Resolution (PDB)',
         'trans_first_aligned': 'Seq Start',
         'trans_last_aligned': 'Seq End',
-        'trans_mut_pos': 'Transcript Pos'}
+        'structure_url': 'URL'}
 
     def structure_html_vars(method_pdbid_chain_mers_tuple,df_unique_structure:pd.DataFrame,df_structure_report_onerow:pd.Series,thestruct):
       """Subset the dataframe to the results of this chain
@@ -438,8 +442,12 @@ def report_one_mutation(structure_report,workstatus):
       human_df = df_structure_report_onerow.copy(deep=True).rename(xlate_columns_dict)
       dfT = human_df.to_frame().transpose()[ list(xlate_columns_dict.values()) ]
       # Not sure this is quite right
-      if df_structure_report_onerow['label'] == 'pdb':
-          dfT['Seq Identity'] = 100.0
+      # if df_structure_report_onerow['label'] == 'pdb':
+      #     dfT['Seq Id'] = 100.0
+
+      # Blank out transcript identity for models
+      if df_structure_report_onerow['label'] not in ['pdb','biounit']:
+          dfT['Trans Identity'] = None
      
       structure["details"] = dfT.to_html(float_format=lambda x: "%.2f"%x)
       return structure
@@ -622,7 +630,6 @@ def report_one_mutation(structure_report,workstatus):
         structure.update(residuesOfInterest)
         website_filelist.append(os.path.join(web_dir,structure['pdbSSfilename']))
 
-        # import pdb; pdb.set_trace()
         structure['ngl_variant_residue_count'],structure['ngl_variant_residues'] = residues_to_ngl(residuesOfInterest['variants'])
         structure['ngl_neutral_residue_count'],structure['ngl_neutral_residues'] = residues_to_ngl_CAs(residuesOfInterest['neutrals'])
         structure['ngl_%s_residue_count'%disease1_or_disease2], \
@@ -747,6 +754,7 @@ def report_one_mutation(structure_report,workstatus):
     disease1_list = []
     disease2_list = []
     ddG_list = []
+
     # Load up variables for each structure in our set
     for method_pdbid_chain_mers_tuple in struct_dict:
       s = structure_html_vars(
@@ -766,7 +774,6 @@ def report_one_mutation(structure_report,workstatus):
       del temp_disease_sum
 
       # import pdb; pdb.set_trace()
-
       s,ddG_summary = ddG_html_vars(s,struct_dict[method_pdbid_chain_mers_tuple])
       if ddG_summary is not None:
         ddG_list.append(ddG_summary)
@@ -839,7 +846,7 @@ def report_one_mutation(structure_report,workstatus):
     disease2_html = disease1_html
     ddG_html = "No ddG calculations were completed for this mutation."
  
-    columns_for_html = ['Analyzable?','Label','Distance to Boundary','Seq Start','Seq End','Seq Identity','PDB Pos','PDB Template','Residues','Resolution (PDB)','Transcript Pos']
+    columns_for_html = ['Analyzable?','PDB Template','Template Identity','Distance to Boundary','Seq Start','Seq End','Trans Identity','PDB Pos','Residues','Resolution (PDB)','URL']
     
     if not tdf.empty:
         # pdb_html = tdf.to_html(float_format=lambda x: "%.2f"%x,formatters={'Seq Start': '${:,1.0f}'.format,'Seq End': '${:,1.0f}'.format})
@@ -1131,7 +1138,7 @@ else:
   if not infoLogging:
     print (msg)
   LOGGER.info(msg)
-  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',')
+  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
   df_all_mutations.fillna('NA',inplace=True)
 
   if args.slurm:
