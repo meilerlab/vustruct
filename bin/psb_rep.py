@@ -448,6 +448,7 @@ def report_one_mutation(structure_report,workstatus):
       # Blank out transcript identity for models
       if df_structure_report_onerow['label'] not in ['pdb','biounit']:
           dfT['Trans Identity'] = None
+
      
       structure["details"] = dfT.to_html(float_format=lambda x: "%.2f"%x)
       return structure
@@ -611,6 +612,8 @@ def report_one_mutation(structure_report,workstatus):
           return ngl_res_count,"(" + ngl_res_string + ") and .CA" if ngl_res_string else ngl_res_string
        
       json_filename = os.path.join(output_flavor_directory,PathProxPrefix + "_ResiduesOfInterest.json")
+      if not os.path.exists(json_filename):
+          LOGGER.warning("Can't open %s for processing",json_filename)
       if os.path.exists(json_filename):
         with open(json_filename) as f:
           residuesOfInterest = json.load(f)
@@ -853,9 +856,17 @@ def report_one_mutation(structure_report,workstatus):
 
         df_structure_report_human = df_structure_report.rename(columns=xlate_columns_dict)
         df_structure_report_human.style.set_properties(**{'text-align': 'center'})
-        df_copy =  df_structure_report_human[columns_for_html].copy() # .to_html(justify='center') # ,formatters={'Seq Identity': '{:,.2f}'.format})
+        df_copy =  df_structure_report_human[columns_for_html].reset_index() # .to_html(justify='center') # ,formatters={'Seq Identity': '{:,.2f}'.format})
+        # Really we should let django deal with the href
+        # For now  we sin, and output the links unescaped...
+        # First replace null links with a space
+        # import pdb; pdb.set_trace()
+        df_copy.URL.fillna('',inplace=True)
+        df_copy['URL'] = df_copy['URL'].apply(lambda x: x if x else '')
+        df_copy['structure_id'] = '<a href=\"' + df_copy['URL']+'">' + df_copy['structure_id'] + '</a>'  
+        df_copy.drop(['URL'],axis=1,inplace=True)
         # pd.set_option('float_format', '%.2f')
-        pdb_html = df_copy.to_html(justify='center',float_format=lambda x: "%.2f"%x) 
+        pdb_html = df_copy.to_html(justify='center',index=False,escape=False,float_format=lambda x: "%.2f"%x) 
     if not disease1_sum.empty:
       disease1_html = disease1_sum.to_html(float_format=lambda x: "%.2f"%x)
     if not disease2_sum.empty:
