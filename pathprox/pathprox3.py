@@ -299,6 +299,13 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
                     pdb_seq_resid_xref = PDBMapAlignment.create_pdb_seq_resid_xref(mmCIF_dict)
 
                     (success,message) = alignment.align_sifts_isoform_specific(best_unp_transcript,temp_structure,pdb_seq_resid_xref,chain_id=chain_letter,is_canonical=is_canonical)
+                if not success:
+                    LOGGER.warning("Unable to align with sifts: %s",message)
+                    LOGGER.warning("Attempting to align chain %s with biopython call",chain_letter)
+                    success,message = alignment.align_biopython(best_unp_transcript,structure,chain_letter)
+                    if not success:
+                        LOGGER.critical("Also Unable to align with biopython: %s",message)
+
 
         assert success,message
         chain_to_alignment[chain_letter] = alignment
@@ -1131,7 +1138,8 @@ def var2coord(s,p,n,c,q=[]):
   vdf.reset_index(drop=True,inplace=True)
 
   msg = None
-  if vdf.empty and not (args.add_exac or args.add_gnomad or args.add_1kg or args.add_pathogenic or args.add_cosmic or args.add_tcga):
+  if vdf.empty and not (
+      args.add_exac or args.add_gnomad or args.add_gnomad38 or args.add_1kg or args.add_pathogenic or args.add_pathogenic38 or args.add_cosmic or args.add_tcga):
     msg = "\nERROR: Must provide variants or request preloaded set with --add_<dataset>.\n"
   elif vdf.empty:
     msg = "\nERROR: No variants identified. Please manually provide pathogenic and neutral variant sets.\n"
@@ -1848,10 +1856,14 @@ if __name__ == "__main__":
                       help="Supplement neutral variant set with ExAC missense variants")
     cmdline_parser.add_argument("--add_gnomad",action="store_true",default=False,
                       help="Supplement neutral variant set with gnomAD missense variants")
+    cmdline_parser.add_argument("--add_gnomad38",action="store_true",default=False,
+                      help="Supplement neutral variant set with gnomAD 2.1.1 GRCh38 missense variants")
     cmdline_parser.add_argument("--add_benign",action="store_true",default=False,
                       help="Supplement neutral variant set with ClinVar benign missense variants")
     cmdline_parser.add_argument("--add_pathogenic",action="store_true",default=False,
                       help="Supplement pathogenic variant set with ClinVar pathogenic missense variants")
+    cmdline_parser.add_argument("--add_pathogenic38",action="store_true",default=False,
+                      help="Supplement pathogenic variant set with ClinVar GRCh38 pathogenic missense variants")
     cmdline_parser.add_argument("--add_drug",action="store_true",default=False,
                       help="Supplement pathogenic variant set with ClinVar drug response")
     cmdline_parser.add_argument("--add_cosmic",action="store_true",default=False,
@@ -2128,8 +2140,14 @@ if __name__ == "__main__":
         for chain_letter in chain_to_transcript:
             alignment = PDBMapAlignment()
             (success,message) = alignment.align_trivial(chain_to_transcript[chain_letter],structure,chain_id=chain_letter)
+            if success:
+                LOGGER.info("%s to chain %s Trivial align successful for residues in [%d,%d]\n%s"%(transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
+            elif args.usermodel:
+                (success,message) = alignment.align_biopython(chain_to_transcript[chain_letter],structure,chain_id=chain_letter)
+                if success:
+                    LOGGER.warning("TRIVIAL ALIGNMENT OF USER MODEL FAILED\n%s to chain %s Biopython successful for residues in [%d,%d]\n%s"%(transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
+
             assert success,statusdir_info(message)
-            LOGGER.info("%s to chain %s Trivial align successful for residues in [%d,%d]\n%s"%(transcript.id,chain_letter,next(iter(alignment.seq_to_resid)),next(reversed(alignment.seq_to_resid)),alignment.aln_str))
             chain_to_alignment[chain_letter] = alignment
 
 
@@ -2201,6 +2219,8 @@ if __name__ == "__main__":
       args.label += "_%s"%args.variants.split(':')[0]
     if args.add_pathogenic:
       args.label += "_clinvar"
+    if args.add_pathogenic38:
+      args.label += "_clinvar38"
     if args.add_cosmic:
       args.label += "_cosmic"
     if args.add_tcga:
@@ -2214,6 +2234,8 @@ if __name__ == "__main__":
       args.label += "_exac"
     if args.add_gnomad:
       args.label += "_gnomad"
+    if args.add_gnomad38:
+      args.label += "_gnomad38"
     if args.neutral:
       if args.neutral_label:
         args.label += '_%s'%args.neutral_label
@@ -2379,6 +2401,7 @@ if __name__ == "__main__":
         return ENST_transcripts
 
     for chain in structure[0]:
+        # import pdb; pdb.set_trace()
         if chain.id not in chain_to_alignment:
             LOGGER.critical("Chain %s has not been aligned to a transcript.  Skipping SQL variant load",chain.id)
             continue
@@ -2396,11 +2419,15 @@ if __name__ == "__main__":
             PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'exac')
         if args.add_gnomad:
             PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'gnomad')
+        if args.add_gnomad38:
+            PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'gnomad38')
         if args.add_benign:
             PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'clinvar')
 
         if args.add_pathogenic:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'clinvar')
+        if args.add_pathogenic38:
+            PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'clinvar38')
         if args.add_drug:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'drug')
         if args.add_cosmic:
