@@ -221,6 +221,8 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
     if variants_sql_label_key not in config_pathprox_dict:
       LOGGER.critical("A configuration file must define a variant set for %s or %s in the [PathProx] section"%(variants_sql_label_key,variants_filename_key))
     config_str = config_pathprox_dict[variants_sql_label_key]
+    if config_str == "clinvar38":
+      return "--add_pathogenic38"
     if config_str == "clinvar":
       return "--add_pathogenic"
     if config_str == "tcga":
@@ -231,6 +233,8 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
       return "--add_1kg3"
     if config_str == "gnomad":
       return "--add_gnomad"
+    if config_str == "gnomad38":
+      return "--add_gnomad38"
     if config_str == "exac":
       return "--add_exac"
     if config_str == "ERROR":
@@ -911,7 +915,7 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                 ci.resolution = float(mmCIF_dict[resolution_key][0])
                 break
         if not ci.resolution and ci.method.find('X-RAY') > 0:
-            LOGGER.warning("pdb %s is method=%s with no resolution entry"%(method,resolution))
+            LOGGER.warning("pdb %s is method=%s with no resolution entry"%(ci.structure_id,method)
 
         if ci.biounit: # In case of biounit we have good chance of a multi-chain complex to process
             chain_ATOM_residues = {}
@@ -1118,9 +1122,9 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                                 if drop_df_row(i,"is shorter",j):
                                     break
                             else: # Both 'Np' structures have same length.   Eliminate by resolution difference
+                                # CAREFUL.  In this section, a resolution _could_ be None
                                 row_i_resolution = row_i['resolution']
                                 row_j_resolution = row_j['resolution']
-                                # just drop the higher struct id if resolution uninformative
                                 if row_i_resolution == row_j_resolution: # Same or both NMR (None)
                                     row_i_structid = row_i['structure_id']
                                     row_j_structid = row_j['structure_id']
@@ -1130,7 +1134,7 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                                     else:
                                         if drop_df_row(j,"is same length and resolution, but greater than or same structid ID",i):
                                             break
-                                elif float(row_i_resolution) > float(row_j_resolution):
+                                elif row_i_resolution and (float(row_i_resolution) > float(row_j_resolution)):
                                     if drop_df_row(i,"is higher resolution",j):
                                         break
                                 else:
@@ -1420,7 +1424,7 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                     _params['mers'] = ci_row['mers']
                     # Only launchain_id the udn_structure (ddG) script if there is mutation coverage
                     pdb_mut = mutation[0] + str(int(ci_row['mut_pdb_res'])) + str(ci_row['mut_pdb_icode']).strip() + mutation[-1]
-                    LOGGER.info("ddG will be run at %s of %s"%(pdb_mut,ci_row['struct_filename']))
+                    LOGGER.info("ddG will be run at %s of %s"%(pdb_mut,_params['struct_filename']))
                     df_all_jobs = df_all_jobs.append(makejob_udn_structure(_params,pdb_mut),ignore_index = True)
 
         
@@ -1575,6 +1579,27 @@ else:
   df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
   print("Work for %d mutations will be planned"%len(df_all_mutations))
 
+  if 'unp' not in df_all_mutations.columns:
+    df_all_mutations['unp'] = None
+    LOGGER.warning("Populating unp column of missense from gene and refseq")
+    unps_from_refseq_gene = {}
+    for index,row in df_all_mutations.iterrows():
+      unpsForRefseq = PDBMapProtein.refseqNT2unp(row['refseq'])
+      if len(unpsForRefseq):
+          unp    = ','.join(PDBMapProtein.refseqNT2unp(row['refseq']))
+
+      if unp == None:
+        if refseq:
+          LOGGER.warning("Could not map refseq input [%s] uniprot ID (or it was missing).  Gene_refseq input in missense.csv file is: %s"%(row['refseq'],row['gene']))
+        else:
+          LOGGER.warning("Could not map refseq input to uniprot ID (or it was missing).  Gene_refseq input in missense.csv file is: %s"%row['gene'])
+        refseq = "RefSeqNotFound_UsingGeneOnly"
+        unp    = PDBMapProtein.hgnc2unp(gene)
+        unps_from_refseq_gene[index] = unp
+
+    for index in unps_from_refseq_gene:
+        df_all_mutations.loc[index]['unp'] = unps_from_refseq_gene[index]
+        
   ui_final_table = pd.DataFrame()
   for index,row in df_all_mutations.iterrows():
     print("Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???"))
