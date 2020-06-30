@@ -166,23 +166,27 @@ def monitor_one_mutation(workstatus):
       LOGGER.info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(row['ExitCode'])))
       continue
     # The most reliable source of Exit=0 is the arrival of a completed file in the status director
-    # import pdb; pdb.set_trace()
+    progress_file_found = False
     statusdir = "%s/%s/status"%(row['outdir'],row['flavor'])
     try:
       with open("%s/progress"%statusdir) as progressfile:
         s = progressfile.read().replace('\n','')
         if s and len(s):
           interesting_info['jobprogress'] = s
+          progress_file_found = True
     except Exception as ex:
       pass
-  
+ 
+    info_file_found = False
     try:
       with open("%s/info"%statusdir) as infofile:
         s = infofile.read().replace('\n','')
         if s and len(s):
           interesting_info['jobinfo'] = s
+          info_file_found = True
     except Exception as ex:
       pass
+
 
     if os.path.exists("%s/complete"%statusdir):
       LOGGER.info("%15s:%-20s Found `complete` file.  Recording success"%(jobid,uniquekey))
@@ -193,6 +197,11 @@ def monitor_one_mutation(workstatus):
       LOGGER.info("%15s:%-20s Found `FAILED` file.  Recording failure"%(jobid,uniquekey))
       interesting_info['ExitCode'] = '1'
     else: # Try to grab updated progress info from the output files.  No worries if nothing there
+      if not (progress_file_found or info_file_found):
+        interesting_info['jobprogress'] = "No status updates.  Inspect %s"%statusdir
+        LOGGER.info("%s",interesting_info['jobprogress'])
+        interesting_info['jobinfo'] = 'No status updates'
+        
       pass # We no longer call "scontrol show job" - it just takes way too long      
       """scontrol_info = slurm_scontrol_show_job(jobid)
       if (not scontrol_info) or (scontrol_info.get('JobState','') == 'UNKNOWN') :
