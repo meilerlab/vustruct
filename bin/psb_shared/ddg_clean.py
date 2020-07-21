@@ -740,7 +740,7 @@ def query_modres(aa):
 
 class DDG_Cleaner(object):
     def __init__(self, structure: Structure, mmcif_dict: Dict[str, List], verbose: bool = True,
-                 species_filter: str = 'Human', nmr: bool = False):
+                 species_filter: str = None, nmr: bool = False):
         """Convery an input BioPython structure for cleaning by class member functions,
            to setup processing by Rosetta ddg_monomer"""
 
@@ -784,9 +784,13 @@ class DDG_Cleaner(object):
                 chain_id = self._mmcif_dict['_struct_ref_seq.pdbx_strand_id'][db_ref_index]
                 seq_align_beg = int(self._mmcif_dict['_struct_ref_seq.seq_align_beg'][db_ref_index])
                 seq_align_beg_ins_code = self._mmcif_dict['_struct_ref_seq.pdbx_seq_align_beg_ins_code'][db_ref_index]
+                if seq_align_beg_ins_code == '?':
+                    seq_align_beg_ins_code == ''
 
                 seq_align_end = int(self._mmcif_dict['_struct_ref_seq.seq_align_end'][db_ref_index])
                 seq_align_end_ins_code = self._mmcif_dict['_struct_ref_seq.pdbx_seq_align_end_ins_code'][db_ref_index]
+                if seq_align_end_ins_code == '?':
+                    seq_align_end_ins_code == ''
 
                 # db_code is a reference to the struct_ref_id... and must be de-referenced to get the db_code
                 # http://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v40.dic/Items/_struct_ref_seq.ref_id.html
@@ -1001,17 +1005,25 @@ class DDG_Cleaner(object):
                     residue_invalid = True
 
                 species_candidate_resno_icode = (residue_iterator.id[1], residue_iterator.id[2])
-                if self._species_filter and \
-                        (chain_id in self._non_species_residues and \
-                         species_candidate_resno_icode in self._non_species_residues[chain_id]) \
-                        or \
-                        (chain_id not in self._species_residues or \
-                         species_candidate_resno_icode not in self._species_residues[chain_id]) \
-                        and not residue_invalid:
-                    if self._verbose:
-                        LOGGER.info("skipping non-%s residue %s:", self._species_filter, residue_iterator.id)
-                    self._skipped_non_species += 1
-                    residue_invalid = True
+                # If we had a species_filter on the command line AND we were able to tease
+                # out, definitively, some residues that have the species designation THEN.... 
+                if not residue_invalid and self._species_filter:
+                    # If this residue clearly placed in the "not the species" set (HIST tags, etc)
+                    # then mark it invalid
+                    if  chain_id in self._non_species_residues and \
+                         species_candidate_resno_icode in self._non_species_residues[chain_id]:
+                        residue_invalid = True
+                        LOGGER.info("skipping non-%s residue %s: listed as non-native:", self._species_filter, residue_iterator.id)
+
+                    # If we clearly have residues marked as belonging to the species, but our
+                    # residue is not in that group, then nix it in that case too
+                    if  chain_id in self._species_residues and len(self._species_residues[chain_id]) > 0:
+                        if species_candidate_resno_icode not in self._species_residues[chain_id]:
+                            residue_invalid = True
+                            LOGGER.info("skipping residue %s not in the species=%s set", residue_iterator.id,self.species_filter)
+
+                    if residue_invalid:
+                        self._skipped_non_species += 1
 
                 if residue and not residue_invalid:
                     if (self.check_residue(residue, bbcheck)):
