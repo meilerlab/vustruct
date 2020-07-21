@@ -21,30 +21,70 @@ import json
 import tempfile
 import datetime
 import configparser
-
+from psb_shared.psb_progress import PsbStatusManager
 LOGGER = logging.getLogger(__name__)
 
 
 class DDG_repo():
-    def __init__(self, repo_root_dir: str, calculation_flavor: str, rosetta_version: str):
+
+    @staticmethod
+    def ddg_config_read(ddg_config_filename: str) -> Dict[str, str]:
+        LOGGER.info("Attempting to read ddg_config from %s", ddg_config_filename)
+
+        ddg_config = configparser.ConfigParser(allow_no_value=False)
+
+        parsed_file_list = ddg_config.read(ddg_config_filename)
+        if not parsed_file_list:
+            exit_str = "TERMINATING - Unable to read ddg config file %s" % ddg_config_filename
+            LOGGER.critical(exit_str)
+            sys.exit(exit_str)
+
+        LOGGER.info("Successfully read ddg_config from " + ddg_config_filename)
+        required_ddg_config_items = ['repo_root', 'rosetta_version', 'rosetta_bin_dir']
+
+        assert ddg_config.has_section('ddG'),'The ddg_config file %s lacks a [ddG] section'%ddg_config_filename
+        ddg_config_dict = dict(ddg_config.items("ddG"))
+        # print('rosetta_bin_dir=',ddg_config_dict['rosetta_bin_dir'])
+
+        for required_item in required_ddg_config_items:
+            if not required_item in ddg_config_dict:
+                exit_str = "TERMINATING: %s key must be specified in ddg_config file %s" % (
+                        required_item, ddg_config_filename)
+                LOGGER.critical(exit_str)
+                sys.exit(exit_str)
+
+        return ddg_config_dict
+
+
+    _my_config_dicts = {} # Global dict of read-in ddg configuration files
+
+    def __init__(self, 
+            ddg_config_filename:str, 
+            calculation_flavor: str):
         """
         Begin process of constructing a ddg repository manager.
         Call a set_pdb/swiss/etc function after contruction.
         Then, specify a variant to complete final initialization
 
-        :param repo_root_dir:      Ex: /dors/capra_lab/projects/ddg_repo.  
+        :param ddg_config_filename Optional if repo_root_dir and rosetta_version specified
          Typically caller finds in ddg repo's config file
-        :param rosetta_version:    Ex: "3.12" Typically caller passes key from config file
         :param calculation_flavor: Ex: "ddg_monomer"  Must be set by caller.
         """
 
-        self._repo_root_dir = repo_root_dir
+        if ddg_config_filename in DDG_repo._my_config_dicts:
+            LOGGER.info("Re-using config from prior read of %s"%ddg_config_filename)
+            self._ddg_config_dict = DDG_repo._my_config_dicts[ddg_config_filename]
+        else:
+            self._ddg_config_dict = DDG_repo.ddg_config_read(ddg_config_filename)
+            DDG_repo._my_config_dicts[ddg_config_filename] = self._ddg_config_dict
+
+        self._ddg_config_filename = ddg_config_filename
+
         self._structure_dir = None  # parent directory for all calculations on a structure.  Contains cleaned PDB and xref
         self._calculation_dir = None  # final directory where all calculucations are conducted
         self._residue_to_clean_xref_filename = None  # Json file to Map original structure residue IDs to the rosetta-ready residue ids
         self._cleaned_structure_pdb_filename = None
         self._structure_config_filename = None
-        self._rosetta_version = rosetta_version
         self._calculation_flavor = calculation_flavor
         self._structure_source = None
         self._residue_to_clean_xref = {}
@@ -53,9 +93,23 @@ class DDG_repo():
         self._chain_id = None
         self._variant = None
         self._log_filename = None
+        self._psb_status_manager = None
 
-        self._ddg_root = os.path.join(self._repo_root_dir, self._calculation_flavor, self._rosetta_version)
+        self._ddg_root = os.path.join(self.repo_root_dir, self._calculation_flavor, self.rosetta_version)
         LOGGER.info('DDG calculations will be rooted in %s', self._ddg_root)
+
+    @property
+    def repo_root_dir(self):
+        return self._ddg_config_dict['repo_root']
+    @property
+    def rosetta_version(self):
+        return self._ddg_config_dict['rosetta_version']
+    @property
+    def rosetta_bin_dir(self):
+        return self._ddg_config_dict['rosetta_bin_dir']
+    @property
+    def rosetta_database_dir(self):
+        return self._ddg_config_dict['rosetta_database_dir']
 
     def _set_structure_filenames(self):
         assert self._structure_dir, "Must compute _structure_dir before calling this function"
@@ -75,7 +129,11 @@ class DDG_repo():
 
         self._structure_id = pdb_id.lower()
         self._chain_id = chain_id
-        self._structure_dir = os.path.join(self._ddg_root, pdb_id[1:3], pdb_id, self._chain_id)
+        self._structure_dir = os.path.join(self._ddg_root, 
+            'pdb',
+            pdb_id[1:3], 
+            pdb_id, 
+            self._chain_id)
         self._set_structure_filenames()
         return self._structure_dir
 
@@ -88,11 +146,52 @@ class DDG_repo():
 
         uniprot_id = swiss_id[0:6]
         self._structure_dir = os.path.join(
-            self._repo_root_dir,
+            self._ddg_root,
             'swiss',
             uniprot_id[0:2],
             uniprot_id[2:4],
             uniprot_id[4:6],
+            self._structure_id,
+            self._chain_id)
+
+        self._set_structure_filenames()
+
+        return self._structure_dir
+
+    def set_modbase(self, modbase_id: str, chain_id: str) -> str:
+        """
+        Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
+        """
+        self._structure_id = modbase_id
+        self._chain_id = chain_id
+
+        modbase_underscore_split = modbase_id.split('_')
+        assert len(modbase_underscore_split) < 3
+        modbase_last_6 = modbase_underscore_split[0][:-6:]
+
+        modbase_last_6 = modbase_id[-6:]
+        self._structure_dir = os.path.join(
+            self._ddg_root,
+            'modbase',
+            modbase_last_6[0:3],
+            modbase_last_6[3:6],
+            self._structure_id,
+            self._chain_id)
+
+        self._set_structure_filenames()
+
+        return self._structure_dir
+
+    def set_usermodel(self, usermodel: str, chain_id: str) -> str:
+        """
+        Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
+        """
+        self._structure_id = usermodel.split('.')[0].lower()
+        self._chain_id = chain_id
+
+        self._structure_dir = os.path.join(
+            self._ddg_root,
+            'usermodel',
             self._structure_id,
             self._chain_id)
 
@@ -110,15 +209,17 @@ class DDG_repo():
         assert self._structure_dir, "Call set_pdb/set_swiss/set_* before calling this function to set _structure_dir"
         self._variant = variant
         # variant of S123AR (insert code A)
-        # turns into structure_dir/S123A/R/ for all calculations
+        # results in locating to structure_dir/S123A/R/ for all calculations
         self._calculation_dir = os.path.join(self._structure_dir, self._variant[0:-1], self._variant[-1])
-        LOGGER.info("Creating repo variant dir drwxrwx---: %s", self._calculation_dir)
-        save_umask = os.umask(0)
-        os.makedirs(self._calculation_dir, mode=0o770, exist_ok=True)
-        self._log_filename = os.path.join(self._calculation_dir, "%s_%s.log" % (
-            self._calculation_flavor, self._structure_id))
-        os.umask(save_umask)
+
+        self._psb_status_manager = PsbStatusManager(self._calculation_dir)
+        self._log_filename = os.path.join(self._calculation_dir, "%s_%s_%s.log" % (
+            self._calculation_flavor, self._structure_id,self._variant))
         return self._calculation_dir
+
+    @property
+    def psb_status_manager(self):
+        return self._psb_status_manager
 
     @property
     def chain_id(self):
@@ -126,6 +227,13 @@ class DDG_repo():
         Return the chain_id set in __init__
         """
         return self._chain_id
+
+    @property
+    def variant(self):
+        """
+        Return the variant set in __init__
+        """
+        return self._variant
 
     @property
     def log_filename(self):
@@ -229,6 +337,8 @@ class DDG_repo():
                 structure_config_parser = configparser.ConfigParser(comment_prefixes='#')
                 structure_config_parser.read(self._structure_config_filename)
                 self._structure_config = dict(structure_config_parser.items('pdb_info'))
+            else:
+                return {}
         return self._structure_config
 
     @structure_config.setter
@@ -298,3 +408,20 @@ class DDG_repo():
     def calculation_dir(self) -> str:
         """The calculation directory as set by __init__/set*structure/set_variant"""
         return self._calculation_dir
+
+    def make_calculation_directory_heirarchy(self):
+        """
+        Call os.makedirs(self.calculation_dir) and set permissions for group access
+        This will also create the parent variant directory, and grand-parent structure
+        directories.
+        """
+        
+        LOGGER.info("Creating repo variant dir drwxrwx---: %s", self.calculation_dir)
+        save_umask = os.umask(0)
+        os.makedirs(self.calculation_dir, mode=0o770, exist_ok=True)
+        os.umask(save_umask)
+
+    @property
+    def structure_dir(self) -> str:
+        """The structure directory as set by __init__/set*structure"""
+        return self._structure_dir
