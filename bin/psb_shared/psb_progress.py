@@ -11,6 +11,8 @@ import stat
 import sys
 import inspect
 import logging
+from pathlib import Path
+from typing import Tuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +33,11 @@ def set_capra_group_sticky(dirname):
 
 class PsbStatusManager(object):
     def __init__(self,  status_dir_parent: str) -> None:
-        self._status_dir =os.path.join(status_dir_parent,"status")
+        self._status_dir = os.path.abspath(os.path.join(status_dir_parent,"status"))
+        self._complete_filename = os.path.join(self._status_dir, "complete")
+        self._failed_filename = os.path.join(self._status_dir, "FAILED")
+        self._progress_filename = os.path.join(self._status_dir, "progress")
+        self._info_filename = os.path.join(self._status_dir, "info")
 
     def clear_status_dir(self) -> None:
         if not os.path.exists(self._status_dir):
@@ -55,26 +61,65 @@ class PsbStatusManager(object):
     def status_dir(self):
         return self._status_dir
 
+
+    def mark_complete(self) -> None:
+        LOGGER.info("Creating %s file to mark process successful end"%self._complete_filename)
+        Path(self._complete_filename).touch(exist_ok=True,mode=0o660)
+
     @property
     def complete_file_present(self) -> float:
-        complete_filename = os.path.join(self._status_dir, "complete")
-        if os.path.exists(complete_filename):
-            return os.path.getmtime(complete_filename)
+        if os.path.exists(self._complete_filename):
+            return os.path.getmtime(self._complete_filename)
         return False
 
+    def mark_failed(self) -> None:
+        LOGGER.info("Creating %s file to mark process final failure"%self._failed_filename)
+        Path(self._failed_filename).touch(exist_ok=True,mode=0o660)
+
+    @property
+    def failed_file_present(self) -> float:
+        if os.path.exists(self._failed_filename):
+            return os.path.getmtime(self._failed_filename)
+        return False
+
+ 
+
+    def read_info_progress(self) -> Tuple[str,str]:
+        """
+        Read any status info and return any info that has been written as the program progresses
+        
+        :return Tuple(info,progress) both str
+        """
+        info_str = None
+        progress_str = None
+
+        if os.path.exists(self._info_filename):
+            try:
+                with open(self._info_filename,'r') as fp:
+                    info_str = fp.read()
+            except OSError as err:
+                pass
+
+        if os.path.exists(self._progress_filename):
+            try:
+                with open(self._progress_filename,'r') as fp:
+                    progress_str = fp.read()
+            except OSError as err:
+                pass
+
+        return (info_str,progress_str)
 
     def write_info(self, info):
         new_progress_filename = os.path.join(self._status_dir, "progress.new")
         with open(new_progress_filename, 'w') as f:
             f.write("%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
-        os.replace(new_progress_filename,  os.path.join(self._status_dir,"progress"))
+        os.replace(new_progress_filename,  self._progress_filename)
 
         new_info_filename = os.path.join(self._status_dir,"info.new")
         with open(new_info_filename,'w') as f:
             f.write(info + '\n')
-        final_info_filename = os.path.join(self._status_dir,"info")
-        os.replace(new_info_filename,final_info_filename)
-        LOGGER.info("%s now contains: %s"%(final_info_filename,info))
+        os.replace(new_info_filename,self._info_filename)
+        LOGGER.info("%s now contains: %s"%(self._info_filename,info))
 
     def _write_info_progress(self,info, progress):
         with open('%s/info.new' % self._status_dir, 'w') as f:
@@ -87,6 +132,6 @@ class PsbStatusManager(object):
     def sys_exit_failure(self,info_str):
         self._write_info_progress(info_str, "%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
         # Mark this job as failed
-        open("%s/FAILED" % self._status_dir, 'w').close()
+        self.mark_failed()
         LOGGER.critical("Terminating in sys_exit_failure(): %s", info_str)
         sys.exit(info_str)
