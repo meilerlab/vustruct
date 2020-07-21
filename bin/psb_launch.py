@@ -84,7 +84,7 @@ elif args.verbose:
 # directly from a single mutation output file of psb_plan.py
 oneMutationOnly = ('.' in args.projectORworkplan and os.path.isfile(args.projectORworkplan))
 
-required_config_items = ['output_rootdir','collaboration']
+required_config_items = ['output_rootdir','collaboration','ddg_config']
 
 config,config_dict = psb_config.read_config_files(args,required_config_items)
 
@@ -97,7 +97,7 @@ except Exception as ex:
 
 import copy
 slurmParametersPathProx = copy.deepcopy(slurmParametersAll)
-slurmParametersUDNStructure = copy.deepcopy(slurmParametersAll)
+slurmParametersDDGMonomer = copy.deepcopy(slurmParametersAll)
 slurmParametersUDNSequence = copy.deepcopy(slurmParametersAll)
 slurmParametersMakeGeneDictionaries = copy.deepcopy(slurmParametersAll)
 
@@ -107,7 +107,7 @@ except Exception as ex:
   pass
 
 try:
-  slurmParametersUDNStructure.update(dict(config.items("SlurmParametersUDNStructure")))
+  slurmParametersDDGMonomer.update(dict(config.items("SlurmParametersDDGMonomer")))
 except Exception as ex:
   pass
 
@@ -122,7 +122,7 @@ except Exception as ex:
   pass
 
 slurm_required_settings = ['mem', 'account', 'ntasks', 'time']
-for slurmSettingsDesc,slurmSettings in [('slurmParametersPathProx',slurmParametersPathProx), ('slurmParametersUDNStructure',slurmParametersUDNStructure),('slurmParametersUDNSequence',slurmParametersUDNSequence),('slurmParametersMakeGeneDictionaries',slurmParametersMakeGeneDictionaries)]:
+for slurmSettingsDesc,slurmSettings in [('slurmParametersPathProx',slurmParametersPathProx), ('slurmParametersDDGMonomer',slurmParametersDDGMonomer),('slurmParametersUDNSequence',slurmParametersUDNSequence),('slurmParametersMakeGeneDictionaries',slurmParametersMakeGeneDictionaries)]:
   for req in slurm_required_settings:
     if not req in slurmSettings:
       LOGGER.error("Can't launch jobs because you have not provided the required\nslurm setting [%s] for section %s (or slurmParametersAll)\n in either file %s or %s\n"%
@@ -133,7 +133,7 @@ for slurmSettingsDesc,slurmSettings in [('slurmParametersPathProx',slurmParamete
 LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
 LOGGER.info("slurmParametersPathProx:\n%s"%pprint.pformat(slurmParametersPathProx))
 LOGGER.info("slurmParametersUDNSequence:\n%s"%pprint.pformat(slurmParametersUDNSequence))
-LOGGER.info("slurmParametersUDNStructure:\n%s"%pprint.pformat(slurmParametersUDNStructure))
+LOGGER.info("slurmParametersDDGMonomer:\n%s"%pprint.pformat(slurmParametersDDGMonomer))
 LOGGER.info("slurmParametersMakeGeneDictionaries:\n%s"%pprint.pformat(slurmParametersMakeGeneDictionaries))
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
@@ -239,13 +239,41 @@ def launch_one_mutation(workplan):
 
     launch_strings = {}
     launch_strings['PathProx'] = []
-    launch_strings['ddG'] = []
+    launch_strings['ddG_monomer'] = []
     launch_strings['SequenceAnnotation'] = []
     launch_strings['MakeGeneDictionaries'] = []
 
-    statusdir_list = []
+    # Prepare a ddg repository object for each variant we are running
+    # ddg monomer on
+    """
+    ddg_repos = {}
+    ddg_monomers = {}
+    for index,row in df_all_jobs.iterrows():
+        if 'ddG' in row['flavor']:  # ddG Jobs are managed in the repository
+            ddg_repo = DDG_repo(config_dict['ddg_config'],
+                    calculation_flavor='ddg_monomer')
+
+            if row['method'] == 'swiss':
+                ddg_repo.set_swiss(row['pdbid'],row['chain'])
+            elif row['method'] == 'modbase':
+                ddg_repo.set_modbase(row['pdbid'],row['chain'])
+            elif row['method'] == 'usermodel':
+                ddg_repo.set_usermodel(row['pdbid'],row['chain'])
+            else row['method'] == 'pdb':
+                ddg_repo.set_usermodel(row['pdbid'].tolower(),row['chain'])
+
+            ddg_monomer = DDG_monomer(ddg_repo,row['pdb_mut'])
+
+            ddg_monomers[row['uniquekey']] = ddg_monomer
+            ddg_repos[row['uniquekey']] = ddg_repo
+    """
+
+
+    statusdir_list = [] # We will write 'submitted' file after all these are creation
  
-    # Build the slurm file if we are launching anew
+    # Prepare directories for non-ddG jobs
+    # Also create launch_strings for subsequence integration into slurm files
+    # and launches
     allrows_cwd = None
     for index,row in df_all_jobs.iterrows():
         if (not df_prior_success.empty) and (row['uniquekey'] in df_prior_success.index):
@@ -254,10 +282,16 @@ def launch_one_mutation(workplan):
             assert( allrows_cwd == None or allrows_cwd == row['cwd'])
             allrows_cwd = row['cwd']
             # Create the meat of the slurm script for this job
-            launch_string = "%(command)s %(options)s --outdir %(outdir)s/%(flavor)s --uniquekey %(uniquekey)s"%row
+            # ddG monomer is simpler because it is not managed by the pipeline
+            launch_string = "%(command)s %(options)s"%row 
+            LOGGER.info("%s %s"%(row['flavor'],launch_string))
+            if 'ddG' not in row['flavor']:
+                launch_string += " --outdir %(outdir)s/%(flavor)s --uniquekey %(uniquekey)s"%row
  
             uniquekey_launchstring = (row['uniquekey'],launch_string) 
-            if "PP_" in row['flavor']: # Launch PathProx Clinvar and COSMIC both with same parameters
+            # Launch PathProx Clinvar and COSMIC both with same parameters
+            # out of same .slurm file
+            if "PP_" in row['flavor']: 
                 launch_strings['PathProx'].append(uniquekey_launchstring)
             elif row['flavor'] in launch_strings: # Great for ddG, SequenceAnnocation, MakeGeneDicts
                 launch_strings[row['flavor']].append(uniquekey_launchstring)
@@ -307,7 +341,7 @@ def launch_one_mutation(workplan):
             exitcodes[row['uniquekey']] = prior_success['ExitCode']
 
 
-    for subdir in ['PathProx', 'ddG', 'SequenceAnnotation','MakeGeneDictionaries']:
+    for subdir in ['PathProx', 'ddG_monomer', 'SequenceAnnotation','MakeGeneDictionaries']:
         if len(launch_strings[subdir]) == 0:
             # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
             if (gene == 'casewide' and subdir == 'MakeGeneDictionaries') or (gene != 'casewide' and subdir != 'MakeGeneDictionaries'):
@@ -349,8 +383,8 @@ def launch_one_mutation(workplan):
                 # It is important to make shallow copies of the default dictionaries, else mutations #7 can pick up dictionary entries set by mutation #4
                 if "PathProx" in subdir:
                   slurmDict = dict(slurmParametersPathProx)
-                elif subdir == "ddG":
-                  slurmDict = dict(slurmParametersUDNStructure)
+                elif subdir == "ddG_monomer":
+                  slurmDict = dict(slurmParametersDDGMonomer)
                 elif subdir == "SequenceAnnotation":
                   slurmDict = dict(slurmParametersUDNSequence)
                 elif subdir == "MakeGeneDictionaries":

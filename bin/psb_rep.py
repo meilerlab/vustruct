@@ -32,6 +32,10 @@ import argparse,configparser
 import pprint
 from logging.handlers import RotatingFileHandler
 from logging import handlers
+
+from psb_shared.ddg_repo import DDG_repo
+from psb_shared.ddg_monomer import DDG_monomer
+
 sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
 LOGGER.addHandler(sh)
@@ -110,7 +114,7 @@ if not os.path.exists(args.config):
   LOGGER.critical("Global config file not found: " + args.config)
   sys,exit(1)
 
-required_config_items = ['output_rootdir','collaboration']
+required_config_items = ['output_rootdir','collaboration','ddg_config']
 
 config,config_dict = psb_config.read_config_files(args,required_config_items)
 config_dict_shroud_password = {x:config_dict[x] for x in required_config_items}
@@ -454,23 +458,37 @@ def report_one_mutation(structure_report,workstatus):
       return structure
     
     def ddG_html_vars(structure,thestruct):
-      if not 'ddG' in thestruct:
-        return structure,None
+        if not 'ddG_monomer' in thestruct:
+            return structure,None
 
-      df_row = thestruct['ddG']
-      output_flavor_directory = os.path.join(df_row['outdir'],'ddG','ddg')
+        df_row = thestruct['ddG_monomer']
 
-      ddGPrefix = "%s_%s_%s"%(thestruct['pdbid'],thestruct['chain'],thestruct['mutation'])
-      ddG_summary_file =  "%s/%s_ddg.results"%(output_flavor_directory,ddGPrefix)
-      if os.path.exists(ddG_summary_file):
-        summary = pd.read_csv(ddG_summary_file,sep='\t')
-        LOGGER.info('We read the file %s'%ddG_summary_file)
-        structure['ddG'] = summary['ddG']
-        return structure,summary
+        ddg_repo = DDG_repo(config_dict['ddg_config'],
+                    calculation_flavor='ddg_monomer')
+      
+        output_flavor_directory = os.path.join(df_row['outdir'],'ddG','ddg')
 
-      LOGGER.warning('Unable to open %s'%ddG_summary_file)
+        structure_id = df_row['Structure ID']
+        chain_id = df_row['Chain']
+        if df_row['method'] == 'swiss':
+            ddg_structure_dir = ddg_repo.set_swiss(structure_id,chain_id)
+        elif df_row['method'] == 'modbase':
+            ddg_structure_dir = ddg_repo.set_modbase(structure_id,chain_id)
+        elif df_row['method'] == 'usermodel':
+            ddg_structure_dir = ddg_repo.set_usermodel(structure_id,chain_id)
+        else: # Has to be a pdb
+            ddg_structure_dir = ddg_repo.set_pdb(structure_id.lower(),chain_id)
 
-      return structure,None
+        variant = df_row['pdbmut']
+        ddg_repo.set_variant(variant)
+        ddg_monomer = DDG_monomer(ddg_repo,variant)
+
+        ddg_results_df = ddg_monomer.retrieve_result()
+        if ddg_results_df is None:
+            LOGGER.info('No results found for %s.%s:%s'%(structure_id,chain_id,variant))
+            return structure, None
+
+        return structure,ddg_results_df
 
   
     # Compile PathProx results into report (one page per structure+chain+mutation)
@@ -737,10 +755,10 @@ def report_one_mutation(structure_report,workstatus):
         thestruct['disease2'] = row.to_dict()
       elif 'SequenceAnnotation' == row['flavor']: 
         centinue # UDN Sequence annotations are NOT a part of generated reports
-      elif 'ddG' == row['flavor']: 
-        thestruct['ddG'] = row.to_dict()
+      elif 'ddG_monomer' == row['flavor']: 
+        thestruct['ddG_monomer'] = row.to_dict()
       else:
-        LOGGER.critical("flavor in row is neither %s nor %s nor ddG - cannot continue:\n%s",config_pathprox_dict['disease1_variant_sql_label'],config_pathprox_dict['disease2_variant_sql_label'],str(row))
+        LOGGER.critical("flavor in row is neither %s nor %s nor ddG_monomer - cannot continue:\n%s",config_pathprox_dict['disease1_variant_sql_label'],config_pathprox_dict['disease2_variant_sql_label'],str(row))
         sys.exit(1)
       # This will often reassign over prior assignments - That's OK
       struct_dict[method_pdbid_chain_mers_tuple] = thestruct

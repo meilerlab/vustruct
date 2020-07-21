@@ -350,45 +350,50 @@ def get_pdb_pos(*args):
   return df["chain_seqid"].values[0]
 
 def makejob(flavor,command,params,options,cwd=os.getcwd()):
-  job = {}
-  job['flavor'] = flavor
-  job['config'] = args.config
-  job['userconfig'] = args.userconfig
-  job['command'] = command
-  job['options'] = options
-  job['gene'] = params['gene']
-  job['refseq'] = params['refseq']
-  job['method'] = params.get('method','')
-  job['mutation'] = params['mutation']
-  job['project'] = args.project
-  job['unp'] = params['unp']
-  
-  job['pdbid'] = params.get('structure_id',params.get('pdbid',''))
+    job = {}
+    job['flavor'] = flavor
+    job['config'] = args.config
+    job['userconfig'] = args.userconfig
+    job['command'] = command
+    job['options'] = options
+    job['gene'] = params['gene']
+    job['refseq'] = params['refseq']
+    job['method'] = params.get('method','')
+    job['pdbmut'] = params.get('pdb_mutation','')
+    job['mutation'] = params['mutation']
+    job['project'] = args.project
+    job['unp'] = params['unp']
+    
+    job['pdbid'] = params.get('structure_id',params.get('pdbid',''))
 
-  # If our structure name ends in .pdb, that's fine - but trim that out for the formation
-  # of our output directory and unique key
-  dot_pdb = job['pdbid'].find(".pdb")
-  if dot_pdb > 2:
-    job['pdbid'] = job['pdbid'][0:dot_pdb]
-  job['chain'] = params.get('chain_id',params.get('chain',''))
-  job['mers'] = params['mers']
+    # If our structure name ends in .pdb, that's fine - but trim that out for the formation
+    # of our output directory and unique key
+    dot_pdb = job['pdbid'].find(".pdb")
+    if dot_pdb > 2:
+        job['pdbid'] = job['pdbid'][0:dot_pdb]
+    job['chain'] = params.get('chain_id',params.get('chain',''))
+    job['mers'] = params['mers']
 
-  if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
-    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
-    job['outdir'] = params['mutation_dir']
-  elif "MakeGeneDictionaries" in flavor and job['pdbid'] == 'N/A':
-    job['uniquekey'] = job['flavor']
-    job['outdir'] = params['mutation_dir']
-  else: # Most output directories have pdbid and chain suffixes
-    if not job['chain'].strip() or job['chain'] == "''" or job['chain'] == "' '":
-      pdb_chain_segment = job['pdbid']
-    else:
-      pdb_chain_segment = "%s_%s"%(job['pdbid'],job['chain'])
-    job['outdir'] = os.path.join(params['mutation_dir'] , pdb_chain_segment )
-    job['uniquekey'] = "%s_%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],pdb_chain_segment,job['flavor'])
-  job['cwd'] = cwd
-  # too much detail LOGGER.debug(pprint.pformat(job))
-  return pd.Series(job)
+
+    if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
+        job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
+        job['outdir'] = params['mutation_dir']
+    elif "MakeGeneDictionaries" in flavor and job['pdbid'] == 'N/A':
+        job['uniquekey'] = job['flavor']
+        job['outdir'] = params['mutation_dir']
+    else: # Most output directories have pdbid and chain suffixes
+        if not job['chain'].strip() or job['chain'] == "''" or job['chain'] == "' '":
+            pdb_chain_segment = job['pdbid']
+        else:
+            pdb_chain_segment = "%s_%s"%(job['pdbid'],job['chain'])
+        if "ddG" in flavor:
+            job['outdir'] = "ddG repository"
+        else:
+            job['outdir'] = os.path.join(params['mutation_dir'] , pdb_chain_segment )
+        job['uniquekey'] = "%s_%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],pdb_chain_segment,job['flavor'])
+    job['cwd'] = cwd
+    # too much detail LOGGER.debug(pprint.pformat(job))
+    return pd.Series(job)
 
 # Jobs for PathProx analyses
 def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> pd.DataFrame:
@@ -400,6 +405,7 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
         params['structure_id'] = ci_row['structure_id']
         params['chain'] = "%s"%ci_row['chain_id']  # Quote it in case the IDentifier is a space, as in many models
         params['mers'] = ci_row['mers']
+        params['pdb_mutation'] = ci_row['pdb_mutation']
 
         # sqlcache was a brief idea - no longer needed
         # params['sqlcache'] = os.path.join(params['mutation_dir'],"sqlcache")
@@ -443,18 +449,16 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
     return pathprox_jobs_to_run_df
 
 def makejob_udn_sequence(params):
-  # Secondary structure prediction and sequence annotation
-  return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
+    # Secondary structure prediction and sequence annotation
+    return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
 
-def makejob_udn_structure(params,pdb_mut_i):
-  params = params.copy()
-  params['pdb_mutation'] = pdb_mut_i
-  # ddg_monomer (plus redundant secondary structure/uniprot annotation)
-  return makejob("ddG","udn_pipeline2.py",params,   #command
+def makejob_ddg_monomer(params):
+    return makejob("ddG_monomer","ddg_run.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
-           "--project %(collab)s --patient %(project)s --gene %(gene)s --structure %(struct_filename)s --chain %(chain)s --mutation %(pdb_mutation)s --transcript %(transcript_mutation)s")%params) # options
+           "--%(label)s %(structure_id)s " + 
+           "--chain %(chain)s --variant %(pdb_mutation)s")%params) # options
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
 # Fix this in python 3 - where we have additional local scoping options
@@ -915,7 +919,7 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                 ci.resolution = float(mmCIF_dict[resolution_key][0])
                 break
         if not ci.resolution and ci.method.find('X-RAY') > 0:
-            LOGGER.warning("pdb %s is method=%s with no resolution entry"%(ci.structure_id,method)
+            LOGGER.warning("pdb %s is method=%s with no resolution entry"%(ci.structure_id,method))
 
         if ci.biounit: # In case of biounit we have good chance of a multi-chain complex to process
             chain_ATOM_residues = {}
@@ -1388,10 +1392,12 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                         "gene":gene,"refseq":refseq,"unp":unp,'mutation_dir':mutation_dir,
                         "mutation":mutation,
                         "transcript_mutation":mutation,
-                        "pdb_mutation":"Error: replace for each structure"}
+                        "pdb_mutation":"N/A" # Replace for ddG and Pathprox when we have coverage
+             }
  
     if ENST_transcript_ids:
         params["transcript"] = ENST_transcript_ids[0]
+
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
     df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
     
@@ -1422,10 +1428,15 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                     _params['struct_filename'] = ci_row['struct_filename'] if ci_row['struct_filename'] else ci_row['structure_id']
                     _params['chain'] = "%s"%ci_row['chain_id']  # Quote it in case the IDentifier is a space, as in many models
                     _params['mers'] = ci_row['mers']
+                    _params['label'] = ci_row['label']
                     # Only launchain_id the udn_structure (ddG) script if there is mutation coverage
-                    pdb_mut = mutation[0] + str(int(ci_row['mut_pdb_res'])) + str(ci_row['mut_pdb_icode']).strip() + mutation[-1]
-                    LOGGER.info("ddG will be run at %s of %s"%(pdb_mut,_params['struct_filename']))
-                    df_all_jobs = df_all_jobs.append(makejob_udn_structure(_params,pdb_mut),ignore_index = True)
+                    _params['pdb_mutation'] = (
+                         mutation[0] + 
+                         str(int(ci_row['mut_pdb_res'])) + 
+                         str(ci_row['mut_pdb_icode']).strip() + 
+                         mutation[-1])
+                    LOGGER.info("ddG will be run at %s of %s"%(_params['pdb_mutation'],_params['struct_filename']))
+                    df_all_jobs = df_all_jobs.append(makejob_ddg_monomer(_params,),ignore_index = True)
 
         
         # Launch sequence and spatial jobs on a minimally overlapping subset of structures
@@ -1446,7 +1457,7 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
  
         # life easier when the dataframe knows everything in play
         ci_df['transcript_mut'] = transcript_muts
-        ci_df['pdb_mut'] = pdb_muts
+        ci_df['pdb_mutation'] = pdb_muts
 
         # Command line for  pathprox analyses on all structures
 
@@ -1481,156 +1492,155 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
     return df_all_jobs,workplan_filename,ci_df,df_dropped,log_filename
     
 def makejob_MakeGeneDictionaries(params):
-  # Secondary structure prediction and sequence annotation
-  return makejob("MakeGeneDictionaries","psb_genedicts.py",params,   #command
+    # Secondary structure prediction and sequence annotation
+    return makejob("MakeGeneDictionaries","psb_genedicts.py",params,   #command
           ("--config %(config)s --userconfig %(userconfig)s %(project)s")%params)
 
 def plan_casewide_work():
-  # Use the global database connection
-  global args
-  global io
+    # Use the global database connection
+    global args
+    global io
 
-  LOGGER.info("Planning case-wide work for %s"%args.project)
-  # 2017-10-03 Chris Moth modified to key off NT_ refseq id
+    LOGGER.info("Planning case-wide work for %s"%args.project)
+    # 2017-10-03 Chris Moth modified to key off NT_ refseq id
 
-  casewideString = "casewide"
-  casewide_dir = os.path.join(collaboration_dir,casewideString);
-  psb_permissions.makedirs(casewide_dir)
-  casewide_log_dir = casewide_dir # os.path.join(casewide_dir,"log")
-  psb_permissions.makedirs(casewide_log_dir)
+    casewideString = "casewide"
+    casewide_dir = os.path.join(collaboration_dir,casewideString);
+    psb_permissions.makedirs(casewide_dir)
+    casewide_log_dir = casewide_dir # os.path.join(casewide_dir,"log")
+    psb_permissions.makedirs(casewide_log_dir)
 
-  # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-  log_filename = os.path.join(casewide_log_dir,"psb_plan.log")
+    # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
+    log_filename = os.path.join(casewide_log_dir,"psb_plan.log")
 
+    if oneMutationOnly:
+        sys.stderr.write("psb_plan log file is %s\n"%log_filename)
+    else:
+        LOGGER.info("Additionally logging to file %s"%log_filename)
+    needRoll = os.path.isfile(log_filename)
 
-  if oneMutationOnly:
-    sys.stderr.write("psb_plan log file is %s\n"%log_filename)
-  else:
-    LOGGER.info("Additionally logging to file %s"%log_filename)
-  needRoll = os.path.isfile(log_filename)
+    local_fh = RotatingFileHandler(log_filename, backupCount=7)
+    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',datefmt="%H:%M:%S")
+    local_fh.setFormatter(formatter)
+    local_fh.setLevel(logging.INFO)
+    LOGGER.addHandler(local_fh)
 
-  local_fh = RotatingFileHandler(log_filename, backupCount=7)
-  formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',datefmt="%H:%M:%S")
-  local_fh.setFormatter(formatter)
-  local_fh.setLevel(logging.INFO)
-  LOGGER.addHandler(local_fh)
+    if needRoll:
+        local_fh.doRollover()
 
-  if needRoll:
-    local_fh.doRollover()
+    # whether we had some structures or not, we have our completed workplan to save - and then exit  
+    workplan_filename = os.path.join(casewide_dir,"%s_workplan.csv"%casewideString)
 
-  # whether we had some structures or not, we have our completed workplan to save - and then exit  
-  workplan_filename = os.path.join(casewide_dir,"%s_workplan.csv"%casewideString)
+    workstatus_filename = os.path.join(casewide_dir,"%s_workstatus.csv"%casewideString)
 
-  workstatus_filename = os.path.join(casewide_dir,"%s_workstatus.csv"%casewideString)
-
-  df_all_jobs = pd.DataFrame()
-  params = {"config":args.config,"userconfig":args.userconfig,"collab":config_dict['collaboration'],"case":args.project,
-            "project":args.project,
-            "pdbid":"N/A",
-            "chain":"N/A",
-            "mers":"N/A",
-            "gene":casewideString,"refseq":"N/A","unp":"N/A",'mutation_dir':casewide_dir,
-            "mutation":"N/A",
-            "transcript_mutation":"N/A",
-            "pdb_mutation":"N/A"}
-  
-  # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-  df_all_jobs = df_all_jobs.append(makejob_MakeGeneDictionaries(params),ignore_index=True)
-  df_all_jobs.set_index('uniquekey',inplace=True);
-  df_all_jobs.sort_index().to_csv(workplan_filename,sep='\t')
-  LOGGER.info("Workplan written to %s"%workplan_filename)
-
-  if os.path.exists(workstatus_filename):
-    LOGGER.warning("Removing prior workstatus file: %s"%workstatus_filename)
-    os.remove(workstatus_filename)
-
-  # Close out the local log file for this mutation
-  local_fh.flush()
-  local_fh.close()
-  LOGGER.removeHandler(local_fh)
-  return df_all_jobs,workplan_filename,log_filename
+    df_all_jobs = pd.DataFrame()
+    params = {"config":args.config,"userconfig":args.userconfig,"collab":config_dict['collaboration'],"case":args.project,
+                        "project":args.project,
+                        "pdbid":"N/A",
+                        "chain":"N/A",
+                        "mers":"N/A",
+                        "gene":casewideString,"refseq":"N/A","unp":"N/A",'mutation_dir':casewide_dir,
+                        "mutation":"N/A",
+                        "transcript_mutation":"N/A",
+                        "pdb_mutation":"N/A"}
     
+    # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
+    df_all_jobs = df_all_jobs.append(makejob_MakeGeneDictionaries(params),ignore_index=True)
+    df_all_jobs.set_index('uniquekey',inplace=True);
+    df_all_jobs.sort_index().to_csv(workplan_filename,sep='\t')
+    LOGGER.info("Workplan written to %s"%workplan_filename)
+
+    if os.path.exists(workstatus_filename):
+        LOGGER.warning("Removing prior workstatus file: %s"%workstatus_filename)
+        os.remove(workstatus_filename)
+
+    # Close out the local log file for this mutation
+    local_fh.flush()
+    local_fh.close()
+    LOGGER.removeHandler(local_fh)
+    return df_all_jobs,workplan_filename,log_filename
+        
 
 if oneMutationOnly:
-  print("Planning work for one mutation only: %s %s %s %s"%(args.project,args.entity,args.refseq,args.mutation))
-  df_all_jobs,workplan_filename,df,df_dropped,log_filename = plan_one_mutation(args.entity,args.refseq,args.mutation)
-  print("Workplan of %d jobs written to:"%len(df_all_jobs),workplan_filename)
-  print("%3d structures/models will be processed."%len(ci_df))
-  print("%3d structures/models were considered, but dropped."%len(df_dropped))
-  print("Full details in %s",log_filename)
+    print("Planning work for one mutation only: %s %s %s %s"%(args.project,args.entity,args.refseq,args.mutation))
+    df_all_jobs,workplan_filename,df,df_dropped,log_filename = plan_one_mutation(args.entity,args.refseq,args.mutation)
+    print("Workplan of %d jobs written to:"%len(df_all_jobs),workplan_filename)
+    print("%3d structures/models will be processed."%len(ci_df))
+    print("%3d structures/models were considered, but dropped."%len(df_dropped))
+    print("Full details in %s",log_filename)
 else:
-  phenotypes_filename = os.path.join(collaboration_dir,"Phenotypes","%s_phenotypes.txt"%args.project)
+    phenotypes_filename = os.path.join(collaboration_dir,"Phenotypes","%s_phenotypes.txt"%args.project)
 
-  # The exception to the rule is/are the case-wide jobs that the pipeline launches.
-  if not os.path.exists(phenotypes_filename):
-    LOGGER.critical("File %s was not created from the UDN report."%phenotypes_filename)
-    LOGGER.critical("Thus, psb_genedicts.py will NOT be part of the planned work")
-  else:
-    df_all_jobs,workplan_filename,log_filename = plan_casewide_work()
+    # The exception to the rule is/are the case-wide jobs that the pipeline launches.
+    if not os.path.exists(phenotypes_filename):
+        LOGGER.critical("File %s was not created from the UDN report."%phenotypes_filename)
+        LOGGER.critical("Thus, psb_genedicts.py will NOT be part of the planned work")
+    else:
+        df_all_jobs,workplan_filename,log_filename = plan_casewide_work()
 
-    fulldir, filename = os.path.split(log_filename)
-    fulldir, casewide_dir = os.path.split(fulldir)
-    fulldir, project_dir = os.path.split(fulldir)
-    print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
+        fulldir, filename = os.path.split(log_filename)
+        fulldir, casewide_dir = os.path.split(fulldir)
+        fulldir, project_dir = os.path.split(fulldir)
+        print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
 
-  # Now plan the per-mutation jobs
-  udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
-  print("Retrieving project mutations from %s"%udn_csv_filename)
-  df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
-  print("Work for %d mutations will be planned"%len(df_all_mutations))
+    # Now plan the per-mutation jobs
+    udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
+    print("Retrieving project mutations from %s"%udn_csv_filename)
+    df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
+    print("Work for %d mutations will be planned"%len(df_all_mutations))
 
-  if 'unp' not in df_all_mutations.columns:
-    df_all_mutations['unp'] = None
-    LOGGER.warning("Populating unp column of missense from gene and refseq")
-    unps_from_refseq_gene = {}
+    if 'unp' not in df_all_mutations.columns:
+        df_all_mutations['unp'] = None
+        LOGGER.warning("Populating unp column of missense from gene and refseq")
+        unps_from_refseq_gene = {}
+        for index,row in df_all_mutations.iterrows():
+            unpsForRefseq = PDBMapProtein.refseqNT2unp(row['refseq'])
+            if len(unpsForRefseq):
+                      unp    = ','.join(PDBMapProtein.refseqNT2unp(row['refseq']))
+
+            if unp == None:
+                if refseq:
+                      LOGGER.warning("Could not map refseq input [%s] uniprot ID (or it was missing).  Gene_refseq input in missense.csv file is: %s"%(row['refseq'],row['gene']))
+                else:
+                      LOGGER.warning("Could not map refseq input to uniprot ID (or it was missing).  Gene_refseq input in missense.csv file is: %s"%row['gene'])
+                refseq = "RefSeqNotFound_UsingGeneOnly"
+                unp    = PDBMapProtein.hgnc2unp(gene)
+                unps_from_refseq_gene[index] = unp
+
+        for index in unps_from_refseq_gene:
+                df_all_mutations.loc[index]['unp'] = unps_from_refseq_gene[index]
+                
+    ui_final_table = pd.DataFrame()
     for index,row in df_all_mutations.iterrows():
-      unpsForRefseq = PDBMapProtein.refseqNT2unp(row['refseq'])
-      if len(unpsForRefseq):
-          unp    = ','.join(PDBMapProtein.refseqNT2unp(row['refseq']))
+        print("Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???"))
+        if ('unp' in row) and ('user_model' in row):
+            print("....Including user_model %s"%row['user_model'])
+        ui_final = {}
+        for f in ['gene','refseq','mutation','unp']:
+            ui_final[f] = row[f]
+    
+        df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
 
-      if unp == None:
-        if refseq:
-          LOGGER.warning("Could not map refseq input [%s] uniprot ID (or it was missing).  Gene_refseq input in missense.csv file is: %s"%(row['refseq'],row['gene']))
-        else:
-          LOGGER.warning("Could not map refseq input to uniprot ID (or it was missing).  Gene_refseq input in missense.csv file is: %s"%row['gene'])
-        refseq = "RefSeqNotFound_UsingGeneOnly"
-        unp    = PDBMapProtein.hgnc2unp(gene)
-        unps_from_refseq_gene[index] = unp
+        fulldir, filename = os.path.split(log_filename)
+        fulldir, mutation_dir = os.path.split(fulldir)
+        fulldir, project_dir = os.path.split(fulldir)
+        print(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s"%(len(df_structures),len(df_dropped),len(df_all_jobs),os.path.join(project_dir,mutation_dir,filename)))
+        ui_final['retained'] = len(df_structures)
+        ui_final['dropped'] = len(df_dropped)
+        ui_final['jobs'] = len(df_all_jobs)
+        ui_final['planfile'] = os.path.join(mutation_dir,filename)
+        ui_final_table = ui_final_table.append(ui_final,ignore_index=True)
 
-    for index in unps_from_refseq_gene:
-        df_all_mutations.loc[index]['unp'] = unps_from_refseq_gene[index]
-        
-  ui_final_table = pd.DataFrame()
-  for index,row in df_all_mutations.iterrows():
-    print("Planning %3d,%s,%s,%s,%s"%(index,row['gene'],row['refseq'],row['mutation'],row['unp'] if 'unp' in row else "???"))
-    if ('unp' in row) and ('user_model' in row):
-      print("....Including user_model %s"%row['user_model'])
-    ui_final = {}
-    for f in ['gene','refseq','mutation','unp']:
-      ui_final[f] = row[f]
-  
-    df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
+    myLeftJustifiedGene = lambda x: '%-8s'%x
+    myLeftJustifiedRefseq = lambda x: '%-14s'%x
+    myLeftJustifiedPlanfile = lambda x: '%-40s'%x
+    myLeftJustifiedUNP = lambda x: '%-9s'%x
+    final_structure_info_table = ui_final_table.to_string(columns=['gene','refseq','mutation','unp','retained','dropped','jobs','planfile'],float_format="%1.0f",justify='center',
+                 formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq,'unp': myLeftJustifiedUNP, 'planfile': myLeftJustifiedPlanfile})
+    print(("Structure Report\n%s"%final_structure_info_table))
+    LOGGER.info("%s",final_structure_info_table)
 
-    fulldir, filename = os.path.split(log_filename)
-    fulldir, mutation_dir = os.path.split(fulldir)
-    fulldir, project_dir = os.path.split(fulldir)
-    print(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s"%(len(df_structures),len(df_dropped),len(df_all_jobs),os.path.join(project_dir,mutation_dir,filename)))
-    ui_final['retained'] = len(df_structures)
-    ui_final['dropped'] = len(df_dropped)
-    ui_final['jobs'] = len(df_all_jobs)
-    ui_final['planfile'] = os.path.join(mutation_dir,filename)
-    ui_final_table = ui_final_table.append(ui_final,ignore_index=True)
-
-  myLeftJustifiedGene = lambda x: '%-8s'%x
-  myLeftJustifiedRefseq = lambda x: '%-14s'%x
-  myLeftJustifiedPlanfile = lambda x: '%-40s'%x
-  myLeftJustifiedUNP = lambda x: '%-9s'%x
-  final_structure_info_table = ui_final_table.to_string(columns=['gene','refseq','mutation','unp','retained','dropped','jobs','planfile'],float_format="%1.0f",justify='center',
-         formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq,'unp': myLeftJustifiedUNP, 'planfile': myLeftJustifiedPlanfile})
-  print(("Structure Report\n%s"%final_structure_info_table))
-  LOGGER.info("%s",final_structure_info_table)
-
-  # It is so easy to forget to create this phenotypes file - so remind user again!
-  if not os.path.exists(phenotypes_filename):
-    LOGGER.critical("Reminder: File %s was not created from the UDN report."%phenotypes_filename)
-    LOGGER.critical("          Thus, psb_genedicts.py will NOT be part of the planned casewide work")
+    # It is so easy to forget to create this phenotypes file - so remind user again!
+    if not os.path.exists(phenotypes_filename):
+        LOGGER.critical("Reminder: File %s was not created from the UDN report."%phenotypes_filename)
+        LOGGER.critical("          Thus, psb_genedicts.py will NOT be part of the planned casewide work")
