@@ -104,7 +104,7 @@ backGround=1
 fi
 export PS1='\r\n\[$(/usr/bin/tput setaf '$foreGround'; /usr/bin/tput setab '$backGround')\]   PSB Pipeline    host:\h  user:\u         \[$(/usr/bin/tput sgr0)\]\r\n\w\$ '
 else
-export UDN=/dors/capra_lab/users/mothcw/UDNtests
+export UDN=/dors/capra_lab/users/$USER/UDNtests
 # export PS1='\[$(/usr/bin/tput setaf 15; /usr/bin/tput setab 1)\] DEV \[$(/usr/bin/tput sgr0)\] '$PS1
 export PS1='DEV '$PS1
 fi
