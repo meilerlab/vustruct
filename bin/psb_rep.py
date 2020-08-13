@@ -276,11 +276,11 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
 # This complex routine gather PathProx, and ddG results from the pipeline run, where available
 # It creates a sigle .html file representing the mutation, and returns a dictionary that is
 # input to the overall case report in gathered_info
-def report_one_mutation(structure_report,workstatus):
+def report_one_mutation(structure_report,workstatus_filename):
     gathered_info = {} # Dictionary info to return, of great use by caller
     # Load the status of jobs that was created by psb_launch.py (or prior run of psb_monitor.py)
-    df_all_jobs_status = pd.read_csv(workstatus,'\t',keep_default_na = False,na_filter=False,dtype=str)
-    msg = "%d rows read from work status file %s"%(len(df_all_jobs_status),workstatus)
+    df_all_jobs_status = pd.read_csv(workstatus_filename,'\t',keep_default_na = False,na_filter=False,dtype=str)
+    msg = "%d rows read from work status file %s"%(len(df_all_jobs_status),workstatus_filename)
     if len(df_all_jobs_status) < 1:
       LOGGER.critical(msg)
       return None;
@@ -293,6 +293,12 @@ def report_one_mutation(structure_report,workstatus):
 
     row0 = df_all_jobs_status.iloc[0]
     gathered_info = {col: row0[col] for col in ['project','unp','gene','refseq','mutation']}
+    if 'unp' in row0:
+        gathered_info['unp'] = row0['unp']
+    else: # Get this from PDBMapProtein
+        LOGGER.critical('FIX THIS DURING PLAN PHASE BY PUTTING UNP COLUMN OUT!!')
+        gathered_info['unp'] = PDBMapProtein.refseqNT2unp(gathered_info['refseq'])[0]
+    
     template_vars = gathered_info.copy()
 
     mutation = row0['mutation'] # Sorry for alias - but this is all over the code
@@ -312,7 +318,7 @@ def report_one_mutation(structure_report,workstatus):
     # if programs exit without leaving a trail of info 
     if not 'ExitCode' in df_all_jobs_status.columns: 
       gathered_info['Error'] = "'ExitCode' column missing."
-      LOGGER.error(gathered_info['Error'] + "in " + workstatus)
+      LOGGER.error(gathered_info['Error'] + "in " + workstatus_filename)
       return gathered_info
 
     failed_jobs = df_all_jobs_status['ExitCode'] > '0'
@@ -331,13 +337,13 @@ def report_one_mutation(structure_report,workstatus):
 
     if len(df_all_jobs_status) < 1:
         gathered_info['Error'] = "No completed PathProx or ddG jobs."
-        LOGGER.warning(gathered_info['Error'] + " in " + workstatus)
+        LOGGER.warning(gathered_info['Error'] + " in " + workstatus_filename)
         return gathered_info
 
     # Sanity check - make sure mutation is same in all rows!
     test_count = len(df_all_jobs_status.groupby('mutation'))
     if test_count != 1:
-      gathered_info['Error'] = "%s  may be coreupted, has some rows which lack the same mutation"%workstatus
+      gathered_info['Error'] = "%s  may be coreupted, has some rows which lack the same mutation"%workstatus_filename
       LOGGER.error(gathered_info['Error'])
       gathered_info['Error'] = "corrupted = see log file"
       return gathered_info
@@ -394,11 +400,11 @@ def report_one_mutation(structure_report,workstatus):
 
     LOGGER.info("%d rows read from structure_report file %s"%(len(df_structure_report),structure_report))
     df_structure_report.set_index(["method","structure_id","chain_id","mers"],inplace = True)
-    
-    # For final report directory, trim that last directory from the structure-specific one
-    final_report_directory = df_all_jobs_status.iloc[0]['outdir']
-    # Now trim final directory name
-    final_report_directory = os.path.dirname(final_report_directory)
+  
+    # for the .html report for each variant, use the direction in which
+    # The workstation_filename was retrieved
+    # import pdb; pdb.set_trace()
+    variant_report_directory = os.path.abspath(os.path.dirname(workstatus_filename))
     
     # project = 'TestJED' # MUST FIX THIS ERROR
     # unp = 'Q9NY15-1' # MUST FIX THIS ERROR
@@ -638,7 +644,7 @@ def report_one_mutation(structure_report,workstatus):
           if 'pdbSSfilename' in residuesOfInterest:
             pdbSSbasename = os.path.basename(residuesOfInterest['pdbSSfilename'])
             pdbSSdirname = os.path.dirname(residuesOfInterest['pdbSSfilename'])
-            residuesOfInterest['pdbSSfilename'] = os.path.join(os.path.relpath(pdbSSdirname,final_report_directory),pdbSSbasename)
+            residuesOfInterest['pdbSSfilename'] = os.path.join(os.path.relpath(pdbSSdirname,variant_report_directory),pdbSSbasename)
           LOGGER.info('Loaded %d variants, %d neutrals, %d pathogenic from %s'%(
             len(residuesOfInterest['variants']),
             len(residuesOfInterest['neutrals']),
@@ -649,6 +655,7 @@ def report_one_mutation(structure_report,workstatus):
         residuesOfInterest['%s_pathogenics'%disease1_or_disease2] = residuesOfInterest['pathogenics']
         del residuesOfInterest['pathogenics']
         structure.update(residuesOfInterest)
+
         website_filelist.append(os.path.join(web_dir,structure['pdbSSfilename']))
 
         structure['ngl_variant_residue_count'],structure['ngl_variant_residues'] = residues_to_ngl(residuesOfInterest['variants'])
@@ -1033,7 +1040,7 @@ def report_one_mutation(structure_report,workstatus):
     # The html directory, and it's large set of supporting files, is located beneath the directory
     # where this file, psb_rep.py, is located 
     src =  os.path.join(os.path.dirname(os.path.realpath(__file__)),"html")
-    dest = "%s/html"%final_report_directory
+    dest = "%s/html"%variant_report_directory
     LOGGER.info("Copying supporting javascript and html from %s to %s"%(src,dest))
 
     
@@ -1084,10 +1091,10 @@ def report_one_mutation(structure_report,workstatus):
     htmlPfamGraphics = templatePfamGraphics.render(template_vars)
 
     save_cwd = os.getcwd();
-    os.chdir(final_report_directory);
+    os.chdir(variant_report_directory);
     
     # WE ARE NOW OPERATING FROM ..../UDN/CaseName target directory
-    LOGGER.info("Now working in %s",final_report_directory)
+    LOGGER.info("Now working in %s",variant_report_directory)
 
     html_fname = base_fname%"html"
     website_filelist.append(os.path.join(web_dir,html_fname))
@@ -1101,7 +1108,7 @@ def report_one_mutation(structure_report,workstatus):
     if write_pdfs:
       pdf_fname = base_fname%"pdf"
       wkhtmltopdf_fname = base_fname%"wkhtml.pdf"
-      print("\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(final_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname))
+      print("\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n"%(variant_report_directory,pdf_fname,wkhtmltopdf_fname,html_fname,pfamGraphicsIframe_fname))
     
       LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
     
@@ -1143,7 +1150,7 @@ def report_one_mutation(structure_report,workstatus):
     local_fh.flush()
     local_fh.close()
     LOGGER.removeHandler(local_fh)
-    gathered_info['final_report_directory'] = os.path.basename(final_report_directory)
+    gathered_info['variant_report_directory'] = os.path.basename(variant_report_directory)
     gathered_info['html_fname'] = html_fname
     return gathered_info # End of function report_one_mutation()
   
@@ -1211,13 +1218,13 @@ else:
       gathered_info = report_one_mutation(structure_report_filename,workstatus_filename)
       if gathered_info:
         gathered_info['#'] = index
-        if not gathered_info['Error'] and gathered_info['final_report_directory']:
-          gathered_info['html_fname'] = os.path.join(gathered_info['final_report_directory'],gathered_info['html_fname'])
+        if not gathered_info['Error'] and gathered_info['variant_report_directory']:
+          gathered_info['html_fname'] = os.path.join(gathered_info['variant_report_directory'],gathered_info['html_fname'])
           msg = "%s %s %s report saved to %s/.pdf/.wkhtml.pdf"%(row['gene'],row['refseq'],row['mutation'],gathered_info['html_fname'])
           if not infoLogging:
             print (msg)
           LOGGER.info(msg)
-        gathered_info['Gene Mutation'] = "%-9.9s %-10.10s %-10.10s %-7.7s"%(row['gene'],row['refseq'],row['unp'],row['mutation'])
+        gathered_info['Gene Mutation'] = "%-9.9s %-10.10s %-10.10s %-7.7s"%(row['gene'],row['refseq'],gathered_info['unp'],row['mutation'])
         gathered_info['Gene Hit Generic'] = ''
         mutation_summaries.append(gathered_info)
       else:
