@@ -19,7 +19,7 @@ import pandas as pd
 import argparse,configparser
 import json
 from lib.amino_acids import longer_names
-from pdbmap import PDBMapProtein,PDBMapModel,PDBMapSwiss
+from lib import PDBMapProtein,PDBMapModel,PDBMapSwiss
 # Send INFO and higher logging information to stderr
 # WARNING and higher log details are echoed to the log file
 root  = logging.getLogger()
