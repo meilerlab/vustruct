@@ -113,11 +113,14 @@ class DDG_monomer(object):
         rmsd_threshold = 4.0
         qual_threshold = 1.1
 
+        LOGGER.info('Checking quality of %s',modbase_fullpath)
         with gzip.open(modbase_fullpath,'rt') as infile:
             for line in infile:
                 if line.startswith('REMARK 220 SEQUENCE IDENTITY'):
                     try:
                         modbase_sid = float(line.strip().split()[4])
+                    except IndexError: # Sometimes this line is entirely blank in modbase
+                        modbase_sid = 0.0
                     except TypeError:
                         modbase_sid = 0.0
                     except ValueError:
@@ -131,6 +134,8 @@ class DDG_monomer(object):
                 elif line.startswith('REMARK 220 TSVMOD RMSD'):
                     try:
                         rmsd = float(line.strip().split()[4])
+                    except IndexError: # Sometimes this line is entirely blank in modebase
+                        rmsd = 1000.0
                     except TypeError:
                         rmsd = 1000.0
                     except ValueError:
@@ -143,6 +148,8 @@ class DDG_monomer(object):
                 elif line.startswith('REMARK 220 MODPIPE QUALITY SCORE'):
                     try:
                         qual = float(line.strip().split()[5])
+                    except IndexError: # Sometimes this line is entirely blank in modbase
+                        qual = 0.0
                     except TypeError:
                         qual = 0.0
                     except ValueError:
