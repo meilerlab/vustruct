@@ -49,17 +49,23 @@ from logging import handlers
 
 sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
-LOGGER.addHandler(sh)
+global_fh = None # Setup global fileHandler log when we get more info
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
 
-LOGGER.setLevel(logging.DEBUG)
-sh.setLevel(logging.WARNING)
-sh.setFormatter(log_formatter)
+def gene_specific_set_log_formatter(log_handler: logging.Handler, entry: int, gene:str) -> None:
+    log_format_string = '%3d %-7s'%(entry,gene) + ' %(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
+    date_format_string = '%H:%M:%S'
+    
+    log_handler.setFormatter(logging.Formatter(log_format_string,date_format_string))
 
+LOGGER.setLevel(logging.DEBUG)
+sh.setLevel(logging.INFO)
+sh.setFormatter(log_formatter)
+LOGGER.addHandler(sh)
 
 import pandas as pd
 pd.options.mode.chained_assignment = 'raise'
@@ -71,7 +77,8 @@ from get_structures import get_pdbs,get_modbase_swiss
 import argparse,configparser
 from glob import glob
 from lib import PDBMapSIFTSdb
-from pdbmap import PDBMapProtein,PDBMapSwiss
+from lib import PDBMapProtein
+from lib import PDBMapSwiss
 from lib import PDBMapModbase2016
 from lib import PDBMapModbase2013
 from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
@@ -464,7 +471,7 @@ def makejob_ddg_monomer(params):
 # Fix this in python 3 - where we have additional local scoping options
 df_dropped = None
 
-def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,unp: str=None):
+def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:str =None,unp: str=None):
     # Use the global database connection
     global io
     global args
@@ -527,9 +534,13 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
 
     if needRoll:
         local_fh.doRollover()
-    
-    LOGGER.info("MySQL: Marking psb_collab.MutationSummary incomplete for %s %s %s %s %s"%
-            (args.project,gene,refseq,mutation,unp))
+
+    gene_specific_set_log_formatter(global_fh,index,gene)
+    gene_specific_set_log_formatter(sh,index,gene)
+
+
+    # LOGGER.info("MySQL: Marking psb_collab.MutationSummary incomplete for %s %s %s %s %s"%
+    #         (args.project,gene,refseq,mutation,unp))
     
     # Ensure that this mutation is tracked in the database
     # Even though typically already added in Mtuation Summary
@@ -900,14 +911,21 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
             if not ci.deposition_date:
                 LOGGER.warning("Deposition date %s apparently not YYYY-MM-DD",raw_deposition_date)
 
+        resolution_keys = []
         ci.resolution = None # Not applicable is correct for NMR structures
         if ci.method == 'X-RAY DIFFRACTION':
             resolution_keys = ['_refine.ls_d_res_high','_reflns.d_resolution_high','_refine_hist.d_res_high']
             ci.method = 'X-RAY'
+        elif ci.method == 'ELECTRON CRYSTALLOGRAPHY':
+            ci.method = 'ELECTRON CRYSTALLOGRAPHY'
+            resolution_keys = ['_em_3d_reconstruction.resolution']
         elif ci.method == 'ELECTRON MICROSCOPY':
             ci.method = 'EM'
             resolution_keys = ['_em_3d_reconstruction.resolution']
         elif ci.method.find('NMR') > -1: # resolution is not applicable for nmr
+            resolution_keys = []
+        elif ci.method.find('SOLUTION SCATTERING') > -1: # resolution is not applicable for SOLUTION SCATTERING
+            LOGGER.warning('SOLUTION SCATTERING may be of low resolution: %s',ci.structure_id)
             resolution_keys = []
         else:
             resolution_keys = ['_refine.ls_d_res_high','_reflns.d_resolution_high','_refine_hist.d_res_high']
@@ -916,7 +934,10 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
         for resolution_key in resolution_keys:
             if resolution_key in mmCIF_dict:
                 # Congratulations.  You found the old REMARK 2 RESOLUTION entry.... or so we hope.
-                ci.resolution = float(mmCIF_dict[resolution_key][0])
+                # HOWEVER, sometimes this key is a '.' or '?' and we should skip that
+                resolution_value = mmCIF_dict[resolution_key]
+                if resolution_value != '.' and resolution_value != '?':
+                    ci.resolution = float(mmCIF_dict[resolution_key][0])
                 break
         if not ci.resolution and ci.method.find('X-RAY') > 0:
             LOGGER.warning("pdb %s is method=%s with no resolution entry"%(ci.structure_id,method))
@@ -946,11 +967,11 @@ def plan_one_mutation(gene: str,refseq: str,mutation: str,user_model:str =None,u
                 success,errormsg = alignment.align_sifts_isoform_specific(transcript,structure,pdb_seq_resid_xref,chain_id=ci.chain_id,is_canonical=unp_is_canonical)
     
             if not success:
-                LOGGER.warning("Unable to align with sifts: %s",errormsg)
+                LOGGER.warning("Unable to align %s.%s with sifts: %s",ci.structure_id,ci.chain_id,errormsg)
                 LOGGER.warning("Attempting to align chain %s with biopython call",ci.chain_id)
                 success,errormsg = alignment.align_biopython(transcript,structure,ci.chain_id)
                 if not success:
-                    LOGGER.critical("Also Unable to align with biopython: %s",errormsg)
+                    LOGGER.critical("Also Unable to align %s.%s with biopython: %s",ci.structure_id,ci.chain_id,errormsg)
 
         if not success:
             LOGGER.critical("Skipping %s:%s because of alignment failure"%(ci.structure_id,ci.chain_id))
@@ -1619,7 +1640,7 @@ else:
         for f in ['gene','refseq','mutation','unp']:
             ui_final[f] = row[f]
     
-        df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
+        df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(index,row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
 
         fulldir, filename = os.path.split(log_filename)
         fulldir, mutation_dir = os.path.split(fulldir)
