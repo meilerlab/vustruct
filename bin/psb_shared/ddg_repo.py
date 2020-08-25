@@ -14,6 +14,7 @@ Restated:
 """
 import sys
 import os
+import re
 from typing import Dict, List, Tuple, Union
 
 import logging
@@ -90,6 +91,7 @@ class DDG_repo():
         self._residue_to_clean_xref = {}
         self._structure_config = None
         self._structure_id = None
+        self._slurm_dir = None
         self._chain_id = None
         self._variant = None
         self._log_filename = None
@@ -119,6 +121,7 @@ class DDG_repo():
             self._structure_id, self._calculation_flavor))
         self._structure_config_filename = os.path.join(self._structure_dir, "%s_%s_structure.config" % (
             self._structure_id, self._calculation_flavor))
+        self._slurm_dir = os.path.join(self._structure_dir,"slurm")
 
     def set_pdb(self, pdb_id: str, chain_id: str) -> str:
         """
@@ -127,6 +130,7 @@ class DDG_repo():
         :param chain_id:
         """
 
+        self._structure_source = 'pdb'
         self._structure_id = pdb_id.lower()
         self._chain_id = chain_id
         self._structure_dir = os.path.join(self._ddg_root, 
@@ -141,6 +145,7 @@ class DDG_repo():
         """
         Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
         """
+        self._structure_source = 'swiss'
         self._structure_id = swiss_id
         self._chain_id = chain_id
 
@@ -162,19 +167,41 @@ class DDG_repo():
         """
         Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
         """
+        self._structure_source = 'modbase'
         self._structure_id = modbase_id
-        self._chain_id = chain_id
+        # Often, ancient modbase models lack a chain ID.  So, assign them 'A' as chain
+        # in all these cases
+        self._chain_id = chain_id if chain_id else 'A'
 
-        modbase_underscore_split = modbase_id.split('_')
-        assert len(modbase_underscore_split) < 3
-        modbase_last_6 = modbase_underscore_split[0][:-6:]
+        # The old modbase IDs tend to be ENSP0000001234567 format
+        # which is a clean ENSP protein ID, then followed by
+        # bits of punctuation.  To avoid directory jam, we
+        # use last 3 digits as directory name
+        ensp_id_regex = re.compile('.*(ENSP00+[0-9]+)(.*)')
+        ensp_id_match = ensp_id_regex.match(modbase_id)
 
-        modbase_last_6 = modbase_id[-6:]
+        assert ensp_id_match,"The modbase_id of %s seems entirely invalid.  Should be ENSP0000123456 and so forth"%modbase_id
+
+        # modbase_underscore_split = modbase_id.split('_')
+        # assert len(modbase_underscore_split) < 3
+        # modbase_last_6 = modbase_underscore_split[0][:-6:]
+
+        # modbase_last_6 = modbase_id[-6:]
+        # self._structure_dir = os.path.join(
+            # self._ddg_root,
+            # 'modbase',
+            # modbase_last_6[0:3],
+            # modbase_last_6[3:6],
+            # self._structure_id,
+            # self._chain_id)
+
+        ENSP_last_3 = ensp_id_match.group(1)[-3:]
+        ENSP_suffix = ensp_id_match.group(2)
         self._structure_dir = os.path.join(
             self._ddg_root,
             'modbase',
-            modbase_last_6[0:3],
-            modbase_last_6[3:6],
+            ENSP_last_3,
+            ENSP_suffix,
             self._structure_id,
             self._chain_id)
 
@@ -186,6 +213,8 @@ class DDG_repo():
         """
         Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
         """
+        self._structure_source = 'usermodel'
+
         self._structure_id = usermodel.split('.')[0].lower()
         self._chain_id = chain_id
 
@@ -380,9 +409,15 @@ class DDG_repo():
         self._structure_config = structure_config
 
     @property
+    def structure_source(self) -> str:
+        """Return pdb/swiss/modbase/usermodel as set in set_* function"""
+        return self._structure_source
+    @property
     def structure_id(self) -> str:
         """Return the structure_id passed to a set_* function"""
         return self._structure_id
+
+
 
     @property
     def cleaned_structure_filename(self) -> str:
@@ -403,6 +438,8 @@ class DDG_repo():
                 sys.exit(1)
 
         return self._cleaned_structure_pdb_filename
+
+
 
     @property
     def calculation_dir(self) -> str:
@@ -425,3 +462,18 @@ class DDG_repo():
     def structure_dir(self) -> str:
         """The structure directory as set by __init__/set*structure"""
         return self._structure_dir
+
+    def slurm_directory_makedirs(self):
+        LOGGER.info("Creating slurm directory drwxrwx---: %s", self.slurm_dir)
+        save_umask = os.umask(0)
+        os.makedirs(self.slurm_dir, mode=0o770, exist_ok=True)
+        os.umask(save_umask)
+        return self.slurm_dir
+
+
+
+    @property
+    def slurm_dir(self) -> str:
+        """The calculation directory as set by __init__/set*structure/set_variant"""
+        return self._slurm_dir
+
