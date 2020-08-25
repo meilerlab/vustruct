@@ -32,7 +32,9 @@ from tabulate import tabulate
 
 # from time import strftime
 from configparser import SafeConfigParser
+from psb_shared.ddg_load_structure import ddg_load_structure,LoadStructureError
 from typing import Dict
+from Bio.SeqUtils import seq1
 from Bio.PDB import MMCIFParser
 from Bio.PDB import PDBParser
 from Bio import BiopythonWarning
@@ -60,7 +62,7 @@ ch.setFormatter(log_formatter)
 LOGGER.setLevel(logging.DEBUG)
 ch.setLevel(logging.INFO)
 
-cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)),
+cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)),".",
                                                            add_help=True)
 cmdline_parser.add_argument(
     "--ddg_config",
@@ -83,6 +85,8 @@ group.add_argument('--usermodel', type=str, metavar='FILE',
 
 cmdline_parser.add_argument("--chain", type=str,
                             help="Limit the ddG processing to one particular chain")
+cmdline_parser.add_argument("--outfile", type=str, metavar='FILE', default='stdout',
+                            help="Set the output filename and format through extension .xlsx, .tsv, .csv")
 
 cmdline_parser.add_argument(
             "--variant", type=str,
@@ -97,6 +101,7 @@ cmdline_parser.add_argument("--label", type=str, default='',
 #                            help="Disables output directory timestamping")
 # cmdline_parser.add_argument("--overwrite", action="store_true", default=False,
 #                             help="Overwrite previous results. Otherwise, exit with error")
+
 
 LOGGER.info("Command: %s" % ' '.join(sys.argv))
 
@@ -148,14 +153,53 @@ else:
 
 ddg_all_results = None
 variant_list = None
-if args.variant[-1] == '*':
+
+outfile_extension = 'txt'
+outfile_split = args.outfile.split('.')
+if len(outfile_split) > 1:
+    outfile_extension = outfile_split[-1]
+    if 'xls' in outfile_extension:
+        outfile_extension = 'xlsx'
+    elif 'tsv' in outfile_extension:
+        outfile_extension = 'tsv'
+    elif 'csv' in outfile_extension:
+        outfile_extension = 'csv'
+
+LOGGER.info("Output file of ddg results: %s will be created in format %s",args.outfile,outfile_extension)
+
+if not args.variant:
+    # Report on ALL the positions and all the variants if none specifically requested
+    structure_info_dict = {}
+
+    # Load cleaned structure PDB - feels wrong to have it here - but oh well
+    cleaned_structure = PDBParser().get_structure(id, ddg_repo.cleaned_structure_filename)
+
+    residue_to_clean_xref = ddg_repo.residue_to_clean_xref
+
+    variant_list = []
+    for residue in residue_to_clean_xref:
+        native_aa_letter =  seq1(cleaned_structure[0][args.chain][residue_to_clean_xref[residue]].get_resname())
+    
+        variant_list += [
+               "%s%s%s%s"%(native_aa_letter,residue[1],residue[2].strip(),amino_acid) \
+               for amino_acid in "ACDEFGHIKLMNPQRSTVWY" if amino_acid != native_aa_letter]
+elif args.variant[-1] == '*':
     variant_list = [args.variant[0:-1] + amino_acid for amino_acid in "ACDEFGHIKLMNPQRSTVWY" if amino_acid != args.variant[0] ]
 else:
     variant_list = [args.variant]
 
+
+
+ddg_monomer = DDG_monomer(ddg_repo, variant_list[0])
+
+last_output = ""
 for variant in variant_list:
     ddg_repo.set_variant(variant)
-    ddg_monomer = DDG_monomer(ddg_repo, variant)
+    ddg_monomer.refresh_ddg_repo_and_mutations(ddg_repo,variant)
+
+    if last_output != variant[0:-1]:
+        last_output = variant[0:-1]
+        LOGGER.info("Retrieving variant(s) for %s",last_output)
 
     # Get None or a dataframe with results
     ddg_result = ddg_monomer.retrieve_result()
@@ -165,9 +209,27 @@ for variant in variant_list:
     else:
        ddg_all_results = pd.concat([ddg_all_results,ddg_result],ignore_index=True)
 
-    print("DDG Retrieved for %s chain=%s %s:\n%s"%(
-        ddg_repo.structure_id,
-        ddg_repo.chain_id,
-        ddg_repo.variant,
-        tabulate(ddg_all_results,headers='keys',tablefmt='psql') if ddg_all_results is not None else "Not Found in Repository"))
+if ddg_all_results is None:
+    message = "No matching results were found in the ddg repository.  Have calculations been run?"
+    LOGGER.critical(message)
+    sys.exit(message)
 
+if outfile_extension in ['tsv', 'csv']: 
+    LOGGER.info("Writing %d rows to %s via ddg_all_Results.to_csv()",len(ddg_all_results),args.outfile)
+    ddg_all_results.to_csv(args.outfile,sep='\t' if outfile_extension=='tsv' else ',')
+elif outfile_extension == 'txt':
+    LOGGER.info("Writing %d rows to %s as table of text",len(ddg_all_results),args.outfile)
+    if args.outfile == 'stdout':
+        print("%s"%tabulate(ddg_all_results,headers='keys',tablefmt='psql') if ddg_all_results is not None else "Not Found in Repository")
+    else:
+        with open(args.outfile,'w') as f:
+            f.write("%s"%tabulate(ddg_all_results,headers='keys',tablefmt='psql') if ddg_all_results is not None else "Not Found in Repository")
+elif outfile_extension == 'xlsx':
+    LOGGER.info("Writing %d rows to %s as excel",len(ddg_all_results),args.outfile)
+    ddg_all_results.to_excel(args.outfile)
+
+
+# print("DDG Retrieved for %s chain=%s %s:\n%s"%(
+#    ddg_repo.structure_id,
+#    ddg_repo.chain_id,
+#    ddg_repo.variant,
