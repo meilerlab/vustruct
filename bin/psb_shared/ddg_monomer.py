@@ -24,10 +24,11 @@ LOGGER = logging.getLogger(__name__)
 
 
 class DDG_monomer(object):
-    def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
+
+    def refresh_ddg_repo_and_mutations(self,ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
-        :param ddg_repo:
-        :param mutations: S123AF format (or list of these) that indicate AA, res#, insert code, new AA.
+        When retrieving results from the repository, one should be able to update the ddg_repo
+        pointer to a new variant without repeating all the other checks
         """
 
         self._ddg_repo = ddg_repo
@@ -46,6 +47,15 @@ class DDG_monomer(object):
         # Not sure we really want this potentially long string in filenames
         # Keep thinking about it.
         self._mutationtext = ",".join(self._mutations)
+
+
+    def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
+        """
+        :param ddg_repo:
+        :param mutations: S123AF format (or list of these) that indicate AA, res#, insert code, new AA.
+        """
+
+        self.refresh_ddg_repo_and_mutations(ddg_repo, mutations)
 
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
@@ -77,7 +87,7 @@ class DDG_monomer(object):
            
            :return True/False for OK to continue or NOT
         """
-        sid_threshold = 40.0
+        sid_threshold = 30.0
         if 'sid' in swiss_remark3_metrics:
             swiss_sid = float(swiss_remark3_metrics['sid'])
             sequence_identity_acceptable = (swiss_sid >= sid_threshold)
@@ -109,7 +119,7 @@ class DDG_monomer(object):
         tsvmod_acceptable  = False
         sequence_identity_acceptable = False
 
-        sid_threshold = 40.0
+        sid_threshold = 30.0
         rmsd_threshold = 4.0
         qual_threshold = 1.1
 
@@ -127,9 +137,9 @@ class DDG_monomer(object):
                         modbase_sid = 0.0
                     if modbase_sid>=sid_threshold:
                         sequence_identity_acceptable = True
-                    LOGGER.log(logging.INFO if sequence_identity_acceptable else logging.WARNING,
-                        "Sequence Identity: %f < threshold %f"%(
-                            modbase_sid,sid_threshold))
+                        LOGGER.log("Sequence identity of %0.1f acceptable as less than threshold %0.1f"%(modbase_sid,sid_threshold))
+                    else:
+                        LOGGER.warning("Sequence Identity: %0.1f < threshold %0.1f"%(modbase_sid,sid_threshold))
 
                 elif line.startswith('REMARK 220 TSVMOD RMSD'):
                     try:
@@ -140,11 +150,11 @@ class DDG_monomer(object):
                         rmsd = 1000.0
                     except ValueError:
                         rmsd = 1000.0
-                    tsvmod_acceptabl= rmsd<=rmsd_threshold
+                    tsvmod_acceptable = rmsd<=rmsd_threshold
                     if tsvmod_acceptable:
-                        LOGGER.info("TSVMOD RMSD: %f OK ( <= threshold %f)"%(rmsd,rmsd_threshold))
+                        LOGGER.info("TSVMOD RMSD: %0.1f OK ( <= threshold %%0.1f)"%(rmsd,rmsd_threshold))
                     else:
-                        LOGGER.info("TSVMOD RMSD: %f TOO HIGH, threshold %f"%(rmsd,rmsd_threshold))
+                        LOGGER.info("TSVMOD RMSD: %0.1f TOO HIGH, threshold %0.1f"%(rmsd,rmsd_threshold))
                 elif line.startswith('REMARK 220 MODPIPE QUALITY SCORE'):
                     try:
                         qual = float(line.strip().split()[5])
@@ -157,13 +167,16 @@ class DDG_monomer(object):
 
                     if qual>=1.1:
                         modpipe = True # Well - does not do much given low filter removal ...
-                    LOGGER.info("Modpipe quality score (not checked) %f"%qual)
+                    LOGGER.info("Modpipe quality score (not checked) %0.2f"%qual)
 
         modbase_ok = modpipe_acceptable and tsvmod_acceptable and sequence_identity_acceptable
          
         LOGGER.log(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, seq identity: %s"%(
             str(modpipe_acceptable),str(tsvmod_acceptable),str(sequence_identity_acceptable)))
 
+        # DO NOT CHECK THIS IN
+        # IGNORE ALL CHECKS FOR JONATHAN 2020-80-20
+        return True
         return modbase_ok
 
 
@@ -1135,7 +1148,14 @@ class DDG_monomer(object):
     def jobstatus(self) -> Dict[str,str]:
         jobstatus_info = {}
         save_current_directory = os.getcwd()
-        os.chdir(self._ddg_repo.calculation_dir)
+        try:
+            os.chdir(self._ddg_repo.calculation_dir)
+        except FileNotFoundError:
+            jobstatus_info['ExitCode'] = None
+            jobstatus_info['jobinfo'] = 'ddg_monomer has not created %s'%self._ddg_repo.calculation_dir
+            jobstatus_info['jobprogress'] = jobstatus_info['jobinfo']
+            return jobstatus_info
+
         _,_,exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
         previous_exit,previous_exit_int = self._get_previous_exit(exitcd_filename)
         if previous_exit_int == 0:
@@ -1161,7 +1181,7 @@ class DDG_monomer(object):
 
         if previous_exit_int == 0:
             final_results_df = pd.read_csv(final_results_fullpath, sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
-            LOGGER.info("ddg of %f read from %s"%(final_results_df['ddG'],final_results_fullpath))
+            LOGGER.debug("ddg of %f read from %s"%(final_results_df['ddG'],final_results_fullpath))
         else:
             LOGGER.info("ddg results file %s not found"%(final_results_fullpath))
             final_results_df = None
