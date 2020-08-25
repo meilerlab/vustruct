@@ -328,11 +328,11 @@ def report_one_mutation(structure_report,workstatus_filename):
 
     incomplete_jobs = df_all_jobs_status['ExitCode'] != '0'
     if incomplete_jobs.sum() > 0:
-      LOGGER.info("Dropping %d rows for incomplete jobs (ExitCode missing)."%incomplete_jobs.sum())
+      LOGGER.info("Dropping %d rows for incomplete jobs (ExitCode missing).\n%s",incomplete_jobs.sum(),df_all_jobs_status[incomplete_jobs])
       df_all_jobs_status = df_all_jobs_status[~incomplete_jobs]
       if len(df_all_jobs_status) < 1:
         gathered_info['Error'] = "All jobs are marked incomplete."
-        LOGGER.error(gathered_info['Error'] + "  Be sure to run pdb_monitr.py before this script")
+        LOGGER.error(gathered_info['Error'] + "  Be sure to run pdb_monitor.py before this script")
         return gathered_info
 
     if len(df_all_jobs_status) < 1:
@@ -343,7 +343,7 @@ def report_one_mutation(structure_report,workstatus_filename):
     # Sanity check - make sure mutation is same in all rows!
     test_count = len(df_all_jobs_status.groupby('mutation'))
     if test_count != 1:
-      gathered_info['Error'] = "%s  may be coreupted, has some rows which lack the same mutation"%workstatus_filename
+      gathered_info['Error'] = "%s  may be corrupted, has some rows which lack the same mutation"%workstatus_filename
       LOGGER.error(gathered_info['Error'])
       gathered_info['Error'] = "corrupted = see log file"
       return gathered_info
