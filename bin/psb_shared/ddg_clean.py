@@ -937,10 +937,18 @@ class DDG_Cleaner(object):
             chains_to_retain = list(chain_to_retain)
         elif type(chain_to_retain) is list:
             chains_to_retain = chain_to_retain
-        else:
-            chains_to_retain = [chain.id for chain in self._structure[0]]
 
-        cleaned_chain = Chain(chains_to_retain[0])
+        # Use the passed in chain letter if exists.
+        # If that chain letter is None or blank, convert to chain 'A'
+        # for the cleaned structure to work with Rosetta
+        # This problem of blank chain IDs mainly in old modbase models
+        if chains_to_retain and chains_to_retain[0] and chains_to_retain[0].strip():
+            cleaned_chain = Chain(chains_to_retain[0])
+        else:
+            # chains_to_retain = [chain.id for chain in self._structure[0]]
+            chains_to_retain = [next(self._structure[0].get_chains()).id]
+            cleaned_chain = Chain('A')
+
 
         for chain_id in chains_to_retain:
             residue_to_clean_xref[chain_id] = {}
@@ -1000,7 +1008,7 @@ class DDG_Cleaner(object):
                         is_hetatm_residue and keepligands) and not (
                         keepdna and residue.get_resname().strip() in DNA):
                     if self._verbose:
-                        LOGGER.info("Unable to reconcile residue name %s: ", residue_iterator.get_resname())
+                        LOGGER.info("Skipping residue %s %s: ", residue_iterator.id, residue_iterator.get_resname())
                     self._skipped += 1
                     residue_invalid = True
 
