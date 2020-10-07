@@ -105,7 +105,7 @@ import copy
 slurmParametersPathProx = copy.deepcopy(slurmParametersAll)
 slurmParametersDDGMonomer = copy.deepcopy(slurmParametersAll)
 slurmParametersUDNSequence = copy.deepcopy(slurmParametersAll)
-slurmParametersMakeGeneDictionaries = copy.deepcopy(slurmParametersAll)
+slurmParametersDigenicAnalysis = copy.deepcopy(slurmParametersAll)
 
 try:
     slurmParametersPathProx.update(dict(config.items("SlurmParametersPathProx")))
@@ -123,7 +123,7 @@ except Exception as ex:
     pass
 
 try:
-    slurmParametersMakeGeneDictionaries.update(dict(config.items("SlurmParametersMakeGeneDictionaries")))
+    slurmParametersDigenicAnalysis.update(dict(config.items("SlurmParametersDigenicAnalysis")))
 except Exception as ex:
     pass
 
@@ -131,7 +131,7 @@ slurm_required_settings = ['mem', 'account', 'ntasks', 'time']
 for slurmSettingsDesc, slurmSettings in [('slurmParametersPathProx', slurmParametersPathProx),
                                          ('slurmParametersDDGMonomer', slurmParametersDDGMonomer),
                                          ('slurmParametersUDNSequence', slurmParametersUDNSequence),
-                                         ('slurmParametersMakeGeneDictionaries', slurmParametersMakeGeneDictionaries)]:
+                                         ('slurmParametersDigenicAnalysis', slurmParametersDigenicAnalysis)]:
     for req in slurm_required_settings:
         if not req in slurmSettings:
             LOGGER.error(
@@ -144,7 +144,7 @@ LOGGER.info("Command Line Arguments:\n%s" % pprint.pformat(vars(args)))
 LOGGER.info("slurmParametersPathProx:\n%s" % pprint.pformat(slurmParametersPathProx))
 LOGGER.info("slurmParametersUDNSequence:\n%s" % pprint.pformat(slurmParametersUDNSequence))
 LOGGER.info("slurmParametersDDGMonomer:\n%s" % pprint.pformat(slurmParametersDDGMonomer))
-LOGGER.info("slurmParametersMakeGeneDictionaries:\n%s" % pprint.pformat(slurmParametersMakeGeneDictionaries))
+LOGGER.info("slurmParametersDigenicAnalysis:\n%s" % pprint.pformat(slurmParametersDigenicAnalysis))
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
@@ -256,7 +256,7 @@ def launch_one_mutation(workplan):
     launch_strings['PathProx'] = []
     launch_strings['ddG_monomer'] = []
     launch_strings['SequenceAnnotation'] = []
-    launch_strings['MakeGeneDictionaries'] = []
+    launch_strings['DigenicAnalysis'] = []
 
     # Prepare a ddg repository object for each variant we are running
     # ddg monomer on
@@ -307,7 +307,7 @@ def launch_one_mutation(workplan):
             # out of same .slurm file
             if "PP_" in row['flavor']:
                 launch_strings['PathProx'].append(uniquekey_launchstring)
-            elif row['flavor'] in launch_strings:  # Great for ddG, SequenceAnnocation, MakeGeneDicts
+            elif row['flavor'] in launch_strings:  # Great for ddG, SequenceAnnocation, DigenicAnalysis
                 launch_strings[row['flavor']].append(uniquekey_launchstring)
             else:
                 print("I don't know this job flavor: ", row['flavor'])
@@ -354,11 +354,11 @@ def launch_one_mutation(workplan):
             arrayids[row['uniquekey']] = prior_success['arrayid'] if ('arrayid' in prior_success) else 0
             exitcodes[row['uniquekey']] = prior_success['ExitCode']
 
-    for subdir in ['PathProx', 'ddG_monomer', 'SequenceAnnotation', 'MakeGeneDictionaries']:
+    for subdir in ['PathProx', 'ddG_monomer', 'SequenceAnnotation', 'DigenicAnalysis']:
         if len(launch_strings[subdir]) == 0:
             # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
-            if (gene == 'casewide' and subdir == 'MakeGeneDictionaries') or (
-                    gene != 'casewide' and subdir != 'MakeGeneDictionaries'):
+            if (gene == 'casewide' and subdir == 'DigenicAnalysis') or (
+                    gene != 'casewide' and subdir != 'DigenicAnalysis'):
                 LOGGER.info("No %s jobs will be run for %s %s %s" % (subdir, gene, refseq, mutation))
         else:
             slurm_directory = build_slurm_dir(subdir)
@@ -376,7 +376,7 @@ def launch_one_mutation(workplan):
 
             with open(slurm_file, 'w') as slurmf:
                 slurmf.write("""\
-#!/bin/sh
+#!/bin/bash
 #
 # Project        : PSB Pipeline
 # Filename       : %s
@@ -400,8 +400,8 @@ def launch_one_mutation(workplan):
                     slurmDict = dict(slurmParametersDDGMonomer)
                 elif subdir == "SequenceAnnotation":
                     slurmDict = dict(slurmParametersUDNSequence)
-                elif subdir == "MakeGeneDictionaries":
-                    slurmDict = dict(slurmParametersMakeGeneDictionaries)
+                elif subdir == "DigenicAnalysis":
+                    slurmDict = dict(slurmParametersDigenicAnalysis)
                 else:
                     print("I don't know what flavor(subdir) is: ", subdir)
                     sys.exit(1)
