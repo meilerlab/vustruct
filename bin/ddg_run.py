@@ -52,8 +52,9 @@ from psb_shared.ddg_monomer import DDG_monomer
 from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
-from lib import PDBMapModbase2016
-from lib import PDBMapModbase2013
+from lib import PDBMapModbase2020
+# from lib import PDBMapModbase2016
+# from lib import PDBMapModbase2013
 
 RESOLUTION_QUALITY_MAX=2.5  # Only structures with resolution < 2.5 are routed to the more rigid rosetta "high quality" algorithm
 
@@ -137,10 +138,12 @@ if not args.UDNoutdir:
 
 required_config_items = [
     "pdb_dir",
-    "modbase2013_dir",
-    "modbase2013_summary",
-    "modbase2016_dir",
-    "modbase2016_summary",
+    "modbase2020_dir",
+    "modbase2020_summary",
+    # "modbase2013_dir",
+    # "modbase2013_summary",
+    # "modbase2016_dir",
+    # "modbase2016_summary",
     "swiss_dir",
     "swiss_summary"]
 
@@ -188,7 +191,7 @@ LOGGER.addHandler(logger_fh)
 if need_roll:
     logger_fh.doRollover()
 
-LOGGER.info("Job status directory: %s" % ddg_repo.psb_status_manager)
+LOGGER.info("Job status directory: %s" % ddg_repo.psb_status_manager.status_dir)
 
 def test_completed_earlier():
     complete_timestamp = ddg_repo.psb_status_manager.complete_file_present
@@ -230,7 +233,7 @@ else:
     with tempfile.NamedTemporaryFile(delete=False,dir=ddg_structure_dir,mode="w") as cleaned_structure_temp:
         pdbio.set_structure(cleaned_structure)
         cleaned_structure_temp_filename = cleaned_structure_temp.name
-        pdbio.save(cleaned_structure_temp_filename , write_end=True, preserve_atom_numbering=True)
+        pdbio.save(cleaned_structure_temp_filename , write_end=True, preserve_atom_numbering=False)
 
     # Save the cleaned structure in the repository
     ddg_repo.mv_cleaned_structure_in(cleaned_structure_temp_filename)

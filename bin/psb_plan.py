@@ -39,6 +39,7 @@ import grp
 import stat
 import pwd
 import gzip
+import lzma
 import logging
 import datetime
 
@@ -79,8 +80,9 @@ from glob import glob
 from lib import PDBMapSIFTSdb
 from lib import PDBMapProtein
 from lib import PDBMapSwiss
-from lib import PDBMapModbase2016
-from lib import PDBMapModbase2013
+# from lib import PDBMapModbase2016
+# from lib import PDBMapModbase2013
+from lib import PDBMapModbase2020
 from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
 from lib.PDBMapTranscriptEnsembl import PDBMapTranscriptEnsembl
 from lib.PDBMapAlignment import PDBMapAlignment
@@ -124,10 +126,12 @@ required_config_items = ["dbhost","dbname","dbuser","dbpass",
   "interpro_dir",
   "pdb_dir",
   "sec2prim",
-  "modbase2013_dir",
-  "modbase2013_summary",
-  "modbase2016_dir",
-  "modbase2016_summary",
+  # "modbase2013_dir",
+  # "modbase2013_summary",
+  # "modbase2016_dir",
+  # "modbase2016_summary",
+  "modbase2020_dir",
+  "modbase2020_summary",
   "output_rootdir",
   "swiss_dir",
   "swiss_summary"]
@@ -356,7 +360,7 @@ def get_pdb_pos(*args):
 
   return df["chain_seqid"].values[0]
 
-def makejob(flavor,command,params,options,cwd=os.getcwd()):
+def makejob(flavor,command,params,options: str,cwd=os.getcwd()):
     job = {}
     job['flavor'] = flavor
     job['config'] = args.config
@@ -385,7 +389,7 @@ def makejob(flavor,command,params,options,cwd=os.getcwd()):
     if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
         job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
         job['outdir'] = params['mutation_dir']
-    elif "MakeGeneDictionaries" in flavor and job['pdbid'] == 'N/A':
+    elif "DigenicAnalysis" in flavor and job['pdbid'] == 'N/A':
         job['uniquekey'] = job['flavor']
         job['outdir'] = params['mutation_dir']
     else: # Most output directories have pdbid and chain suffixes
@@ -797,80 +801,104 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             ci.mers = ci.mers_string(ci.biounit_chains)
             ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
 
+    ################################################
+    # Load relevant modbase models for consideration # 
+    ################################################
+    def chain_info_from_modbase_summary(modbase,modbase_summary) -> ChainInfo:
+        """Because we may want to support not only modbase current models, but also older ones
+        It is desirable to centralize processing of the models for all 3 class types"""
+   
+        ci = ChainInfo('modbase')
+        modbase_modelid = modbase_summary['database_id'] # This is the ENSP.... model filename
+        ci.struct_filename= modbase.get_coord_file(modbase_modelid)
+
+        if not os.path.exists(ci.struct_filename):
+            LOGGER.critical("Modbase model %s in meta data not found at %s",modbase_modelid,ci.struct_filename)
+            return None
+        ci.structure_id = modbase_modelid
+        # URL per Alex at Sali lab - thanks!
+        # This method (column model_id) not available for modbase 2013
+        if "model_id" in modbase_summary:
+            ci.structure_url = "https://salilab.org/modbase/searchbyid?modelID=%s&displaymode=moddetail"%modbase_summary['model_id']
+        ci.template_identity = float(modbase_summary['sequence identity'])
+
+        ci.biounit = False
+        ci.pdb_template = modbase_summary['pdb_code']
+
+        if mutation:
+            ci.trans_mut_pos = int(mutation[1:-1])
+        else:
+            ci.trans_mut_pos = None
+
+        ci.method = None
+
+        LOGGER.info("Opening Modbase Model File %s"%ci.struct_filename)
+        if ci.struct_filename.endswith(".gz"):
+            modbase_structure_fin = gzip.open(ci.struct_filename,'rt')
+        elif ci.struct_filename.endswith(".xz"):
+            modbase_structure_fin = lzma.open(ci.struct_filename,'rt')
+        elif ci.struct_filename.endswith(".pdb"):
+            modbase_structure_fin = open(ci.struct_filename,'rt')
+        else:
+            sys.exit("Modbase model has unrecognized file extension %s"%ci.struct_filename)
+        modbase_structure = PDBParser().get_structure(ci.structure_id,modbase_structure_fin)
+        modbase_structure_fin.close()
+        modbase_structure_fin = None
+        # Modbase models do not enclode chain IDs to match template - so just grab what we have
+        # I.e. get_chains() is an iterator, and we want to first element that comes back
+        # without setting up a for loop - so next() is perfect
+        modbase_chainid = next(modbase_structure[0].get_chains()).get_id()
+        if modbase_chainid in [' ','']:
+            modbase_structure[0][modbase_chainid].id= 'A'
+            ci.chain_id = 'A'
+        else:
+            ci.chain_id = modbase_chainid
+        
+        # Modbase super-annoying because the chain_id is often missing
+        ci.nresidues = len(list(modbase_structure[0][ci.chain_id].get_residues()))
+        ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
+        ci.mers = ci.mers_string(ci.biounit_chains)
+        alignment = PDBMapAlignment(modbase_structure,ci.chain_id,None,'trivial')
+        success,errormsg = alignment.align_trivial(transcript,modbase_structure,ci.chain_id)
+        if not success:
+            LOGGER.critical("Modbase Model %s fails to align to transcript - skipping.  Error:\n%s",
+                ci.structure_id,errormsg)
+            return None
+        ci.method = 'modbase'
+        ci.set_alignment_profile(alignment,modbase_structure)
+        return ci
+
+    modbase_2020 = PDBMapModbase2020(config_dict)
+    modbase_summary_rows = modbase_2020.transcript2summary_rows(transcript)
+    for modbase_summary in modbase_summary_rows:
+        ci = chain_info_from_modbase_summary(modbase_2020,modbase_summary)
+        if ci is not None:
+            ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+        
     ################################################################
     # Load relevant Modbase2016  AND Modbase2013 for consideration # 
     ################################################################
-    ensp_proteins = PDBMapProtein.unp2ensp(unp)
-    enst_transcripts = PDBMapProtein.unp2enst(unp)
-    if ensp_proteins:
-        for enst_transcript in [PDBMapTranscriptEnsembl(enst_id) for enst_id in enst_transcripts]:
-            if enst_transcript.aa_seq == transcript.aa_seq:
-                break
-            LOGGER.critical("Ensembl transcript for %s does not match Uniprot transcript sequence for %s:\nENST:%s\nUniprot:%s",
-                 enst_transcript.id,transcript.id,enst_transcript.aa_seq,transcript.aa_seq)
-            LOGGER.critical("No Ensembl models will be considered for %s",enst_transcript.id)
-        else:
-            enst_transcript = None # We looped through and no transcript had aa_seq like
-        # for modbase_class in [PDBMapModbase16, PDBMapModbase13]
-        for modbase in [PDBMapModbase2016(config_dict), PDBMapModbase2013(config_dict)] if enst_transcript else []:
-            for ensp_protein in ensp_proteins:
-                modbase_modelids = modbase.ensp2modelids(ensp_protein)
-                for modbase_modelid in modbase_modelids:
-                    info = modbase.get_info(modbase_modelid)
-                    ci = ChainInfo('modbase')
-                    ci.struct_filename= modbase.get_coord_file(modbase_modelid)
-            
-                    if not os.path.exists(ci.struct_filename):
-                        LOGGER.critical("Modbase model %s in meta data not found at %s",modbase_modelid,ci.struct_filename)
-                        continue
-                    ci.structure_id = modbase_modelid
-                    # URL per Alex at Sali lab - thanks!
-                    # This method (column model_id) not available for modbase 2013
-                    if "model_id" in info:
-                        ci.structure_url = "https://salilab.org/modbase/searchbyid?modelID=%s&displaymode=moddetai"%info['model_id']
-                    ci.template_identity = float(info['sequence identity'])
 
-                    ci.biounit = False
-                    ci.pdb_template = info['pdb_code']
-
-                    if mutation:
-                        ci.trans_mut_pos = int(mutation[1:-1])
-                    else:
-                        ci.trans_mut_pos = None
-
-                    ci.method = None
-
-                    LOGGER.info("Opening Modbase Model File %s"%ci.struct_filename)
-                    if ci.struct_filename.endswith(".gz"):
-                        modbase_structure_fin = gzip.open(ci.struct_filename,'rt')
-                    else:
-                        modbase_structure_fin = open(ci.struct_filename,'rt')
-                    modbase_structure = PDBParser().get_structure(ci.structure_id,modbase_structure_fin)
-                    modbase_structure_fin.close()
-                    # Modbase models do not enclode chain IDs to match template - so just grab what we have
-                    # I.e. get_chains() is an iterator, and we want to first element that comes back
-                    # without setting up a for loop - so next() is perfect
-                    modbase_chainid = next(modbase_structure[0].get_chains()).get_id()
-                    if modbase_chainid in [' ','']:
-                        modbase_structure[0][modbase_chainid].id= 'A'
-                        ci.chain_id = 'A'
-                    else:
-                        ci.chain_id = modbase_chainid
-                    
-                    # Modbase super-annoying because the chain_id is often missing
-                    ci.nresidues = len(list(modbase_structure[0][ci.chain_id].get_residues()))
-                    ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
-                    ci.mers = ci.mers_string(ci.biounit_chains)
-                    alignment = PDBMapAlignment(modbase_structure,ci.chain_id,None,'trivial')
-                    success,errormsg = alignment.align_trivial(transcript,modbase_structure,ci.chain_id)
-                    if not success:
-                        LOGGER.critical("Modbase Model %s fails to align to transcript - skipping.  Error:\n%s",
-                            ci.structure_id,errormsg)
-                        continue
-                    ci.method = 'modbase'
-                    ci.set_alignment_profile(alignment,modbase_structure)
-
-                    ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+    # ensp_proteins = PDBMapProtein.unp2ensp(unp)
+    # enst_transcripts = PDBMapProtein.unp2enst(unp)
+    # if ensp_proteins:
+    #    for enst_transcript in [PDBMapTranscriptEnsembl(enst_id) for enst_id in enst_transcripts]:
+    #        if enst_transcript.aa_seq == transcript.aa_seq:
+    #            break
+    #        LOGGER.critical("Ensembl transcript for %s does not match Uniprot transcript sequence for %s:\nENST:%s\nUniprot:%s",
+    #             enst_transcript.id,transcript.id,enst_transcript.aa_seq,transcript.aa_seq)
+    #        LOGGER.critical("No Ensembl models will be considered for %s",enst_transcript.id)
+    #    else:
+    #        enst_transcript = None # We looped through and no transcript had aa_seq like
+    #    # for modbase_class in [PDBMapModbase16, PDBMapModbase13]
+    #    for modbase in [PDBMapModbase2016(config_dict), PDBMapModbase2013(config_dict)] if enst_transcript else []:
+    #        for ensp_protein in ensp_proteins:
+    #            modbase_modelids = modbase.ensp2modelids(ensp_protein)
+    #            for modbase_modelid in modbase_modelids:
+    #                info = modbase.get_info(modbase_modelid)
+    #                ci = chain_info_from_modbase_info(info)
+    #                if ci is not None:
+    #                    ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
         
     LOGGER.info("%d modbase swiss identified."%len(ci_modbase_swiss_df))
 
@@ -1512,12 +1540,14 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     LOGGER.removeHandler(local_fh)
     return df_all_jobs,workplan_filename,ci_df,df_dropped,log_filename
     
-def makejob_MakeGeneDictionaries(params):
+def makejob_DigenicAnalysis(params,options:str):
     # Secondary structure prediction and sequence annotation
-    return makejob("MakeGeneDictionaries","psb_genedicts.py",params,   #command
-          ("--config %(config)s --userconfig %(userconfig)s %(project)s")%params)
+    return makejob("DigenicAnalysis", # Flavor
+        "python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/get_digenic_metrics.py", # Command
+        params, # Parameters for dataframe
+        options) # Command line options
 
-def plan_casewide_work():
+def plan_casewide_work(original_case_xlsx_file):
     # Use the global database connection
     global args
     global io
@@ -1560,13 +1590,17 @@ def plan_casewide_work():
                         "pdbid":"N/A",
                         "chain":"N/A",
                         "mers":"N/A",
-                        "gene":casewideString,"refseq":"N/A","unp":"N/A",'mutation_dir':casewide_dir,
+                        "gene":casewideString,"refseq":"N/A","unp":"N/A",'mutation_dir':os.path.join(casewide_dir,"DigenicAnalysis"),
                         "mutation":"N/A",
                         "transcript_mutation":"N/A",
                         "pdb_mutation":"N/A"}
+
+
+    digenic_options = "-e %s"%original_case_xlsx_file
     
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-    df_all_jobs = df_all_jobs.append(makejob_MakeGeneDictionaries(params),ignore_index=True)
+    df_all_jobs = df_all_jobs.append(makejob_DigenicAnalysis(params,digenic_options),ignore_index=True)
+
     df_all_jobs.set_index('uniquekey',inplace=True);
     df_all_jobs.sort_index().to_csv(workplan_filename,sep='\t')
     LOGGER.info("Workplan written to %s"%workplan_filename)
@@ -1590,19 +1624,19 @@ if oneMutationOnly:
     print("%3d structures/models were considered, but dropped."%len(df_dropped))
     print("Full details in %s",log_filename)
 else:
-    phenotypes_filename = os.path.join(collaboration_dir,"Phenotypes","%s_phenotypes.txt"%args.project)
+    original_case_xlsx_file = os.path.join(collaboration_dir,"%s.xlsx"%args.project)
 
     # The exception to the rule is/are the case-wide jobs that the pipeline launches.
-    if not os.path.exists(phenotypes_filename):
-        LOGGER.critical("File %s was not created from the UDN report."%phenotypes_filename)
-        LOGGER.critical("Thus, psb_genedicts.py will NOT be part of the planned work")
-    else:
-        df_all_jobs,workplan_filename,log_filename = plan_casewide_work()
+    # if not os.path.exists(phenotypes_filename):
+    #     LOGGER.critical("File %s was not created from the UDN report."%phenotypes_filename)
+    #     LOGGER.critical("Thus, psb_genedicts.py will NOT be part of the planned work")
+    # else:
+    df_all_jobs,workplan_filename,log_filename = plan_casewide_work(original_case_xlsx_file)
 
-        fulldir, filename = os.path.split(log_filename)
-        fulldir, casewide_dir = os.path.split(fulldir)
-        fulldir, project_dir = os.path.split(fulldir)
-        print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
+    fulldir, filename = os.path.split(log_filename)
+    fulldir, casewide_dir = os.path.split(fulldir)
+    fulldir, project_dir = os.path.split(fulldir)
+    print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
 
     # Now plan the per-mutation jobs
     udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
@@ -1662,6 +1696,6 @@ else:
     LOGGER.info("%s",final_structure_info_table)
 
     # It is so easy to forget to create this phenotypes file - so remind user again!
-    if not os.path.exists(phenotypes_filename):
-        LOGGER.critical("Reminder: File %s was not created from the UDN report."%phenotypes_filename)
-        LOGGER.critical("          Thus, psb_genedicts.py will NOT be part of the planned casewide work")
+    # if not os.path.exists(phenotypes_filename):
+    #     LOGGER.critical("Reminder: File %s was not created from the UDN report."%phenotypes_filename)
+    #     LOGGER.critical("          Thus, psb_genedicts.py will NOT be part of the planned casewide work")

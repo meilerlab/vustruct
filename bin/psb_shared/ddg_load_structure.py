@@ -7,6 +7,7 @@ to the Rosetta ready structure, if not already available.  Place all that in one
 import os
 import datetime
 import gzip
+import lzma
 import logging
 import warnings
 
@@ -22,8 +23,9 @@ from psb_shared.ddg_monomer import DDG_monomer
 from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
-from lib import PDBMapModbase2016
-from lib import PDBMapModbase2013
+from lib import PDBMapModbase2020
+# from lib import PDBMapModbase2016
+# from lib import PDBMapModbase2013
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,8 +46,9 @@ def ddg_load_structure(args, config_dict):
     # We need to load the structure, clean it, and save the xref
 
     def _load_structure_file(id, coord_filename):
-        with gzip.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "gz" else open(coord_filename,
-                                                                                                'r') as fin:
+        with gzip.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "gz" else \
+          lzma.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "xz" else \
+          open(coord_filename,'r') as fin:
             warnings.filterwarnings('ignore', category=PDBConstructionWarning)
             structure = PDBParser().get_structure(id, fin)
             warnings.resetwarnings()
@@ -124,26 +127,44 @@ def ddg_load_structure(args, config_dict):
 
         structure_info_dict['method'] = remark3_metrics['mthd']
         structure_info_dict['template_identity'] = float(remark3_metrics['sid'])
-    elif args.modbase:  # This is a ENSP.... modbase file.  Could be either Modbase13 or 16 - so look in both places
+    elif args.modbase:  # This is a ENSP.... modbase file.  Only supporting modbase 2020 for time being
         structure_id = args.modbase.lower()
         original_structure_type = 'pdb'
-        modbase16 = PDBMapModbase2016(config_dict)
-        original_structure_filename = modbase16.get_coord_file(args.modbase)
+        modbase20 = PDBMapModbase2020(config_dict)
+        original_structure_filename = modbase20.get_coord_file(args.modbase)
         if os.path.exists(original_structure_filename):
             structure = _load_structure_file(args.modbase, original_structure_filename)
         else:
-            modbase13 = PDBMapModbase2013(config_dict)
-            original_structure_filename = modbase13.get_coord_file(args.modbase)
-            if os.path.exists(original_structure_filename):
-                structure = _load_structure_file(args.modbase, original_structure_filename)
-            else:
-                raise LoadStructureError(
-                    "Modbase model id %s not found in modbase2013/2016 directories" % \
-                    args.modbase)
+            raise LoadStructureError(
+                  "Modbase model id %s not found in modbase2020 directory" % \
+                  args.modbase)
+        # modbase16 = PDBMapModbase2016(config_dict)
+        # original_structure_filename = modbase16.get_coord_file(args.modbase)
+        # if os.path.exists(original_structure_filename):
+        #    structure = _load_structure_file(args.modbase, original_structure_filename)
+        # else:
+        #     modbase13 = PDBMapModbase2013(config_dict)
+        #     original_structure_filename = modbase13.get_coord_file(args.modbase)
+        #     if os.path.exists(original_structure_filename):
+        #         structure = _load_structure_file(args.modbase, original_structure_filename)
+        #     else:
+        #         raise LoadStructureError(
+        #             "Modbase model id %s not found in modbase2013/2016 directories" % \
+        #            args.modbase)
 
         if not DDG_monomer.evaluate_modbase(original_structure_filename):
             raise LoadStructureError(
                 "Terminating as %s of insufficient quality for ddg monomer" % args.modbase)
+    else:
+        assert args.usermodel is not None
+        structure_id = args.usermodel.lower()
+        original_structure_type = 'pdb'
+        original_structure_filename = args.usermodel
+        if os.path.exists(original_structure_filename):
+            structure = _load_structure_file(args.modbase, original_structure_filename)
+        else:
+            raise LoadStructureError(
+                  "UserModel %s not found" % original_structure_filename)
 
     if not os.path.exists(original_structure_filename):
         exit_str = "%s: No structure file %s" % (structure_id, original_structure_filename)
@@ -155,6 +176,8 @@ def ddg_load_structure(args, config_dict):
     structure_fin = None
     if original_structure_filename.endswith(".gz"):
         structure_fin = gzip.open(original_structure_filename, 'rt')
+    elif original_structure_filename.endswith(".xz"):
+        structure_fin = lzma.open(original_structure_filename, 'rt')
     else:
         structure_fin = open(original_structure_filename, 'rt')
 

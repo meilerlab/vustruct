@@ -25,6 +25,7 @@ import os
 import shutil
 import logging
 import gzip
+import lzma
 import csv
 import platform
 import grp
@@ -70,6 +71,10 @@ from lib.PDBMapAlignment import sifts_best_unps
 
 # BioPython routines to deal with pdb files
 from Bio import PDB 
+from Bio.PDB import PDBParser
+from Bio.PDB.PDBIO import PDBIO
+from Bio.PDB import MMCIFParser
+from Bio.PDB.mmcifio import MMCIFIO
 from Bio import *
 
 if __name__ == "__main__":
@@ -107,7 +112,7 @@ if __name__ == "__main__":
     group.add_argument('--biounit',type=str,
          help="4 character PDB ID with optional .chain suffix")
     group.add_argument('--modbase',type=str,
-         help="Modbase 13 or Modbase 16 model ID with optional .chain suffix")
+         help="Modbase 20 model ID with optional .chain suffix")
     group.add_argument('--swiss',type=str,
          help="Swissmodel ID with optional .chain suffix")
     group.add_argument('--usermodel',type=str,metavar='FILE',
@@ -200,8 +205,9 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
 # PDBMap
 from lib import PDBMapSwiss
-from lib import PDBMapModbase2013
-from lib import PDBMapModbase2016
+from lib import PDBMapModbase2020
+# from lib import PDBMapModbase2013
+# from lib import PDBMapModbase2016
 from lib import PDBMapProtein
 # from lib.amino_acids import longer_names
 
@@ -232,7 +238,9 @@ def makedirs_capra_lab(DEST_PATH, module_name):
     set_capra_group_sticky(DEST_PATH)
 
 def load_structure(id,coord_filename):
-    with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else open(coord_filename,'r') as fin:
+    with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else \
+         lzma.open(coord_filename,'rt') if coord_filename.split('.')[-1]=='xz' else \
+             open(coord_filename,'r') as fin:
         filterwarnings('ignore',category=PDBConstructionWarning)
         structure = PDBParser().get_structure(id,fin)
         resetwarnings()
@@ -246,12 +254,23 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
     is_biounit = 0
     structure = None
     if try_biounit_first:
-        coord_filename = os.path.join(config_dict['pdb_dir'],"biounit","PDB","divided",pdb_id.lower()[1:3],"%s.pdb1.gz"%pdb_id.lower())
-        try:
-            structure = load_structure(pdb_id,coord_filename)
-            is_biounit = 1
-        except:
-            LOGGER.info("The biounit file %s was not found.  Attempting normal pdb"%os.path.basename(coord_filename))
+        coord_filename = os.path.join(config_dict['pdb_dir'],"biounit","mmCIF","divided",pdb_id.lower()[1:3],"%s-assembly1.cif.gz"%pdb_id.lower())
+        if os.path.exists(coord_filename): # Great we will load the biounit from mmCIF file
+            try:
+                mmCIF_parser = MMCIFParser(QUIET=True)
+                LOGGER.debug("Loading %s",coord_filename)
+                structure_fin = gzip.open(coord_filename,'rt')
+                structure =  mmCIF_parser.get_structure(pdb_id.lower(),structure_fin)
+                is_biounit = 1
+            except:
+                LOGGER.info("The biounit file %s was not found.  Attempting non-biounit pdb"%os.path.basename(coord_filename))
+        else:  # Typically, we load a biounit from PDB file - but good to have tried CIF first
+            coord_filename = os.path.join(config_dict['pdb_dir'],"biounit","PDB","divided",pdb_id.lower()[1:3],"%s.pdb1.gz"%pdb_id.lower())
+            try:
+                structure = load_structure(pdb_id,coord_filename)
+                is_biounit = 1
+            except:
+                LOGGER.info("The biounit file %s was not found.  Attempting normal pdb"%os.path.basename(coord_filename))
   
     if not structure: 
         coord_filename = os.path.join(config_dict['pdb_dir'],"structures","divided","pdb",pdb_id.lower()[1:3],"pdb%s.ent.gz"%pdb_id.lower())
@@ -285,7 +304,6 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
             if is_canonical:
                 (success,message) = alignment.align_sifts_canonical(best_unp_transcript,structure,chain_id=chain_letter)
             if not success: 
-                from Bio.PDB import MMCIFParser
                 mmCIF_parser = MMCIFParser(QUIET=True)
                 mmcif_structure_filename = os.path.join(config_dict['pdb_dir'],'structures','divided','mmCIF',pdb_id.lower()[1:3],"%s.cif.gz"%pdb_id)
                 if os.path.exists(mmcif_structure_filename):
@@ -348,24 +366,24 @@ def structure_lookup(io,sid,bio=True,chain=None):
       raise Exception(msg)
     return [(sid,0,f)]
 
-def model_lookup(io,mid):
-  """ Returns coordinate files for a ModBase ID """
-  PDBMapModel.load_modbase(config_dict['modbase2016_dir'],config_dict['modbase2016_summary'])
-  PDBMapModel.load_modbase(config_dict['modbase2013_dir'],config_dict['modbase2013_summary'])
-  f = PDBMapModel.get_coord_file(mid.upper())
-  LOGGER.info("File location for %s: %s"%(mid.upper(),f))
-  #f = "%s/Homo_sapiens_2016/model/%s.pdb.gz"%(args.modbase_dir,mid.upper())
-  if not os.path.exists(f):
-    try:
-      cmd = ["xz","-d",'.'.join(f.split('.')[:-1])+'.xz']
-      sp.check_call(cmd)
-    except:
-      msg  = "Coordinate file missing for %s\n"%mid
-      msg += "Expected: %s\n"%f
-      raise Exception(msg)
-    cmd = ["gzip",'.'.join(f.split('.')[:-1])]
-    sp.check_call(cmd)
-  return [(mid,0,f)]
+#def model_lookup(io,mid):
+#  """ Returns coordinate files for a ModBase ID """
+#  PDBMapModel.load_modbase(config_dict['modbase2016_dir'],config_dict['modbase2016_summary'])
+#  PDBMapModel.load_modbase(config_dict['modbase2013_dir'],config_dict['modbase2013_summary'])
+#  f = PDBMapModel.get_coord_file(mid.upper())
+#  LOGGER.info("File location for %s: %s"%(mid.upper(),f))
+#  #f = "%s/Homo_sapiens_2016/model/%s.pdb.gz"%(args.modbase_dir,mid.upper())
+#  if not os.path.exists(f):
+#    try:
+#      cmd = ["xz","-d",'.'.join(f.split('.')[:-1])+'.xz']
+#      sp.check_call(cmd)
+#    except:
+#      msg  = "Coordinate file missing for %s\n"%mid
+#      msg += "Expected: %s\n"%f
+#      raise Exception(msg)
+#    cmd = ["gzip",'.'.join(f.split('.')[:-1])]
+#    sp.check_call(cmd)
+#  return [(mid,0,f)]
 
 def swiss_lookup(io,model_id):
   """ Returns coordinate files for a Swiss ID """
@@ -379,22 +397,22 @@ def swiss_lookup(io,model_id):
     raise Exception(msg)
   return [(model_id,0,f)]
 
-def uniprot_lookup(io,ac):
-  """ Returns coordinate files for a UniProt AC """
-  entities = io.load_unp(ac)
-  if not entities:
-    msg = "No structures or models associated with %s\n"%ac
-    LOGGER.warning(msg)
-    return None
-  flist = []
-  for etype,ac in entities:
-    if etype == "structure":
-      flist.extend(structure_lookup(io,ac))
-    elif etype == "model":
-      flist.extend(model_lookup(io,ac))
-    elif etype == "swiss":
-      flist.extend(swiss_lookup(io,ac))
-  return flist
+#def uniprot_lookup(io,ac):
+#  """ Returns coordinate files for a UniProt AC """
+#  entities = io.load_unp(ac)
+#  if not entities:
+#    msg = "No structures or models associated with %s\n"%ac
+#    LOGGER.warning(msg)
+#    return None
+#  flist = []
+#  for etype,ac in entities:
+#    if etype == "structure":
+#      flist.extend(structure_lookup(io,ac))
+#    elif etype == "model":
+#      flist.extend(model_lookup(io,ac))
+#    elif etype == "swiss":
+#      flist.extend(swiss_lookup(io,ac))
+#  return flist
 
 def structure_renumber_per_alignments(structure):
     from Bio.PDB.Structure import Structure
@@ -1969,10 +1987,12 @@ if __name__ == "__main__":
       "collaboration",
       "idmapping",
       "interpro_dir",
-      "modbase2013_dir",
-      "modbase2013_summary",
-      "modbase2016_dir",
-      "modbase2016_summary",
+      "modbase2020_dir",
+      "modbase2020_summary",
+      # "modbase2013_dir",
+      # "modbase2013_summary",
+      # "modbase2016_dir",
+      # "modbase2016_summary",
       "output_rootdir",
       "sprot",
       "swiss_dir",
@@ -2029,9 +2049,11 @@ if __name__ == "__main__":
     # if the user has any transcript->chain assignments, parse them from command line
     chain_to_transcript = {}
     transcript_parser = argparse.ArgumentParser()
-    chain_X_unp_re = re.compile('^--chain(.)unp=(.*)$')
-    chain_X_enst_re = re.compile('^--chain(.)enst=(.*)$')
-    chain_X_fasta_re = re.compile('^--chain(.)fasta=(.*)$')
+    # Chain letters are usually just one letter - but can be two
+    # So allow for up to three
+    chain_X_unp_re = re.compile('^--chain(.{1,3})unp=(.*)$')
+    chain_X_enst_re = re.compile('^--chain(.{1,3})enst=(.*)$')
+    chain_X_fasta_re = re.compile('^--chain(.{1,3})fasta=(.*)$')
     transcript = None
     for arg in args_remaining:
         re_match =  chain_X_unp_re.match(arg)
@@ -2116,18 +2138,26 @@ if __name__ == "__main__":
                 if first_residue.id[0] == ' ':
                     chain_to_transcript[chain.id] = chain_to_transcript[assigned_chain_id]
             
-    elif args.modbase: # This is a ENSP.... modbase file.  Could be either Modbase13 or 16 - so look in both places
-        modbase16 = PDBMapModbase2016(config_dict)
-        modbase16_structure_filename = modbase16.get_coord_file(args.modbase)
-        if os.path.exists(modbase16_structure_filename):
-            structure = load_structure(args.modbase,modbase16_structure_filename)
+    elif args.modbase: # This is a ENSP.... modbase file.  Currently we look only in modbase20
+        modbase20 = PDBMapModbase2020(config_dict)
+        modbase20_structure_filename = modbase20.get_coord_file(args.modbase)
+        if os.path.exists(modbase20_structure_filename):
+           structure = load_structure(args.modbase,modbase20_structure_filename)
         else:
-            modbase13 = PDBMapModbase2013(config_dict)
-            modbase13_structure_filename = modbase13.get_coord_file(args.modbase)
-            if os.path.exists(modbase13_structure_filename):
-                structure = load_structure(args.modbase,modbase13_structure_filename)
-            else:
-                LOGGER.critical("Modbase model id %s not found in either modbase2013/2016 config directories");
+           msg = "Modbase model %s not found in %s"%(args.modbase,modbase20_structure_Filename)
+           LOGGER.critical(msg)
+           sys.exit(msg)
+        # modbase20 = PDBMapModbase2020(config_dict)
+        # modbase16_structure_filename = modbase16.get_coord_file(args.modbase)
+        # if os.path.exists(modbase16_structure_filename):
+        #    structure = load_structure(args.modbase,modbase16_structure_filename)
+        # else:
+        #    modbase13 = PDBMapModbase2013(config_dict)
+        #    modbase13_structure_filename = modbase13.get_coord_file(args.modbase)
+        #    if os.path.exists(modbase13_structure_filename):
+        #        structure = load_structure(args.modbase,modbase13_structure_filename)
+        #    else:
+        #        LOGGER.critical("Modbase model id %s not found in either modbase2013/2016 config directories");
 
     # Finally - if the chain left has no id, set the id to A for sanity
     for chain in list(structure.get_chains()):
@@ -2637,14 +2667,20 @@ if __name__ == "__main__":
 
     basePDBfilename = "%s_%s_%s"%(args.label,structure.id,is_biounit)
     renumberedPDBfilename = "%s_renum.pdb"%basePDBfilename         
+    renumberedCIFfilename = "%s_renum.cif"%basePDBfilename         
     renumberedPDBfilenameSS = "%s_renumSS.pdb"%basePDBfilename # Renumbered + chimera HELIX/SHEET notations
+    renumberedCIFfilenameSS = "%s_renumSS.cif"%basePDBfilename         
     originalPDBfilename = "%s.pdb"%basePDBfilename
+    originalCIFfilename = "%s.cif"%basePDBfilename
 
     # 
     # Write the renumbered PDB to the output directory
     # 
+    LOGGER.info("Writing renumbered CIF to file %s"%renumberedPDBfilename)
+    cifio = MMCIFIO()
+    cifio.set_structure(renumbered_structure)
+    cifio.save(renumberedCIFfilename)
     LOGGER.info("Writing renumbered PDB to file %s"%renumberedPDBfilename)
-    from Bio.PDB.PDBIO import PDBIO
     pdbio = PDBIO()
     pdbio.set_structure(renumbered_structure)
     pdbio.save(renumberedPDBfilename)
@@ -2675,9 +2711,9 @@ if __name__ == "__main__":
     #
     # Write the original structure to the output directory
     #
-    LOGGER.info("Writing original PDB to file %s"%originalPDBfilename)
-    pdbio.set_structure(structure)
-    pdbio.save(originalPDBfilename)
+    LOGGER.info("Writing original structure to file %s"%originalCIFfilename)
+    cifio.set_structure(structure)
+    cifio.save(originalCIFfilename)
 
     ## Write pathogenic, neutral, candidate, and/or quantiative trait Chimera attribute files
 
@@ -3017,6 +3053,7 @@ if __name__ == "__main__":
 
     # pdb_rep.py will point ngl to the psb with HELIX and SHEET information (Secondary Structure)
     residuesOfInterest['pdbSSfilename'] =  os.path.join(args.outdir,renumberedPDBfilenameSS)
+    residuesOfInterest['cifSSfilename'] =  os.path.join(args.outdir,renumberedCIFfilenameSS)
 
     # write out the various residues in per-chain dictionaries.  psb_rep.py will use these later 
     from collections import defaultdict 
