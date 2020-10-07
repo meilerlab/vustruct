@@ -6,6 +6,7 @@ inside the directory heirarchy supplied by a ddg_repo object
 import os
 import datetime
 import gzip
+import lzma
 import pprint
 import subprocess
 import tempfile
@@ -49,6 +50,16 @@ class DDG_monomer(object):
         self._mutationtext = ",".join(self._mutations)
 
 
+    def _verify_applications_available(self):
+        for application in [
+                self._minimize_application_filename,
+                self._per_residues_application_filename,
+                self._ddg_monomer_application_filename,
+                self._score_jd2_application_filename]:
+            application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
+            assert os.path.exists(application_fullpath), (
+                    "%s is a required application for ddg_monomer, but not found" % application_fullpath)
+
     def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
         :param ddg_repo:
@@ -63,14 +74,6 @@ class DDG_monomer(object):
         self._per_residues_application_filename ='per_residue_energies.linuxgccrelease'
         self._ddg_monomer_application_filename = 'ddg_monomer.linuxgccrelease'
         self._score_jd2_application_filename =   'score_jd2.linuxgccrelease'
-        for application in [
-                self._minimize_application_filename,
-                self._per_residues_application_filename,
-                self._ddg_monomer_application_filename,
-                self._score_jd2_application_filename]:
-            application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
-            assert os.path.exists(application_fullpath), (
-                    "%s is a required application for ddg_monomer, but not found" % application_fullpath)
 
         self._application_timers = ['minimize', 'rescore', 'ddg_monomer']
         self._to_pdb = []
@@ -124,7 +127,7 @@ class DDG_monomer(object):
         qual_threshold = 1.1
 
         LOGGER.info('Checking quality of %s',modbase_fullpath)
-        with gzip.open(modbase_fullpath,'rt') as infile:
+        with lzma.open(modbase_fullpath,'rt') as infile:
             for line in infile:
                 if line.startswith('REMARK 220 SEQUENCE IDENTITY'):
                     try:
@@ -137,9 +140,9 @@ class DDG_monomer(object):
                         modbase_sid = 0.0
                     if modbase_sid>=sid_threshold:
                         sequence_identity_acceptable = True
-                        LOGGER.log("Sequence identity of %0.1f acceptable as less than threshold %0.1f"%(modbase_sid,sid_threshold))
+                        LOGGER.info("Sequence identity of %0.1f acceptable as less than threshold %0.1f",modbase_sid,sid_threshold)
                     else:
-                        LOGGER.warning("Sequence Identity: %0.1f < threshold %0.1f"%(modbase_sid,sid_threshold))
+                        LOGGER.warning("Sequence Identity: %0.1f < threshold %0.1f",modbase_sid,sid_threshold)
 
                 elif line.startswith('REMARK 220 TSVMOD RMSD'):
                     try:
@@ -152,9 +155,9 @@ class DDG_monomer(object):
                         rmsd = 1000.0
                     tsvmod_acceptable = rmsd<=rmsd_threshold
                     if tsvmod_acceptable:
-                        LOGGER.info("TSVMOD RMSD: %0.1f OK ( <= threshold %%0.1f)"%(rmsd,rmsd_threshold))
+                        LOGGER.info("TSVMOD RMSD: %0.1f OK ( <= threshold %0.1f)",rmsd,rmsd_threshold)
                     else:
-                        LOGGER.info("TSVMOD RMSD: %0.1f TOO HIGH, threshold %0.1f"%(rmsd,rmsd_threshold))
+                        LOGGER.info("TSVMOD RMSD: %0.1f TOO HIGH, threshold %0.1f",rmsd,rmsd_threshold)
                 elif line.startswith('REMARK 220 MODPIPE QUALITY SCORE'):
                     try:
                         qual = float(line.strip().split()[5])
@@ -171,7 +174,7 @@ class DDG_monomer(object):
 
         modbase_ok = modpipe_acceptable and tsvmod_acceptable and sequence_identity_acceptable
          
-        LOGGER.log(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, seq identity: %s"%(
+        LOGGER.info(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, seq identity: %s"%(
             str(modpipe_acceptable),str(tsvmod_acceptable),str(sequence_identity_acceptable)))
 
         # DO NOT CHECK THIS IN
@@ -625,6 +628,8 @@ class DDG_monomer(object):
             """
             # 2020-June-28 Chris Moth Command copied from
             # https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
+            self._verify_applications_available()
+
             save_curwd = os.getcwd()
             previous_exit_code = 1
             stderr = ""
@@ -773,6 +778,7 @@ class DDG_monomer(object):
         # Part 2 of 4        Rescore minimized model and get residue per-residue score  (quasi energy)
         #############################################################################################
         def run_part2_rescore():
+            self._verify_applications_available()
             min_residues_filename = 'min_residues.sc'  # Not sure why we'd want timestamp_suffix...
             per_residues_directory = os.path.join(self._ddg_repo.structure_dir,"per_residue_energies")
             save_curwd = os.getcwd()
@@ -867,7 +873,7 @@ class DDG_monomer(object):
                     LOGGER.info("%s already installed by another process."%per_residues_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
-                    returncode, stdout,stderr,raw_scores = load_from_prior_per_residues()
+                    returncode, stdout,stderr,raw_scores = load_from_prior_per_residues_run()
                     assert returncode == 0 
 
 
@@ -899,6 +905,7 @@ class DDG_monomer(object):
 
 
         def run_part3_ddg():
+            self._verify_applications_available()
             # As other steps, don't re-run ddg monomer if we already have run it successfully
             previous_exit_code,stdout,stdin = command_ran_previously(self._ddg_monomer_application_filename)
             ddg_predictions_filename = 'ddg_predictions.out'
@@ -1174,13 +1181,20 @@ class DDG_monomer(object):
     def retrieve_result(self):
         _,_,exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
         save_current_directory = os.getcwd()
-        os.chdir(self._ddg_repo.calculation_dir)
+        try:
+            os.chdir(self._ddg_repo.calculation_dir)
+        except FileNotFoundError:
+            LOGGER.info("No results directory %s",self._ddg_repo.calculation_dir)
+            return None
+
         previous_exit,previous_exit_int = self._get_previous_exit(exitcd_filename)
 
         final_results_fullpath = os.path.join(self._ddg_repo.calculation_dir,self.final_results_filename())
 
         if previous_exit_int == 0:
             final_results_df = pd.read_csv(final_results_fullpath, sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
+            final_results_df['RefAA'] = final_results_df['Mutation'].str[0]
+            final_results_df['AltAA'] = final_results_df['Mutation'].str[-1]
             LOGGER.debug("ddg of %f read from %s"%(final_results_df['ddG'],final_results_fullpath))
         else:
             LOGGER.info("ddg results file %s not found"%(final_results_fullpath))

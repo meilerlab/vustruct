@@ -942,12 +942,19 @@ class DDG_Cleaner(object):
         # If that chain letter is None or blank, convert to chain 'A'
         # for the cleaned structure to work with Rosetta
         # This problem of blank chain IDs mainly in old modbase models
+        first_chain_id_in_structure = next(self._structure[0].get_chains()).id
         if chains_to_retain and chains_to_retain[0] and chains_to_retain[0].strip():
-            cleaned_chain = Chain(chains_to_retain[0])
+            # Sometimes we are taking a double-letter chain from a cryo-em
+            # Since our target is .pdb convert chain jj to simply j
+            cleaned_chain = Chain(chains_to_retain[0][0])
+            # It _could_ be the case that command line is requesting chain A but
+            # this is a modbase with blank chain only - and so we have to work around
+            if (chains_to_retain[0] == 'A') and ('A' not in self._structure[0]):
+                chains_to_retain = [first_chain_id_in_structure]
         else:
             # chains_to_retain = [chain.id for chain in self._structure[0]]
-            chains_to_retain = [next(self._structure[0].get_chains()).id]
             cleaned_chain = Chain('A')
+            chains_to_retain = [first_chain_id_in_structure]
 
 
         for chain_id in chains_to_retain:

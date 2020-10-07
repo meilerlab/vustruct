@@ -177,7 +177,7 @@ class DDG_repo():
         # which is a clean ENSP protein ID, then followed by
         # bits of punctuation.  To avoid directory jam, we
         # use last 3 digits as directory name
-        ensp_id_regex = re.compile('.*(ENSP00+[0-9]+)(.*)')
+        ensp_id_regex = re.compile('[A-Z_]+([0-9]+)(.*)')
         ensp_id_match = ensp_id_regex.match(modbase_id)
 
         assert ensp_id_match,"The modbase_id of %s seems entirely invalid.  Should be ENSP0000123456 and so forth"%modbase_id
