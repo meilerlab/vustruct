@@ -276,7 +276,7 @@ img {
             var disease1Representation = null;
             var disease2Representation = null;
 		      var stage = new NGL.Stage("viewport_{{ structure['unique_div_name'] }}", { backgroundColor : "white" } );
-		      stage.loadFile("{{ structure['pdbSSfilename'] }}").then(function (o) {
+		      stage.loadFile("./{{ structure['pdbSSfilename'] }}").then(function (o) {
 		      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
             // Clearly color any HETATMs floating around
             o.addRepresentation("licorice", { sele: "hetero", color: "element", radius: "0.4" })

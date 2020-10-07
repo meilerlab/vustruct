@@ -147,6 +147,7 @@ if oneMutationOnly:
 else:
   collaboration_absolute_dir = os.path.join(udn_root_directory,args.projectORstructures)
 
+collaboration_absolute_dir = os.path.realpath(collaboration_absolute_dir)
 LOGGER.info("Collaboration_absolute_dir = %s",collaboration_absolute_dir)
 
 collaboration_dir = os.path.relpath(os.getcwd(),collaboration_absolute_dir)
@@ -404,7 +405,7 @@ def report_one_mutation(structure_report,workstatus_filename):
     # for the .html report for each variant, use the direction in which
     # The workstation_filename was retrieved
     # import pdb; pdb.set_trace()
-    variant_report_directory = os.path.abspath(os.path.dirname(workstatus_filename))
+    variant_report_directory = os.path.realpath(os.path.dirname(workstatus_filename))
     
     # project = 'TestJED' # MUST FIX THIS ERROR
     # unp = 'Q9NY15-1' # MUST FIX THIS ERROR
@@ -641,10 +642,14 @@ def report_one_mutation(structure_report,workstatus_filename):
       if os.path.exists(json_filename):
         with open(json_filename) as f:
           residuesOfInterest = json.load(f)
+          # if 'cifSSfilename' in residuesOfInterest:
+          #    cifSSbasename = os.path.basename(residuesOfInterest['cifSSfilename'])
+          #    cifSSdirname = os.path.realpath(os.path.dirname(residuesOfInterest['cifSSfilename']))
+          #    residuesOfInterest['cifSSfilename'] = os.path.join(os.path.relpath(cifSSdirname,variant_report_directory),cifSSbasename)
           if 'pdbSSfilename' in residuesOfInterest:
-            pdbSSbasename = os.path.basename(residuesOfInterest['pdbSSfilename'])
-            pdbSSdirname = os.path.dirname(residuesOfInterest['pdbSSfilename'])
-            residuesOfInterest['pdbSSfilename'] = os.path.join(os.path.relpath(pdbSSdirname,variant_report_directory),pdbSSbasename)
+              pdbSSbasename = os.path.basename(residuesOfInterest['pdbSSfilename'])
+              pdbSSdirname = os.path.realpath(os.path.dirname(residuesOfInterest['pdbSSfilename']))
+              residuesOfInterest['pdbSSfilename'] = os.path.join(os.path.relpath(pdbSSdirname,variant_report_directory),pdbSSbasename)
           LOGGER.info('Loaded %d variants, %d neutrals, %d pathogenic from %s'%(
             len(residuesOfInterest['variants']),
             len(residuesOfInterest['neutrals']),
@@ -654,9 +659,12 @@ def report_one_mutation(structure_report,workstatus_filename):
         # For final .html - we need to be specific regarding type of pathogenic.  We weren't when json file was written
         residuesOfInterest['%s_pathogenics'%disease1_or_disease2] = residuesOfInterest['pathogenics']
         del residuesOfInterest['pathogenics']
+
         structure.update(residuesOfInterest)
 
+        # import pdb; pdb.set_trace()
         website_filelist.append(os.path.join(web_dir,structure['pdbSSfilename']))
+        # website_filelist.append(os.path.join(web_dir,structure['cifSSfilename']))
 
         structure['ngl_variant_residue_count'],structure['ngl_variant_residues'] = residues_to_ngl(residuesOfInterest['variants'])
         structure['ngl_neutral_residue_count'],structure['ngl_neutral_residues'] = residues_to_ngl_CAs(residuesOfInterest['neutrals'])
@@ -1315,7 +1323,34 @@ fi
     else:
       print(msg)
        
-  if mutation_summaries:
+  if mutation_summaries: # Excellent, we have a home page report for many variants
+    # If there are DigenicInteraction .svg files in the right place, integrate them
+    digenic_graphics_types = ['digenic_score_only','digenic_details','sys_bio_details']
+    digenic_graphics_score_only_filename = None
+    found_graphics_files = {}
+    for digenic_graphic_type in digenic_graphics_types:
+      digenic_graphic_filename = os.path.join('casewide','DigenicAnalysis',
+        '%s_all_gene_pairs_%s.svg'%(args.projectORstructures,digenic_graphic_type))
+      
+      if os.path.exists(os.path.join(collaboration_dir,digenic_graphic_filename)):
+        found_graphics_files[digenic_graphic_type] = digenic_graphic_filename
+        website_filelist.append(os.path.join('.',digenic_graphic_filename))
+
+    env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
+    if len(found_graphics_files) == 3:
+      LOGGER.info("Integrating DigenicAnalysis svg graphics")
+      digenic_graphics_score_only_filename = os.path.join('.',found_graphics_files['digenic_score_only'])
+      template   = env.get_template("html/DigenicInteractionsReportTemplate.html")
+      # Probably a goof - but the template file restates the full graphics filenames
+      html_out = template.render({'case': args.projectORstructures})
+      digenic_graphics_html_filename = os.path.join(collaboration_dir,'casewide','DigenicGraphics.html') # The argument is an entire project UDN124356
+      with open(digenic_graphics_html_filename,"w") as f:
+        f.write(html_out)
+      website_filelist.append(digenic_graphics_html_filename)
+    else:
+      LOGGER.warning("Digenic Analysis svg files are missing.  Did you run DigenicAnalysis")
+
+
     # pprint.pformat(mutation_summaries)
     # Grab Souhrids gene interaction information
     geneInteractions_generic,html_table_generic,html_report_generic,text_report_generic = GeneInteractionReport(collaboration_dir,args.projectORstructures,False)
@@ -1328,7 +1363,6 @@ fi
       for mutation_summary in mutation_summaries:
          if mutation_summary['gene'] in geneInteractions_familial:
             mutation_summary['Gene Interactions Familial'] = ' '.join(geneInteractions_familial[mutation_summary['gene']])
-    env        = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
     template   = env.get_template("case_report_template.html")
     # print html_table
     final_gathered_info = {'mutation_summaries': mutation_summaries, 
@@ -1339,7 +1373,8 @@ fi
              'case': args.projectORstructures, 
              "date"  : time.strftime("%Y-%m-%d"),
              'disease1_variant_short_description':  config_pathprox_dict['disease1_variant_short_description'],
-             'disease2_variant_short_description':  config_pathprox_dict['disease2_variant_short_description']
+             'disease2_variant_short_description':  config_pathprox_dict['disease2_variant_short_description'],
+             'digenic_graphics_score_only_filename': digenic_graphics_score_only_filename
              }
     html_out = template.render(final_gathered_info)
     case_summary_filename = os.path.join(collaboration_dir,"%s.html"%args.projectORstructures) # The argument is an entire project UDN124356
@@ -1369,8 +1404,8 @@ fi
     website_filelist_filename = os.path.join(collaboration_dir,"%s_website_files.list"%args.projectORstructures) # The argument is an entire project UDN124356
     with open(website_filelist_filename,"w") as f:
       f.write('\n'.join((os.path.relpath(
-              os.path.abspath(website_file),
-                (os.path.join(config_dict['output_rootdir'],config_dict['collaboration'])))
+              website_file, # os.path.realpath(website_file),
+                (os.path.realpath(os.path.join(config_dict['output_rootdir'],config_dict['collaboration']))))
                   for website_file in website_filelist)))
     LOGGER.info("A filelist for creating a website is in %s",website_filelist_filename)
     website_zip_filename = "%s.zip"%args.projectORstructures
