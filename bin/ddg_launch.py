@@ -268,7 +268,7 @@ def slurm_file_create(residue_id: Tuple[str,int,str], aa: str) -> int:
     slurm_filename = os.path.join(ddg_repo.slurm_dir,"%s_%s.slurm"%(structure_id,pdb_position))
     with open(slurm_filename, 'w') as slurmf:
         slurmf.write("""\
-#!/bin/sh
+#!/bin/bash
 #
 # Project        : ddG Repository
 # Filename       : %s
