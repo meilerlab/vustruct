@@ -1,7 +1,7 @@
 echo "Preparing PDB Pipeline PATH and environment settings"
 echo "This file should only be sourced from a bash or sh shell"
 echo
-genome='GRCh37'
+genome='GRCh38'
 if [[ $0 != $BASH_SOURCE ]]; then
 PIPELINE_ROOT=$(readlink -f `dirname $BASH_SOURCE`)
 echo "Script in $PIPELINE_ROOT was correctly sourced"
