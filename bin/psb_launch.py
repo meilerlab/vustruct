@@ -127,7 +127,7 @@ try:
 except Exception as ex:
     pass
 
-slurm_required_settings = ['mem', 'account', 'ntasks', 'time']
+slurm_required_settings = ['mem', 'ntasks', 'time']
 for slurmSettingsDesc, slurmSettings in [('slurmParametersPathProx', slurmParametersPathProx),
                                          ('slurmParametersDDGMonomer', slurmParametersDDGMonomer),
                                          ('slurmParametersUDNSequence', slurmParametersUDNSequence),
@@ -421,7 +421,7 @@ def launch_one_mutation(workplan):
 
                 for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output',
                                     'array']:
-                    if slurm_field in slurmDict:
+                    if slurm_field in slurmDict and slurmDict[slurm_field]:
                         slurmf.write("#SBATCH --%s=%s\n" % (slurm_field, slurmDict[slurm_field]))
 
                 if jobCount > 1:
