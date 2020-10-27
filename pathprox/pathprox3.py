@@ -259,8 +259,8 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
             try:
                 mmCIF_parser = MMCIFParser(QUIET=True)
                 LOGGER.debug("Loading %s",coord_filename)
-                structure_fin = gzip.open(coord_filename,'rt')
-                structure =  mmCIF_parser.get_structure(pdb_id.lower(),structure_fin)
+                with gzip.open(coord_filename,'rt') as structure_fin:
+                    structure =  mmCIF_parser.get_structure(pdb_id.lower(),structure_fin)
                 is_biounit = 1
             except:
                 LOGGER.info("The biounit file %s was not found.  Attempting non-biounit pdb"%os.path.basename(coord_filename))
@@ -272,8 +272,19 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
             except:
                 LOGGER.info("The biounit file %s was not found.  Attempting normal pdb"%os.path.basename(coord_filename))
   
-    if not structure: 
+    if not structure:  # Always the case if try_biounit_first is false
+        coord_filename = os.path.join(config_dict['pdb_dir'],"structures","divided","mmCIF",pdb_id.lower()[1:3],"%s.cif.gz"%pdb_id.lower())
+        try:
+            mmCIF_parser = MMCIFParser(QUIET=True)
+            LOGGER.debug("Loading %s",coord_filename)
+            with gzip.open(coord_filename,'rt') as structure_fin:
+                structure =  mmCIF_parser.get_structure(pdb_id.lower(),structure_fin)
+        except:
+            LOGGER.info("CIF structure file %s was not found or not loaded."%os.path.basename(coord_filename))
+
+    if not structure:
         coord_filename = os.path.join(config_dict['pdb_dir'],"structures","divided","pdb",pdb_id.lower()[1:3],"pdb%s.ent.gz"%pdb_id.lower())
+        LOGGER.warning("Reverting to .pdb format: %s",coord_Filename)
         structure = load_structure(pdb_id,coord_filename)
         LOGGER.info("Success loading %s",coord_filename)
 
@@ -762,14 +773,19 @@ class PDBMapVariantSet():
             ENST_transcripts_str += transcript.id
             first_one = False
         transcript_in_str += ')'
+
+        # import pdb; pdb.set_trace()
         
         query_str = ("SELECT distinct GC.protein_pos,GC.ref_amino_acid,GC.alt_amino_acid,\n"
                      "GC.chrom as chrom,GC.pos as pos,GC.end as end,GC.id as id,\n"
                      "GC.transcript,GC.allele,GC.ref_codon,GC.alt_codon\n"
                      " FROM GenomicConsequence AS GC\n")
-        if label == 'clinvar':
+        if label == 'clinvar': 
             query_str += "INNER JOIN clinvar on GC.chrom = clinvar.chrom and GC.pos = clinvar.pos\n"
             query_str += "  AND clinvar.clnsig %s ('Likely_pathogenic','Pathogenic','Pathogenic/Likely_pathogenic')" %('NOT IN' if variants_flavor == 'Neutral' else 'IN')
+        elif label == 'clinvar38': 
+            query_str += "INNER JOIN clinvar38 on GC.chrom = clinvar38.chrom and GC.pos = clinvar38.pos\n"
+            query_str += "  AND clinvar38.clnsig %s ('Likely_pathogenic','Pathogenic','Pathogenic/Likely_pathogenic')" %('NOT IN' if variants_flavor == 'Neutral' else 'IN')
         elif label == 'drug':
             query_str += "INNER JOIN clinvar on GC.chrom = clinvar.chrom and GC.pos = clinvar.pos"
             query_str  += " AND clinvar.clnsig like '%drug%'\n"
@@ -777,9 +793,12 @@ class PDBMapVariantSet():
         elif label == 'cosmic': 
             query_str += "INNER JOIN cosmic on GC.chrom = cosmic.chrom and GC.pos = cosmic.pos"
             query_str  += " AND cosmic.cnt > 1\n"  # COSMIC queries only include count > 1
+        elif label == 'cosmic38': 
+            query_str += "INNER JOIN cosmic38 on GC.chrom = cosmic38.chrom and GC.pos = cosmic38.pos"
+            query_str  += " AND cosmic38.cnt > 1\n"  # COSMIC38 queries only include count > 1
         elif label == 'tcga': 
             query_str += "INNER JOIN tcga on GC.chrom = tcga.chrom and GC.pos = tcga.pos"
-        elif label == 'gnomad': 
+        elif label == 'gnomad' or label == 'gnomad38': # or label == 'gnomad38': 
             query_str += "INNER JOIN GenomicData ON GC.label = GenomicData.label AND GC.chrom = GenomicData.chrom"
             query_str += " AND GC.pos = GenomicData.pos AND GC.end = GenomicData.end"
             query_str += " AND GenomicData.maf >= 1E-5 \n"  # GNOMAD only include maf of 1 in 10,000 or more to be neutral
@@ -1157,7 +1176,7 @@ def var2coord(s,p,n,c,q=[]):
 
   msg = None
   if vdf.empty and not (
-      args.add_exac or args.add_gnomad or args.add_gnomad38 or args.add_1kg or args.add_pathogenic or args.add_pathogenic38 or args.add_cosmic or args.add_tcga):
+      args.add_exac or args.add_gnomad or args.add_gnomad38 or args.add_1kg or args.add_pathogenic or args.add_pathogenic38 or args.add_cosmic or args.cosmic38 or args.add_tcga):
     msg = "\nERROR: Must provide variants or request preloaded set with --add_<dataset>.\n"
   elif vdf.empty:
     msg = "\nERROR: No variants identified. Please manually provide pathogenic and neutral variant sets.\n"
@@ -1886,6 +1905,8 @@ if __name__ == "__main__":
                       help="Supplement pathogenic variant set with ClinVar drug response")
     cmdline_parser.add_argument("--add_cosmic",action="store_true",default=False,
                       help="Supplement pathogenic variant set with COSMIC somatic missense variants")
+    cmdline_parser.add_argument("--add_cosmic38",action="store_true",default=False,
+                      help="Supplement pathogenic variant set with COSMIC38 somatic missense variants")
     cmdline_parser.add_argument("--add_tcga",action="store_true",default=False,
                       help="Supplement pathogenic variant set with TCGA somatic missense variants")
 
@@ -2253,6 +2274,8 @@ if __name__ == "__main__":
       args.label += "_clinvar38"
     if args.add_cosmic:
       args.label += "_cosmic"
+    if args.add_cosmic38:
+      args.label += "_cosmic38"
     if args.add_tcga:
       args.label += "_tcga"
     if args.pathogenic:
@@ -2335,9 +2358,11 @@ if __name__ == "__main__":
 
     # Warn user to include specific EnsEMBL transcripts
     if args.fasta and not args.isoform and \
-            (args.add_gnomad or args.add_pathogenic or args.add_cosmic or \
-            args.add_exac or args.add_1kg or args.add_benign or \
-            args.add_drug or args.add_tcga):
+            (args.add_gnomad or args.add_gnomad38 or \
+             args.add_pathogenic or args.add_pathogenic38 or \
+             args.add_cosmic or args.add_cosmic38 or \
+             args.add_exac or args.add_1kg or args.add_benign or \
+             args.add_drug or args.add_tcga):
       msg  = "\n!!!!===========================================!!!!\n"
       msg += "                        WARNING\n"
       msg += "   Reference EnsEMBL transcript was not specified. \n"
@@ -2462,6 +2487,8 @@ if __name__ == "__main__":
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'drug')
         if args.add_cosmic:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmic')
+        if args.add_cosmic38:
+            PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmic38')
         if args.add_tcga:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'tcga')
 
