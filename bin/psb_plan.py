@@ -240,6 +240,8 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
       return "--add_tcga"
     if config_str == "cosmic":
       return "--add_cosmic"
+    if config_str == "cosmic38":
+      return "--add_cosmic38"
     if config_str == "1kg3":
       return "--add_1kg3"
     if config_str == "gnomad":
@@ -432,7 +434,12 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
         # ClinVa params['disease1argument'] = pathprox_disease1argument
 
         #  Make jobs for Disease 1 (maybe ClinVar) PathProx and Disease 2 (maybe COSMIC) PathProx
-        for disease_1or2 in [ 'disease1', 'disease2' ]:
+        disease_key_list = ['disease1', 'disease2' ]
+        # sometimes we set disease 1 and 2 to same - that's OK - but don't run them both
+        if config_pathprox_dict['disease1_variant_sql_label'] == config_pathprox_dict['disease2_variant_sql_label']:
+            disease_key_list = ['disease1']
+            LOGGER.warning("Only one Pathprox disease type sql label has been specified %s"%disease_key_list[0])
+        for disease_1or2 in disease_key_list:
             disease_variant_sql_label = config_pathprox_dict['%s_variant_sql_label'%disease_1or2]
             params['diseaseArgument'] = pathprox_arguments[disease_1or2]
             params['neutralArgument'] = pathprox_arguments['neutral']
@@ -778,8 +785,25 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
 
         LOGGER.info("Loading Swiss model from %s"%ci.struct_filename)
         swiss_structure = PDBParser().get_structure(ci.structure_id,ci.struct_filename)
+        chain_count = 0
+        for chain in swiss_structure[0]:
+            chain_count += 1
 
-        ci.chain_id = next(swiss_structure[0].get_chains()).get_id()
+        first_swiss_chain_id = next(swiss_structure[0].get_chains()).get_id()
+
+        # We have the task of figuring out the best chain ID to run ddG on - typically
+        # we run best on the template chain  in the structure name... but only bother 
+        # to try to figure this out if we have a multimeric swiss model
+
+        if chain_count == 1: 
+            ci.chain_id = first_swiss_chain_id # Easy when swiss model is a monomer
+        elif 'smtle' in remark3_metrics: # Grab the chain ID from structure name
+            ci.chain_id = remark3_metrics['smtle'][-1]
+        elif 'chain' in remark3_metrics:
+            ci.chain_id = remark3_metrics['chain']
+            LOGGER.warning("No chain ID was found in the REMARK 3 header of %s",ci.struct_filename)
+        else: # Strange - just grab first 
+            ci.chain_id = first_swiss_chain_id
         assert ci.chain_id not in [' ',''],"UUGH - this swiss model has blank chain ID"
 
         ci.nresidues = len(list(swiss_structure[0][ci.chain_id].get_residues()))
@@ -792,9 +816,6 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         ci.set_alignment_profile(alignment,swiss_structure)
 
         ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
-        chain_count = 0
-        for chain in swiss_structure[0]:
-            chain_count += 1
         if chain_count > 1:
             LOGGER.info("Adding swiss model as %d-mer"%chain_count) 
             ci.biounit_chains = chain_count
@@ -1590,13 +1611,14 @@ def plan_casewide_work(original_case_xlsx_file):
                         "pdbid":"N/A",
                         "chain":"N/A",
                         "mers":"N/A",
-                        "gene":casewideString,"refseq":"N/A","unp":"N/A",'mutation_dir':os.path.join(casewide_dir,"DigenicAnalysis"),
+                        "gene":casewideString,"refseq":"N/A","unp":"N/A",'mutation_dir':casewide_dir,
                         "mutation":"N/A",
                         "transcript_mutation":"N/A",
                         "pdb_mutation":"N/A"}
 
 
     digenic_options = "-e %s"%original_case_xlsx_file
+
     
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
     df_all_jobs = df_all_jobs.append(makejob_DigenicAnalysis(params,digenic_options),ignore_index=True)
