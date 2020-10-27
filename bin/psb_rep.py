@@ -201,7 +201,8 @@ def copy_html_css_javascript():
 # Return html long report
 # Return text that can be dumped to the log file
 def GeneInteractionReport(case_root,case,CheckInheritance):
-    genepair_dict_file = os.path.join(case_root,'casewide','MakeGeneDictionaries','%s.json'%case)
+    genepair_dict_file = os.path.join(case_root,'casewide','DigenicAnalysis','%s_all_gene_pairs_summary.json'%case)
+
     try:
         with open(genepair_dict_file,'r') as fd:
           genepair_dict = json.load(fd)
@@ -209,20 +210,20 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
         LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genepair_dict_file)
         return None,None,None,None
        
-    genes_filename = os.path.join(case_root,"%s_genes.txt"%case)
-    try:
-        with open(genes_filename) as fd:
-          unstripped_genes = fd.readlines()
-    except:
-        LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genes_filename)
-        return None,None,None,None
+    # genes_filename = os.path.join(case_root,"%s_genes.txt"%case)
+    # try:
+    #    with open(genes_filename) as fd:
+    #       unstripped_genes = fd.readlines()
+    # except:
+    #    LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?"%genes_filename)
+    #     return None,None,None,None
 
     geneInteractions = {}
     html_table =  StringIO()
     html_report = StringIO()
     text_report = StringIO()
 
-    structure_positive_genes = [gene.strip() for gene in unstripped_genes]
+    structure_positive_genes = [gene.strip() for gene in list(sorted(genepair_dict.keys()))]
     
     pairs = {}
     pairs['direct'] = []
@@ -232,30 +233,30 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
 
     # We let the template html open the <table> with formatting as it prefers
     # print >>html_table, "<table>" 
-    print >>html_table, "<thead><tr>" 
-    print >>html_table, "<th></th>"# top left is blank cell in header
+    print("<thead><tr>", file=html_table)
+    print("<th></th>", file=html_table) # Top left is blank cell in header
     for gene1 in structure_positive_genes:
-      print >>html_table, "<th>" + gene1 + "</th>" 
-    print >>html_table, "</tr></thead>" 
+      print("<th>" + gene1 + "</th>" , file=html_table)
+    print("</tr></thead>", file=html_table)
 
     for gene1 in structure_positive_genes:
-        print >>text_report, "%s:"%gene1
-        print >>html_report, '%s:'%gene1
-        print >>html_table, "<tr><td>%s</td>"%gene1 
+        print("%s:"%gene1, file=text_report)
+        print('%s:'%gene1, file=html_report)
+        print("<tr><td>%s</td>"%gene1, file=html_table)
         if gene1 in genepair_dict:
-          print >>html_report, '<ul style="list-style: none;">'
+          print('<ul style="list-style: none;">', file=html_report)
         for gene2 in structure_positive_genes:
-          print >>html_table, "<td>",
-          if gene1 in genepair_dict and gene2 in genepair_dict[gene1] and ((not CheckInheritance) or (genepair_dict[gene1][gene2]['Inheritance'])):
+          print("<td>", file=html_table)
+          if gene1 in genepair_dict and gene2 in genepair_dict[gene1] and ((not CheckInheritance) or ('nherit' in genepair_dict[gene1][gene2])):
               pairs_hits = []
-              if genepair_dict[gene1][gene2]['Direct_Interaction']:
+              if 'direct' in genepair_dict[gene1][gene2]:
                   pairs_hits.append('direct')
-              if genepair_dict[gene1][gene2]['Common_pathways']:
+              if 'pwy' in genepair_dict[gene1][gene2]:
                   pairs_hits.append('pathways')
-              if genepair_dict[gene1][gene2]['Common_phenotypes'] and genepair_dict[gene1][gene2]['Patient_Phenotype_Overlap'] > 0:
+              if 'pheno' in genepair_dict[gene1][gene2]:#  and genepair_dict[gene1][gene2]['Patient_Phenotype_Overlap'] > 0:
                   pairs_hits.append('phenotypes')
-              if genepair_dict[gene1][gene2]['Distance'] < 3 and genepair_dict[gene1][gene2]['Coexpression'] < 50:
-                  pairs_hits.append('other')
+              # if genepair_dict[gene1][gene2]['Distance'] < 3 and genepair_dict[gene1][gene2]['Coexpression'] < 50:
+              #    pairs_hits.append('other')
               if pairs_hits:
                   for pairs_hit in pairs_hits:
                       pairs[pairs_hit].append((gene1,gene2))
@@ -265,13 +266,13 @@ def GeneInteractionReport(case_root,case,CheckInheritance):
                           if not gene2 in geneInteractions[gene1]:
                               geneInteractions[gene1].append(gene2)
                   logging.debug("Gene Interactions: %s %s %s"%(gene1, gene2, str(pairs_hits)))
-                  print >>text_report, gene2, str(pairs_hits) 
-                  print >>html_report, "<li>",gene2 + ':', ", ".join(pairs_hits),"</li>"
-                  print >>html_table, '<br>'.join(pairs_hits) 
-          print >>html_table, "</td>" 
-        print >>html_report, '</ul>'
-        print >>html_table, "</tr>"
-    # print >>html_table, "</table>" 
+                  print(gene2, str(pairs_hits) , file=text_report)
+                  print("<li>",gene2 + ':', ", ".join(pairs_hits),"</li>", file=html_report)
+                  print('<br>'.join(pairs_hits), file=html_table)
+          print("</td>", file=html_table)
+        print('</ul>', file=html_report)
+        print("</tr>", file=html_table)
+    # print("</table>", file=html_table)
     return geneInteractions,html_table.getvalue(),html_report.getvalue(),text_report.getvalue()
 
 # This complex routine gather PathProx, and ddG results from the pipeline run, where available
@@ -911,13 +912,13 @@ def report_one_mutation(structure_report,workstatus_filename):
     graphicsLegend = "Pfam Domain Graphic unavailable"
     # Get Uniprot Graphics string or put in a blank
     domainGraphicsJSONstr = None
-    if gathered_info['unp']: # Fetch the JSON - wait up to 20 seconds
+    if gathered_info['unp']: # Fetch the JSON - wait up to 30 seconds
       xmlHandle = Cxml2json(os.path.join(config_dict['interpro_dir'],'match_humanonly.xml'))
       if xmlHandle.isCanonical(gathered_info['unp']): # Then we need to manually create the xml ourselves
         # Go for the web link because this is a canonical UNP - however that _can_ fail.
         graphicsLegend = "Downloaded Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
         LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam"%gathered_info['unp']);
-        domainGraphicsJSONstr = unp2PfamDomainGraphicString(gathered_info['unp'],20)
+        domainGraphicsJSONstr = unp2PfamDomainGraphicString(gathered_info['unp'],30)
         if not domainGraphicsJSONstr:
           LOGGER.info("Download returned nothing")
           graphicsLegend = "Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
