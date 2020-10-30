@@ -316,10 +316,10 @@ LOGGER.info("%d genes written to %s" % (len(genes), genes_txt_filename))
 if csv_rows:
     # Create a bed file of all our grch37 positions
     # And lift that over to GRCh38
-    df = pd.DataFrame(csv_rows,columns=["gene","genome","chrom","pos","change","refseq","mutation","unp"])
-    liftover_input_df = df[["chrom","pos"]]
+    original_df = pd.DataFrame(csv_rows,columns=["gene","genome","chrom","pos","change","refseq","mutation","unp"])
+    liftover_input_df = original_df[["chrom","pos"]]
     liftover_input_df.insert(1,'bed_zerobased_pos',liftover_input_df["pos"] - 1)
-    liftover_input_df.insert(3,'uniquekey',liftover_input_df.index)
+    liftover_input_df.insert(3,'original_lineno',liftover_input_df.index)
     liftover_bed_input = args.project + "_grch37_input.bed"
     liftover_output_lifted = args.project + "_grch38_lifted.bed"
     liftover_output_unlifted = args.project + "_grch38_unlifted.bed"
@@ -340,9 +340,9 @@ if csv_rows:
     completed_process.check_returncode()
 
     try:
-        df_lifted_grch38 = pd.read_csv(liftover_output_lifted,header=None,sep='\t',names=["chrom_hg38","bed_zerobased_pos_hg38","pos_hg38",'uniquekey'])
+        df_lifted_grch38 = pd.read_csv(liftover_output_lifted,header=None,sep='\t',names=["chrom","bed_zerobased_pos_hg38","pos",'original_lineno'])
         LOGGER.info("%d genomic postions lifted to GRCh38",df_lifted_grch38.shape[0])
-        df_lifted_grch38 = df_lifted_grch38.drop('bed_zerobased_pos_hg38',axis='columns').set_index('uniquekey')
+        df_lifted_grch38 = df_lifted_grch38.drop('bed_zerobased_pos_hg38',axis='columns').set_index('original_lineno',drop=False)
     except pd.io.common.EmptyDataError:
         LOGGER.critical("Liftover to GRCh38 created null lifted output")
 
@@ -352,14 +352,15 @@ if csv_rows:
     except pd.io.common.EmptyDataError:
         LOGGER.info("All positions lifted to GRCh38 successfully")
 
+    df_missense_grch38 = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
     if len(df_lifted_grch38): # Create a hg38 .vcf file that we can run vcf2missense.py on to create a new case
         df_vcf_hg38 = pd.DataFrame(
             columns = ["CHROM","POS","ID","REF","ALT"])
-        df_vcf_hg38["CHROM"] = [chrom[3:] for chrom in df_lifted_grch38['chrom_hg38']]
-        df_vcf_hg38["POS"] = [pos for pos in df_lifted_grch38['pos_hg38']]
-        df_vcf_hg38["ID"] = ['.' for chrom in df_lifted_grch38['chrom_hg38']]
-        df_vcf_hg38["REF"] = [df.loc[uniquekey]['change'][0] for uniquekey in df_lifted_grch38.index]
-        df_vcf_hg38["ALT"] = [df.loc[uniquekey]['change'][-1] for uniquekey in df_lifted_grch38.index]
+        df_vcf_hg38["CHROM"] = [chrom[3:] for chrom in df_lifted_grch38['chrom']]
+        df_vcf_hg38["POS"] = [pos for pos in df_lifted_grch38['pos']]
+        df_vcf_hg38["ID"] = ['.' for chrom in df_lifted_grch38['chrom']]
+        df_vcf_hg38["REF"] = [original_df.loc[uniquekey]['change'][0] for uniquekey in df_lifted_grch38.index]
+        df_vcf_hg38["ALT"] = [original_df.loc[uniquekey]['change'][-1] for uniquekey in df_lifted_grch38.index]
         hg38_vcffile = args.project+"_hg38.vcf"
         with open(hg38_vcffile,'w') as f:
             f.write("#")
@@ -370,7 +371,6 @@ if csv_rows:
 
         vcf_reader =  pdbmap_vep.vcf_reader_from_file_supplemented_with_vep_outputs(hg38_vcffile)
 
-        df_missense_grch38 = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
 
         for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             for CSQ in vcf_record.CSQ:
@@ -404,21 +404,43 @@ if csv_rows:
             LOGGER.critical("Unable to write %s: %s",missense_csv_filename+".with_VEP_duplicates", str(e))
             sys.exit(1)
     
-        df_without_duplicates = df_missense_grch38.drop_duplicates(['gene','unp','refseq','mutation'])
-        df = df_missense_grch38.set_index(['gene','unp','refseq','mutation'])
-        for index,row in df_without_duplicates.iterrows():
-            variant_index = (row['gene'],row['unp'],row['refseq'],row['mutation'])
-            rows_with_various_transcripts = df.loc[variant_index]
-            transcript_list = rows_with_various_transcripts['transcript'].tolist()
+    df_without_duplicates = df_missense_grch38.drop_duplicates(['gene','unp','refseq','mutation'])
+    df_indexed = df_missense_grch38.set_index(['gene','unp','refseq','mutation'])
+    for index,row in df_without_duplicates.iterrows():
+        variant_index = (row['gene'],row['unp'],row['refseq'],row['mutation'])
+        rows_with_various_transcripts = df_indexed.loc[variant_index]
+        transcript_list = rows_with_various_transcripts['transcript'].tolist()
         # print("for variant_index %s rows are %s"%(str(variant_index),str(rows_with_various_transcripts)))
         # import pdb; pdb.set_trace()
         df_without_duplicates.at[index,'transcript'] = ';'.join(transcript_list)
-    
-        df_without_duplicates.to_csv(missense_csv_filename, header=True, encoding='ascii',sep=',')
-        sys.exit("That's all for now")
 
+    df_without_duplicates = df_without_duplicates.set_index(['chrom','pos'],drop=False)
+    df_lifted_grch38_index = df_lifted_grch38.set_index(['chrom','pos'],drop=True)
+    # Add original lineno back to final dataframe
+    df_with_original_lineno = df_without_duplicates.join(df_lifted_grch38_index).set_index(['original_lineno'],drop=False) # ,rsuffix='_r')
+
+    # Now we iterate through the original dataframe from the spreadsheet and where there are rows that were lost in the vep process, add them back
+
+    for original_lineno,row in original_df.iterrows():
+        if original_lineno not in df_with_original_lineno.index: # Then we have lost this element and need to add it back
+            df_with_original_lineno = df_with_original_lineno.append(row.drop(['genome','change']).append(pd.Series([original_lineno],index=['original_lineno'])),ignore_index = True)
+
+    # Index our dataframe by original_lineno and drop that column.  Then append the unp column to the index (but keep unp column)
+    df_with_original_lineno\
+        .set_index('original_lineno')\
+        .set_index('unp',append=True,drop=False)\
+        .sort_index()\
+        .reset_index(drop=True)\
+        .to_csv(missense_csv_filename, header=True, encoding='ascii',sep=',')
+
+    print("%d rows successfully written to %s"%(len(df_with_original_lineno),missense_csv_filename))
+    print("Compare contents to original input file %s"%udn_excel_filename)
+    sys.exit(0)
+
+    # ALL BELOW IS FLOTSAM FOR NOW
     # Add the grch38 positions to the original missense case dataframe, as informational fields
-    df = df.join(df_lifted_grch38,how='left',lsuffix='_l',rsuffix='_r')
+    df = df.join(df_without_duplicates,how='left',lsuffix='_l',rsuffix='_r')
+       
 
     # Run the variant effect predictor on the GRCh19 positions to create a more robust transcript list
     pdbmap_vep = PDBMapVEP(config_dict)
