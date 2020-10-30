@@ -67,6 +67,7 @@ from lib import PDBMapTranscriptUniprot
 from lib import PDBMapTranscriptFasta
 from lib import PDBMapTranscriptEnsembl
 from lib import PDBMapGenomeVariants
+from lib import PDBMapGnomad
 from lib.PDBMapAlignment import sifts_best_unps
 
 # BioPython routines to deal with pdb files
@@ -816,6 +817,8 @@ class PDBMapVariantSet():
                 query_str += "and %s = '%s'"%(kwarg,kwargs[kwarg])"""
 
         force_chain = None # <- For all these SQL queries there is no chain
+        prior_variant_count = 0
+        extended_variant_count = 0
         with PDBMapSQLdb() as db:
             db.execute(query_str,(label,))
             column_names = [x[0] for x in db.description]
@@ -827,15 +830,19 @@ class PDBMapVariantSet():
             protein_changes_and_genomic_coordinates_df.to_csv(csv_logfile,sep='\t')
             # if rows: If we have no rows, fine - then the variant_set is an emoty set
             # Add to variants for this flavor, creating a new set if needed
-            variant_set = id_to_variant_set.get(variant_set_id,PDBMapVariantSet(variants_flavor))
+            _variant_set = id_to_variant_set.get(variant_set_id,PDBMapVariantSet(variants_flavor))
 
+            prior_variant_count = len(_variant_set._variants)
             for index,row in protein_changes_and_genomic_coordinates_df.iterrows():
-                variant_set._variants.append([int(row['protein_pos']),row['ref_amino_acid'],row['alt_amino_acid'],force_chain])
+                _variant_set._variants.append([int(row['protein_pos']),row['ref_amino_acid'],row['alt_amino_acid'],force_chain])
+            extended_variant_count = len(_variant_set._variants)
 
             if variant_set_id in id_to_variant_set:
                 pass  # Because variant_set is the reference already in the dictionary from before
             else: # It's a new PDBMapVariantSet() instance, so add to dictionary
-                id_to_variant_set[variant_set_id] = variant_set
+                id_to_variant_set[variant_set_id] = _variant_set
+
+        return extended_variant_count - prior_variant_count
 
     def to_DataFrame(self,chain_id:str=None) -> pd.DataFrame:
         df = pd.DataFrame(self.variant_list,columns=["unp_pos","ref","alt","chain"]) ## ,"dcode","qt"])
@@ -2014,10 +2021,13 @@ if __name__ == "__main__":
       # "modbase2013_summary",
       # "modbase2016_dir",
       # "modbase2016_summary",
+      "gnomad_dir",
+      "gnomad_filename_template",
       "output_rootdir",
       "sprot",
       "swiss_dir",
-      "swiss_summary"]
+      "swiss_summary",
+      "vep","vep_cache_dir","vep_assembly"]
 
     config,config_dict = psb_config.read_config_files(args,required_config_items)
 
@@ -2475,7 +2485,35 @@ if __name__ == "__main__":
         if args.add_gnomad:
             PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'gnomad')
         if args.add_gnomad38:
-            PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'gnomad38')
+            extended_count = PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'gnomad38')
+
+
+            if extended_count == 0: # This should be modularized - chill for now.  Test code
+                _variant_set = neutral_variant_sets.get(variant_set_id,PDBMapVariantSet('Neutral'))
+                extended_variant_count = 0
+                prior_variant_count = len(_variant_set._variants)
+
+                # See if we can get some variants from the source Gnomad vcf files
+                pdbmap_gnomad = PDBMapGnomad(config_dict)
+                for enst_transcript in ENST_transcripts:
+                    vep_echo_filename = os.path.join(args.outdir,"%s_vep_results.vcf"%enst_transcript.id)
+                    LOGGER.info("SQL unsuccessful.  Retrieving Gnomad variants from source .vcf files.  VEP output echoed to %s"%vep_echo_filename)
+                    gnomad_variant_df = pdbmap_gnomad.retrieve_gnomad_missense_variants(enst_transcript,output_directory=args.outdir)
+
+                    for index,row in gnomad_variant_df.iterrows():
+                        if row['maf'] >= 1E-5: # Sorry to hard code - but this is a gnomad thing
+                            _variant_set._variants.append([
+                               int(row['Protein_position']),
+                               row['Ref_AminoAcid'],
+                               row['Alt_AminoAcid'],
+                               None]) # <- force_chain None correct
+                extended_variant_count = len(_variant_set._variants)
+
+                if variant_set_id in neutral_variant_sets:
+                    pass  # Because variant_set is the reference already in the dictionary from before
+                else: # It's a new PDBMapVariantSet() instance, so add to dictionary
+                    neutral_variant_sets[variant_set_id] = _variant_set
+                LOGGER.info("%d variants obtained from Gnomad source .vcf files"%extended_variant_count)
         if args.add_benign:
             PDBMapVariantSet.query_and_extend('Neutral',neutral_variant_sets,variant_set_id,ENST_transcripts,'clinvar')
 
