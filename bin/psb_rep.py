@@ -1023,7 +1023,6 @@ def report_one_mutation(structure_report,workstatus_filename):
     PfamResultTableHTML +=  '</tbody></table>'
     pfamGraphicsIframe_fname = "%s_%s_PfamGraphicsIframe.html"%(gathered_info['gene'],gathered_info['mutation'])
     website_filelist.append(os.path.join(web_dir,pfamGraphicsIframe_fname))
-    
  
     # This data structure directly feeds the complex items in the psb_report.html template 
     # elements for project/case/gene/mutation/refseq were populated at top of this function
@@ -1383,6 +1382,9 @@ fi
     with open(case_summary_filename,"w") as f:
       f.write(html_out)
     lastmsg = "The case summary report is: " + case_summary_filename
+    case_summary_json = os.path.join(collaboration_dir,"%s.json"%args.projectORstructures) # The argument is an entire project UDN124356
+    with open(case_summary_json,'w') as fp:
+        json.dump(final_gathered_info,fp)
   else:
     lastmsg = "No mutation summaries - bummer"
 

@@ -221,7 +221,6 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
   variants_filename_key = "%s_variant_filename"%disease1_or_2_or_neutral
   if variants_filename_key in config_pathprox_dict:
     config_str = config_pathprox_dict[variants_filename_key]
-    variants_pathprox_args = ''
     if 'neutral' in variants_filename_key:
        variants_pathprox_args = "--neutral %s --neutral_label %s"%(config_str,config_pathprox_dict["%s_variant_sql_label"%disease1_or_2_or_neutral])
     else:
@@ -553,6 +552,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     # LOGGER.info("MySQL: Marking psb_collab.MutationSummary incomplete for %s %s %s %s %s"%
     #         (args.project,gene,refseq,mutation,unp))
     
+
     # Ensure that this mutation is tracked in the database
     # Even though typically already added in Mtuation Summary
     """c = io._con.cursor()
