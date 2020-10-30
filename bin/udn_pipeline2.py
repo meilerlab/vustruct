@@ -661,7 +661,7 @@ else: # The normal case, which is that the structure must be tracked down in our
     modelfile2013 = ''
     LOGGER.info("Swissmodel %s found as pdbfile=%s"%(args.structure,pdbfile))
   else:
-    pdbfile = os.path.join(config_dict['pdb_dir'],"structures","pdb%s.ent.gz"%args.structure.lower())
+    pdbfile = os.path.join(config_dict['pdb_dir'],"structures","divided","pdb",args.structure.lower()[1:3],"pdb%s.ent.gz"%args.structure.lower())
     #Check if args.structure is a 'real` rcsb deposited entry and get biounits and set quality accordingly
     if os.path.isfile(pdbfile):
       if not args.quality:
@@ -669,7 +669,7 @@ else: # The normal case, which is that the structure must be tracked down in our
         args.quality = quality_from_resolution(res)
   #    if quality is None:
   #        quality = True
-      biounits = glob.glob("%s/%s.pdb?.gz" % (os.path.join(config_dict['pdb_dir'],"biounit/coordinates/all"), args.structure.lower()))        
+      biounits = glob.glob("%s/%s.pdb?.gz" % (os.path.join(config_dict['pdb_dir'],"biounit/PDB/divided",args.structure.lower()[1:3]), args.structure.lower()))        
       isModbase = False
     else: # The file must be some kind of modbase file - or it simply is a typo  Proceed as if modbase file
       biounits = ''

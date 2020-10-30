@@ -7,8 +7,8 @@ if __name__ == '__main__':
   label = args[1]
   sid   = args[2]
   bio   = args[3]
-  pdbf     = "%s_%s_%s.pdb"%(label,sid,bio)      # pdb file
-  pdbrf    = "%s_%s_%s_renum.pdb"%(label,sid,bio)# pdb file (renumbered)
+  pdbf     = "%s_%s_%s.cif"%(label,sid,bio)      # pdb file
+  pdbrf    = "%s_%s_%s_renum.cif"%(label,sid,bio)# pdb file (renumbered)
   nvattrf  = "%s_neutral.attr"%label             # neutral variants
   nvrattrf = "%s_renum_neutral.attr"%label       # neutral variants (renumbered)
   pvattrf  = "%s_pathogenic.attr"%label          # pathogenic variants

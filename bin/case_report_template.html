@@ -115,6 +115,26 @@
 		</table>
 
     <br>
+
+{% if digenic_graphics_score_only_filename %}
+<!-- then there will also be a casewide digenic graphics report -->
+
+<h2><a href="casewide/DigenicGraphics.html">Digenic Analysis Details</a></h2>
+<hr>
+
+<embed
+    src="{{digenic_graphics_score_only_filename}}"
+    alt="All gene pairs digenic metrics dig heatmap"
+    width="60%" />
+    <br>
+    <!-- Now insert the table of all the gene reports -->
+    <link rel="stylesheet" href="html/css/typography.css" />
+{% endif %}
+
+
+
+
+
     <!-- Now insert the table of all the gene reports -->
     <link rel="stylesheet" href="html/css/typography.css" />
     <hr>

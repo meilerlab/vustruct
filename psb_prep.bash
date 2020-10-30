@@ -1,6 +1,7 @@
 echo "Preparing PDB Pipeline PATH and environment settings"
 echo "This file should only be sourced from a bash or sh shell"
 echo
+genome='GRCh38'
 if [[ $0 != $BASH_SOURCE ]]; then
 PIPELINE_ROOT=$(readlink -f `dirname $BASH_SOURCE`)
 echo "Script in $PIPELINE_ROOT was correctly sourced"
@@ -22,7 +23,13 @@ fi
 
 # When accessing genomic coordinates, we open the database specified in this configuration file
 # This .conf file must be updated when new versions of the genome, or the Ensembl PERL API are loaded
+if [[ $genome == 'GRCh37' ]]; then
+echo SELECTING GRCh37
 export ENSEMBL_REGISTRY=$PIPELINE_ROOT/pdbmap/EnsEMBL/ensembl_registry.conf
+else
+echo WARNING GRCh38
+export ENSEMBL_REGISTRY=$PIPELINE_ROOT/pdbmap/EnsEMBL/ensembl_registry_GRCh38.conf
+fi
 
 export LC_ALL="en_US.UTF-8"
 # PERL binaries, and Ensembl are NOT copied to
@@ -97,10 +104,15 @@ backGround=1
 fi
 export PS1='\r\n\[$(/usr/bin/tput setaf '$foreGround'; /usr/bin/tput setab '$backGround')\]   PSB Pipeline    host:\h  user:\u         \[$(/usr/bin/tput sgr0)\]\r\n\w\$ '
 else
-export UDN=/dors/capra_lab/users/mothcw/UDNtests
+export UDN=/dors/capra_lab/users/$USER/UDNtests
 # export PS1='\[$(/usr/bin/tput setaf 15; /usr/bin/tput setab 1)\] DEV \[$(/usr/bin/tput sgr0)\] '$PS1
 export PS1='DEV '$PS1
 fi
 echo "\$UDN set to $UDN"
 
+fi
+if [[ $genome == 'GRCh37' ]]; then
+echo GRCh37 selected ${ENSEMBL_REGISTRY}
+else
+echo WARNING $genome ${ENSEMBL_REGISTRY}
 fi
