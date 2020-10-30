@@ -8,7 +8,7 @@
 		<style media="print" type="text/css">
 		h4{text-align:center;margin:0;padding:0.1in;}
 		h5{text-align:center;margin:0;padding:0.1in;}
-		.container{width:6.5in;float:left;}
+		.container{width:8in;float:left;}
 		.box{width:2in;float:left;height:auto;}
 		.big-box{width:3in;float:left;height:auto;}
 		</style>
@@ -17,6 +17,33 @@
   function resizeIframe(obj) {
     obj.style.height = (40 + obj.contentWindow.document.body.scrollHeight) + 'px';
   }
+
+   // http://colorbrewer2.org/#type=qualitative&scheme=Paired&n=9  -> 
+   // Commented colors from chir.ag/projects/name-that-color
+   var colorBrewer9Colors = [
+           "skyblue", // moth switched from '#a6cee3', // Regent St. Blue
+           '#fb9a99', //Sweet Pink
+           '#b2df8a', // Feijoa intriguing green
+           "tan",  // moth switched from '#fdbf6f', // Macaroni and Cheese
+           '#cab2d6', // Lavender Grey
+           '#1f78b4', // Matisse - Darker blue
+           '#33a02c', //Apple (green)
+           '#e31a1c', //Alizarin Crimson
+           '#ff7f00', //Flush orange
+           '#101010', //Chris found black 000000 to be too black - so backing off with less dark
+                        ]
+   var chainColors = ["skyblue","green","magenta","salmon","orange","black"]
+   chainColors = colorBrewer9Colors
+   function color_chains_consecutively(o,chainColorIndex) {
+      chainColorIndex = 0;
+            o.structure.eachChain(function (cp) {
+                if (cp.residueCount > 1) { // Idea is to exclude the ngl endless little one-off hetero chains
+		             o.addRepresentation("cartoon", {sele: ":" + cp.chainname, color: chainColors[chainColorIndex]});
+                   chainColorIndex = (chainColorIndex + 1) % chainColors.length
+                   }
+
+       })
+   }
 </script>
 
 
@@ -168,7 +195,7 @@ img {
   <a href="#" class="w3-bar-item w3-button">Home</a> 
   <a href="#StructureReport" class="w3-bar-item w3-button">Structure Report</a> 
 {% for structure in Structure_Detail %}
-  <a href="#{{ structure['html_id'] }}" class="w3-bar-item w3-button">{{structure['structid']}}</a> 
+  <a href="#{{ structure['html_div_id'] }}" class="w3-bar-item w3-button">{{structure['structid']}}.{{structure['chain']}} {{structure['mers']}}</a> 
 {% endfor %}
 
 </div>
@@ -181,15 +208,15 @@ img {
 	</tr>
 	<tr>
 		<th style="text-align:right">Case</th>
-		<td>{{ project }}</td>
+		<td><a href="../index.html">{{ project }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Gene</th>
-		<td>{{ gene }}</td>
+		<td><a href="https://ghr.nlm.nih.gov/gene/{{ gene }}">{{ gene }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Protein</th>
-		<td>{{ unp }}</td>
+		<td><a href="https://www.uniprot.org/uniprot/{{ unp }}">{{ unp }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Mutation</th>
@@ -219,7 +246,7 @@ img {
 {% for structure in Structure_Detail %}
 	<p style="page-break-before: always"></p>
 
-	<hr id="{{ structure['html_id'] }}">
+	<hr id="{{ structure['html_div_id'] }}">
 	<div class="container">
       <div class="header">
 		<h3 >{{ structure['structid'] }}.{{ structure['chain'] }} - Structure Detail</h3>
@@ -233,8 +260,8 @@ img {
 		<!-- Structure Plots -->
 		<div class="container">
 			<h4>Location of {{ structure['mutation'] }} in {{ structure['structid'] }}.{{ structure['chain'] }}</h4>
-			<img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto">
-         <h4>NGL Viewer of same </h4>
+			<!-- <img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto"> -->
+         <h4>NGL Viewer: </h4>
 
 		   <script>
 		    document.addEventListener("DOMContentLoaded", function () {
@@ -249,9 +276,12 @@ img {
             var disease1Representation = null;
             var disease2Representation = null;
 		      var stage = new NGL.Stage("viewport_{{ structure['unique_div_name'] }}", { backgroundColor : "white" } );
-		      stage.loadFile("{{ structure['pdbSSfilename'] }}").then(function (o) {
+		      stage.loadFile("./{{ structure['pdbSSfilename'] }}").then(function (o) {
 		      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
-		      o.addRepresentation("cartoon", {color: "skyblue"})
+            // Clearly color any HETATMs floating around
+            o.addRepresentation("licorice", { sele: "hetero", color: "element", radius: "0.4" })
+            chainColorIndex = 0;  color_chains_consecutively(o,chainColorIndex);
+            <!-- stage.setSize("80%","50%") -->
             stage.autoView()
 
 function addElement (el) {

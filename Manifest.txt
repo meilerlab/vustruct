@@ -41,7 +41,8 @@ pip install jinja2
 $ cd /dors/capra_lab/users/psbadmin
 $ ./precompile.bash
 
-6) Install the htslib-1.9 code.  When done binaries bgzip and tabix (used by Ensembl-vep) will be in the PATH
+6) Install the htslib-1.9 code.  When done binaries bgzip and tabix (used by Ensembl-vep) will be in the PATH.
+On CentOS 7, this may be easiest via "sudo yum install htslib-tools" and perhaps "sudo yum install htslib-devel"
 
 =================================================================================================================
 

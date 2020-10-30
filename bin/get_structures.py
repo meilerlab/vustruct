@@ -12,7 +12,7 @@
 #=============================================================================#
 import pandas as pd
 import numpy as np
-from pdbmap import PDBMapProtein
+from lib import PDBMapProtein
 
 def get_pdbs(io,unp,mut_pos=None,maybe_threshold=20):
     """Return a dataframe of all structures and models of a uniprot identifier, optionally labeling
