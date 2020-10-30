@@ -1686,6 +1686,15 @@ else:
 
         for index in unps_from_refseq_gene:
                 df_all_mutations.loc[index]['unp'] = unps_from_refseq_gene[index]
+    else: # 'unp' is in the original columns - make sure the unps are known and queryable
+        for unp in df_all_mutations['unp']:
+            if not PDBMapProtein.unp2uniparc(unp):
+                if '-' in unp and PDBMapProtein.unp2uniparc(unp.split('-')[0]):
+                   msg = "unp %s appears to be an invalid isoform of %s as it references no UniParc sequence"%(unp,unp.split('-')[0])
+                else:
+                    msg = "unp %s was not found in the uniprot IDMapping file with a UniParc AA sequence"%unp
+                LOGGER.critical(msg)
+                sys.exit(msg)
                 
     ui_final_table = pd.DataFrame()
     for index,row in df_all_mutations.iterrows():
