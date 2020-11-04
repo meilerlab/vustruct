@@ -2993,10 +2993,12 @@ if __name__ == "__main__":
             LOGGER.info("Pathogenic constraint scores for candidate missense variants:")
             LOGGER.info(complex_df.loc[complex_df["dcode"]<0,["unp_pos","ref","alt","pathcon"]].sort_values( \
               by=["pathcon","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
-        if sufficient_neutral_variants: # meaning, we had BOTH enough pathogenic and enough neutrals
+        if sufficient_neutral_variants and sufficient_pathogenic_variants: # meaning, we had BOTH enough pathogenic and enough neutrals
             LOGGER.info("PathProx scores for candidate missense variants:")
             LOGGER.info(complex_df.loc[complex_df["dcode"]<0,["unp_pos","ref","alt","pathprox"]].sort_values( \
                 by=["pathprox","unp_pos"],ascending=[False,True]).groupby(["unp_pos"]).apply(np.mean).to_string(index=False))
+        else:
+            LOGGER.warning("Pathprox scores not output due to insufficient neutral AND pathogenic variants")
 
 
     # Write a particular score column to Chimera attribute file with obvious file name
