@@ -1,26 +1,71 @@
 Notes on creation of the psbadmin python environment.
-IMPORTANT: All steps must be run as user psbadmin
+
+---------------------------------------------------------------------------------------------------------------
+ROOTING THE PIPELINE INSTALL
+
+All steps must be either run as user psbadmin, or in a local environment directory tree such as ~/psbadmin/
+
+At Vanderbilt, I login as "special user psbadmin" into a CSB workstation.  From there, I let git clone create
+production pipeline directory /dors/capra_lab/users/psbadmin.  The following instructions fall out of that setup.
+
+However, for local "development environment", I let git create a /dors/capra_lab/users/mothcw/psbadmin
+directory and place all the below under there.  You are welcome to globally replace /dors/capra_lab/users/
+in these instructions - just do not attempt to commit that change
+
+Anaconda3 installations are utterly immoveable.  So, your choice of a root directory will be fixed
+until you start over.  You must maintain the sibling directory of psbadmin/bin and psbadmin/pdbmap 
+as cloned from github in these instructions
+---------------------------------------------------------------------------------------------------------------
+
+
 
 1) Checkout CapraLab/psbadmin to /dors/capra_lab/users/psbadmin
+   $ cd /dors/capra_lab/users
+   $ mv psbadmin psbadmin.SaveOldWithSomeLabelIfYouLike
+   $ git clone https://github.com/CapraLab/psbadmin/
    (The psbadmin git repository is essentially a backup of the write-protected /dors/capra_lab/users/psbadmin directory)
+   $ cd psbadmin
+   $ git status # << Check that you are on the branch, typically master, you expect
 
 2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/psbadmin/pdbmap
+   $ cd /dors/capra_lab/users/psbadmin # << you may already be there
+   $ git clone https://github.com/CapraLab/psbadmin/
+   $ git status # << Check that you are on the branch, typically master, you expect
 
 3) Download Anaconda3  and install to /dors/capra_lab/users/psbadmin/anaconda3
+   Answer 'yes' at the end when prompted whether to install conda/init
+   This will modify the end of your ~/.bashrc file, in a block clearly annotated
+     with >>>> conda_init <<<< style comments at begin and end of that block
 
-4) Install add-on libraries with:
+   The conda_init block will place a number of new executables in front of your
+   Operating System tools.  Not only python3, but also perl5 - by the time we 
+   are finished.  You may want to excerpt the conda init block into its own 
+   sourceable file  
+   
+
+4) Login/login to acquire these .bashrc changes.  
+
+$ which python
+/dors/capra_lab/users/psbadmin/anaconda3/bin/python
+
+$ python --version
+Python 3.8.3
+
+
+Then install add-on libraries with:
 
 # To avoid LOTS of trouble:
 pip install --upgrade setuptools
+pip install --upgrade pip
 
 # As of March 2019 python 3, pandas seems to have been loaded by default
-pip install pandas
+# pip install pandas
+
 # Biopython requires, and will include, numpy library
 pip install biopython
 
 pip install mysql-connector-python
 pip install mysqlclient
-pip install --upgrade pip
 pip install argparse
 # WeasyPrint no longer supports Python 2
 # pip install WeasyPrint==0.42.3
@@ -31,8 +76,13 @@ pip install PyVCF
 # Await news from Souhrid pip install networkx==1.9
 
 pip install fuzzywuzzy
+
+# python-Levenshtein may be already installed - no worries
 pip install python-Levenshtein
+
+# Seems jinja2 also now installed already - no worries
 pip install jinja2
+pip install tabulate
 
 4d) Use "ln -s" so three perl scripts in pdbmap/lib visible in pdbmap directory
 
@@ -44,30 +94,60 @@ ln -sv lib/*.pl .
 $ cd /dors/capra_lab/users/psbadmin
 $ ./precompile.bash
 
-6) Install the htslib-1.9 code.  When done binaries bgzip and tabix (used by Ensembl-vep) will be in the PATH.
+6) Install the htslib-1.11 (or higher) code.  When done binaries bgzip and tabix (used by Ensembl-vep) will be in the PATH.
 On CentOS 7, this may be easiest via "sudo yum install htslib-tools" and perhaps "sudo yum install htslib-devel"
+
+If you lack sudo priviledge, it is not too difficult to download and build the tools for installation
+/dors/capra_lab/users/psbadmin/htslib-1.11 and include the bin subdirectory off that in the PATH there in your psb_prep.bash script
+
+See: http://www.htslib.org/  and http://www.htslib.org/download/ which explains how to build
 
 =================================================================================================================
 
 6) INSTALL the Ensembl PERL API.
 
-Access to the Ensembl PERL API requires PERL5 and BioPerl.  In my experience, PERL is a fading star, and it is difficult
-to imagine that there will not soon be an Ensembl Python API.  Until then, we follow Ensembl's very strict 
-prescription for preparing the required PERL software stack.
+Access to the Ensembl PERL API requires PERL5 and BioPerl.  In my experience, PERL is a fading star, and it is difficult to imagine that there will not soon be an Ensembl Python API.  Until then, we follow Ensembl's very strict prescription for preparing the required PERL software stack.
 
-6a) Install your own PERL5 binaries, to avoid the potential stress of surprise Operating System (or compute center) updates
+2020-Oct-31 Update: A potential nuisance is that the anaconda python installation conda insists on creating a ~/perl5 
+somewhere along the above setup.  Because we need SQL database access from PERL, bioperl, and other modules that
+our compute cluster may not offer without 'root' access, we will load up our own perl binaries, libs and environment, with care
+
+6a)
 
 Double-check the (relatively flexible) PERL5 version requirements of the Ensembl Library.  
-Then, follow exactly these instructions and load a compatible PERL5 into the psbadmin/localperl directory
+Then, follow exactly the wget DOWNLOAD instruction only - and use other info for inspiration at the site which
+is the center of the PERL universe:
 
 https://www.cpan.org/src/README.html
 
-cd /dors/capra_lab/users/psbadmin/perl.wherever_untarred
-./Configure -des -Dprefix=/dors/capra_lab/users/psbadmin/localperl
-make test
-make install
+2020-Oct-31: Example of how I used the web info above
+I performed these commands to load ENSEMBL compatible PERL5 into the /dors/capra_lab/psbadmin/localperl directory
+Your commands will differ as perl versions shift around
 
-Modify your ~/bash_config or ~/.bashrc so that your PATH includes your new localperl/bin directory before other PERL binary locations.
+$ cd /dors/capra_lab/users/psbadmin/
+$ wget https://www.cpan.org/src/5.0/perl-5.32.0.tar.gz
+$ tar -xzf perl-5.32.0.tar.gz
+$ cd perl.5.32.0
+
+# Get rid of the annoying PERL5LIB set by anaconda's conda init
+# as we do NOT want ANY of our fresh PERL getting tangled up with this
+# directory location
+
+$ unset PERL5LIB
+
+# ^^^^  You should add this unset command above to your ~/.bashrc as well, after the conda init <<< block
+# because we really need to control the PERL environment in a way that is accessible to all pipeline
+# users
+
+# Critically important to config the -Dprefix as shown here - NOT at the webpage!!!
+$ ./Configure -des -Dprefix=/dors/capra_lab/users/psbadmin/localperl
+
+# Build and install in the -Dprefix dir you set above
+$ make
+$ make test
+$ make install
+
+Modify your ~/bash_config or ~/.bashrc so that your PATH includes your new /dors/capra_lab/users/psbadmin/localperl/bin directory before other PERL binary locations.
 Verify with:
 
 $ which perl
@@ -75,23 +155,43 @@ $ which perl
 which must rerefernce your local perl as in:
 /dors/capra_lab/users/psbadmin/localperl/bin/perl
 
-$ which cpan should report a cpain in that same directory
+$ which cpan # should also report cpan in that same directory
 
-From there
+# CRITICAL -> Configure cpan to use your new local perl system for all module installations:
+$ cpan
+> o conf makepl_org INSTALL_BASE=/dors/capra_lab/users/psbadmin/localperl
+> o conf commit
+> quit
 
-THEN, install DBI.pm  (if needed)
-perl -MCPAN -e 'install Bundle::DBI'      See https://metacpan.org/pod/Bundle::DBI
+# THEN, install DBI.pm  (if needed)
+# The goal is to get PERL to be able to talk to a SQL server
+# And I endless go round and round as PERL changes - sorry and good luck:
+# 
+$ perl -MCPAN -e 'install Bundle::DBI'      # See https://metacpan.org/pod/Bundle::DBI
 
-6a.2) Install DBD
+# As the screen whizzes by during execution of above, watch for references to the PERL directory
+# If not /dors/capra_lab/users/psbadmin/local_perl, then things have come off the rails.  This is very easy 
+# as there are these conflicts between this new perl, Anaconda conda init, and the operating system PERL
+# if you have missed an instruction above
+
+# The above ends with some test failures because DBI is missing... which takes us to....
+
+6a.2) Install DBD::mysql
 The "punch line" is that you will do
 
-"cpan DBD::mysql"
+$ cpan DBD::mysql
 
 as described here:
 https://metacpan.org/pod/distribution/DBD-mysql/lib/DBD/mysql/INSTALL.pod
 
-HOWEVER, this above will not work until the C compiler can see /usr/include/mysql/mysql.h and 
-other mariadb development supports, which includes /usr/lib64/mysql/mysql_config
+# HOWEVER, this above will not work until the C compiler can see /usr/include/mysql/mysql.h and 
+# other mariadb development supports, which includes /usr/lib64/mysql/mysql_config
+# If you do not have this, talk to your root administrator to load these
+
+# Getting the above to support a database query is simply brutal in my hands.  Good luck!
+# Other commands that seem to help:
+$ cpan Devel::CheckLib
+$ cpan Try::Tiny
 
 6b) Load bioperl-1.2.3 in the specific manner required by Ensembl PERL API:
 
@@ -105,22 +205,85 @@ $ cd /dors/capra_lab/users/psbadmin
 $ mkdir ensembl
 $ cd ensembl            <<<< I use "ensembl" here and NOT "src" as in the video
 
-$ wget https://github.com/bioperl/bioperl-live/archive/bioperl-release-1-2-3.zip
-$ unzip bioperl-release-1-2-3.zip 
-$ mv bioperl-live-bioperl-release-1-2-3/ bioperl-1.2.3
+$  wget https://cpan.metacpan.org/authors/id/C/CJ/CJFIELDS/BioPerl-1.6.924.tar.gz 
+$ tar zxvf BioPerl-1.6.924.tar.gz
 
-6c) Clone 5 Ensembl repositories:
+It can be convenient to 
 
-$ git clone https://github.com/Ensembl/ensembl.git
-$ git clone https://github.com/Ensembl/ensembl-variation.git
-$ git clone https://github.com/Ensembl/ensembl-compara.git
-$ git clone https://github.com/Ensembl/ensembl-funcgen.git
-$ git clone https://github.com/Ensembl/ensembl-tools.git
+$ ln -s BioPerl-1.6.924 bioperl-live
+
+Otherwise, Be sure to update your /dors/capra_lab/users/psbadmin/psb_prep.bash file
+to reflect the PATH of the specific bioperl version you install
+
+6c) Clone 5 Ensembl PERL API repositories:
+
+$ cd /dors/capra_lab/users/psbadmin/ensembl
+
+I recommend you follow the procedures here.  It is very elegant to download using Ensembl's
+git extension, and then set the branch to the Ensembl Api you are using
+https://uswest.ensembl.org/info/docs/api/api_git.html
 
 6d) Try::Tiny
 cpan Try::Tiny
 
-6e) Testing
+6e) Install the Ensembl Variant Effect Predictor (VEP)
+See instructions here:  https://m.ensembl.org/info/docs/tools/vep/script/vep_download.html
+
+You should wind up with these subdirectories and a tar file like this one in your
+/dors/capra_lab/users/psbadmin/ensembl directory
+
+BioPerl-1.6.924/
+BioPerl-1.6.924.tar.gz*
+bioperl-live@
+ensembl/
+ensembl-compara/
+ensembl-funcgen/
+ensembl-git-tools/
+ensembl-io/
+ensembl-variation/
+ensembl-vep/
+
+I like for ensembl-vep directory to be a sibling to the other ensembl- directories 
+installed above.
+
+$ cd /dors/capra_lab/users/psbadmin/ensembl
+$ git clone https://github.com/Ensembl/ensembl-vep.git
+$ cd ensembl-vep
+$ git pull
+# Take care to checkout the ensembl perl API version you selected api with 
+# A similar branch selection kind of command.  For PERL Api and data v100 use:
+$ git checkout release/100  # Or whatever Ensembl release you have data pre-loaded for
+
+# There is a final command, and the installation of the so called "cache files" is critical
+# to the high performance of the VEP program.  Please make sure that your choice
+# of cache Directory is recorded in the pipeline's $psbbin/../config/global.config file
+# 
+# Here is the approach taken in our lab:
+$ perl INSTALL.pl --VERSION 100 --CACHEDIR /dors/capra_lab/data/ensembl/vep_cache
+
+6e) Testing PERL and SQL
+TEST 1:
+Try the command:
+$ transcript_to_genomic.pl ENST00000375528
+
+You should get a lovely table of chromosome positions and amino acid translations.  The transcript_to_genomic.pl
+/dors/capra_lab/users/psbadmin/pdbmap
+
+TEST 2:
+$ /dors/capra_lab/users/psbadmin/ensembl/ensembl-vep/vep
+
+This is the main routine of a super-complex PERL code.  If you get a help screen, at least you are making _some_ progress
+There is a t/ test directory under ensembl-vep, but you'd have to be sure to repoint to your local
+SQL server.
+
+The ultimate test is perhaps whether you can "parse_udn_report.py" to get a pipeline run going.  Watch for vep launch errors, or empty missense output files
 
 
+7) Loading the SQL database
+
+7a) The Pipeline uses the Ensembl PERL API, which access both large cache files (--cache in vep) and a SQL database that you must download, and prepare with a variety of mysqlimport commands.
+
+In theory, you _can_ redirect youf ENSEMBL_REGISTRY file to ensembl's internet-open SQL servers.  In practice, these are excrutiatingly slow.
+
+Full instructions are here:
 

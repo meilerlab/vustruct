@@ -271,7 +271,7 @@ def monitor_one_mutation(workstatus):
     df_incomplete = df_all_jobs_status[df_all_jobs_status['ExitCode'] != '0']
 
     # Are there any changes to what we know about the status of the jobs?
-    if df_all_jobs_original_status.to_msgpack() == df_all_jobs_status.to_msgpack():
+    if df_all_jobs_original_status.to_string(header=False) == df_all_jobs_status.to_string(header=False):
         if len(df_incomplete) == 0:
             # This happens out to right of earlier printing...
             print("   All %d jobs completed successfully"%len(df_all_jobs_status))

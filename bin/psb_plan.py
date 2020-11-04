@@ -1617,7 +1617,7 @@ def plan_casewide_work(original_case_xlsx_file):
                         "pdb_mutation":"N/A"}
 
 
-    digenic_options = "-e %s"%original_case_xlsx_file
+    digenic_options = "-n %s -e %s"%(args.project,original_case_xlsx_file)
 
     
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
