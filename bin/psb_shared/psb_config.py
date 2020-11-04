@@ -28,7 +28,7 @@ def create_default_argument_parser(callers_docstring: str,
 
     script_realpath = os.path.realpath(__file__)
 
-    is_production = (global_config_dirname == "/dors/capra_lab/users/psbadmin")
+    is_production = global_config_dirname.endswith("/capra_lab/users/psbadmin")
 
     default_global_config = None
     default_global_config = os.path.join(
