@@ -68,6 +68,7 @@ from lib import PDBMapTranscriptFasta
 from lib import PDBMapTranscriptEnsembl
 from lib import PDBMapGenomeVariants
 from lib import PDBMapGnomad
+from lib import PDB36Parser
 from lib.PDBMapAlignment import sifts_best_unps
 
 # BioPython routines to deal with pdb files
@@ -239,12 +240,28 @@ def makedirs_capra_lab(DEST_PATH, module_name):
     set_capra_group_sticky(DEST_PATH)
 
 def load_structure(id,coord_filename):
+    tryParser36 = False
     with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else \
          lzma.open(coord_filename,'rt') if coord_filename.split('.')[-1]=='xz' else \
              open(coord_filename,'r') as fin:
         filterwarnings('ignore',category=PDBConstructionWarning)
-        structure = PDBParser().get_structure(id,fin)
+        try:
+            structure = PDBParser().get_structure(id,fin)
+        except ValueError:
+            tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
+            structure = None
+
         resetwarnings()
+
+    if tryParser36:
+        LOGGER.critical("Attempting Hybrid36 PDB Parser for %s"%coord_filename)
+        with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else \
+             lzma.open(coord_filename,'rt') if coord_filename.split('.')[-1]=='xz' else \
+                 open(coord_filename,'r') as fin:
+            filterwarnings('ignore',category=PDBConstructionWarning)
+            structure = PDB36Parser().get_structure(id,fin)
+            resetwarnings()
+
     return structure
 
 
@@ -301,7 +318,12 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
             ensemble_transcript_ids = PDBMapProtein.unp2enst(sifts_chain_to_best_unp[chain_letter])
             if not ensemble_transcript_ids:
                 LOGGER.critical("Unp %s is best for chain %s. HOWEVER it lacks ENST*.. so reverting to canonical",sifts_chain_to_best_unp[chain_letter],chain_letter)
-                sifts_chain_to_best_unp[chain_letter] = PDBMapProtein.best_unp(sifts_chain_to_best_unp[chain_letter].split('-')[0])
+                canonical_unp = PDBMapProtein.best_unp(sifts_chain_to_best_unp[chain_letter].split('-')[0])
+                # If this unp is NOT in our curated/reviewed set from uniprot, we need to skip this chain
+                if PDBMapProtein.unp2uniparc(canonical_unp) is None:
+                    LOGGER.warning("Chain %s has canonical unp %s, but it has not been reviewed by uniprot.  Skipping"%(chain_letter,canonical_unp))
+                    continue
+                sifts_chain_to_best_unp[chain_letter] = canonical_unp
                 LOGGER.critical("For chain %s, unp now=%s",chain_letter,sifts_chain_to_best_unp[chain_letter])
 
             best_unp_transcript = PDBMapTranscriptUniprot(sifts_chain_to_best_unp[chain_letter])
