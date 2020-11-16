@@ -42,6 +42,7 @@ import gzip
 import lzma
 import logging
 import datetime
+from io import StringIO
 
 from typing import Dict
 
@@ -56,6 +57,9 @@ global_fh = None # Setup global fileHandler log when we get more info
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
+
+# Dictionary to map uniprot IDs for this case to a pre-loaded set of transcripts
+unp2transcript = {}
 
 def gene_specific_set_log_formatter(log_handler: logging.Handler, entry: int, gene:str) -> None:
     log_format_string = '%3d %-7s'%(entry,gene) + ' %(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
@@ -83,9 +87,11 @@ from lib import PDBMapSwiss
 # from lib import PDBMapModbase2016
 # from lib import PDBMapModbase2013
 from lib import PDBMapModbase2020
+from lib import PDB36Parser
 from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
-from lib.PDBMapTranscriptEnsembl import PDBMapTranscriptEnsembl
+# from lib.PDBMapTranscriptEnsembl import PDBMapTranscriptEnsembl
 from lib.PDBMapAlignment import PDBMapAlignment
+from psb_shared.ddg_monomer import DDG_monomer
 from lib.amino_acids import longer_names
 import pprint
 import shutil
@@ -488,9 +494,15 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     global oneMutationOnly
     global df_dropped
 
+    df_dropped = pd.DataFrame()
+
     LOGGER.info("Planning mutation for %s %s %s %s",args.project,gene,refseq,mutation)
     if user_model:
         LOGGER.info("Additional User model %s requested",user_model)
+
+    trans_mut_pos = None
+    if mutation:
+        trans_mut_pos = int(mutation[1:-1])
 
     # 2017-10-03 Chris Moth modified to key off NT_ refseq id
     unps = PDBMapProtein.refseqNT2unp(refseq)
@@ -504,6 +516,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
                 LOGGER.warning("unp %s determined from refseq %s will override provided %s",newunp,refseq,unp)
         unp = newunp
         gene = PDBMapProtein.unp2hgnc(unp)
+        LOGGER.info("gene=%s, unp=%s"%(gene,unp))
         del unps
     else: # Sort this out the old way
         if unp:
@@ -572,16 +585,171 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     c.execute(sql,(unp,config_dict['collaboration'],args.project,gene,refseq,mutation))
     c.close()
     """
+
+    # Life is much easier if we have a class that knows 'everything' relevant about ranking pdb structures
+    class ChainInfo(object):
+        def __init__(self,_label: str = 'N/A'):
+            self.label = _label        # Typically pdb, swiss, modbase, usermodel
+            self.structure_id = None   # unique ID (filename base) of the structure within the domain of pdb/swiss/modbase
+            self.structure_url = None  # url for more information from rcsb, swissmodel, etc
+            self.struct_filename = None# Required for user models as argument to pathprox.  Nice to gather as we can for others
+            self.mers = 'monomer'      # Could be dimer/trimer/etc - Processing of an entire complex is a top level idea, with the other chains peer calculations
+            self.pdb_template = None   # For models, the deposited PDB structure upon which the model was created
+            self.template_identity = None # For models, the Swiss/Modbase provided seq identity number between transcript and pdb template
+            self.template_chain = None # The chain ID of the template primarily used to build the model
+            self.chain_id = None       # The .cif chain letter A/B/C.... possibly #s and lower letters for large cryoEM
+            self.biounit = None        # Boolean to record whether a biounit file is available
+            self.method = None         # X-RAY...  CRYO-EM, etc
+            self.resolution = None     # Resolution in Angtroms, method-specific.  Also resolution of model templates, if available
+            self.deposition_date = None# YYYY-MM-DD format
+            self.biounit_chains = None # count of chains in the biounit
+            self.nresidues = None      # Number of residues in the biounit or structure
+            self.perc_aligned = None   # percent of transcript aligned to the PDB     PDBMapAlignment.perc_aligned 
+            self.perc_identity = None  # percent of identical aligned residues        PDBMapAlignment.perc_identity
+            self.aln_score = None      # Blosum based score summed for all aligned residues  PDBMapAlignment.aln_score
+            self.mut_pdb_res = None    # The pdb residue to which the transcript mutation point is aligned
+            self.mut_pdb_icode = None  # The pdb insertion code of the residue to which the transccript mut point aligned
+            self.continuous_to_left = -1  # continuous residues to "left" in pdb.  -1 if our residue is not in the pdb at all
+            self.continuous_to_right = -1 # continuous residues to "right" in pdb  -1 if our residue of interest not in pdb
+            self.distance_from_aligned = None # minimum of the 2 continuous_to_* values
+            self.analyzable = None     # 'Yes', 'No', or 'Maybe' - supports legacy understanding
+            self.trans_mut_pos = None  # The 1..len(transcript) transcript position of the mutation site of interest
+            self.trans_first_aligned = None # The 1..len(transcript) transcript position of the first aligned amino acid
+            self.trans_last_aligned = None  # The 1..len(transcript) transcript position of the last aligned amino acid
+            self.ddg_quality = None    # Set to true if ddg quality checks are passed on this chain
+
+        def __str__(self):
+            return str(vars(self))
+
+        def __repr__(self):
+            return "ChainInfo:" +  str(self)
+
+        def set_alignment_profile(self,alignment: PDBMapAlignment,structure): 
+            self.perc_aligned = alignment.perc_aligned
+            self.perc_identity = alignment.perc_identity
+            self.aln_score = alignment.aln_score
+
+            sorted_align_seqs = sorted(alignment.seq_to_resid.keys())
+            self.trans_first_aligned = sorted_align_seqs[0]
+            self.trans_last_aligned = sorted_align_seqs[-1]
+
+            chain_aa_letter = None
+            self.continuous_to_left = -1
+            self.continuous_to_right = -1
+            if self.trans_mut_pos: # Typically we have a transcript position nutation number
+                if self.trans_first_aligned <= self.trans_mut_pos <= self.trans_last_aligned:
+                    self.distance_from_aligned = 0 # I.e., our mutation of interest inside the aligned transcript aa_seq range
+                elif self.trans_mut_pos < self.trans_first_aligned: # Our mutation of interest to 'left' of first aligned transcript sequence
+                    self.distance_from_aligned = self.trans_first_aligned - self.trans_mut_pos 
+                else: # Our mutation of interest to 'right' of last aligned transcript aa_seq
+                    self.distance_from_aligned = self.trans_mut_pos - self.trans_last_aligned
+                if self.distance_from_aligned == 0:
+                    self.analyzable = 'Yes'
+                elif self.distance_from_aligned <= args.maybe:
+                    self.analyzable = 'Maybe'
+                else:
+                    self.analyzable = 'No'
+
+                resid = alignment.seq_to_resid.get(self.trans_mut_pos,None)
+                if resid:
+                    self.continuous_to_left = 0
+                    self.continuous_to_right = 0
+                    self.mut_pdb_res = resid[1]
+                    self.mut_pdb_icode = resid[2]
+                    chain_aa_letter = seq1(structure[0][self.chain_id][resid].get_resname().lower())
+                    while True:
+                        test_left = self.trans_mut_pos - self.continuous_to_left - 1
+                        if (test_left <= 0) or (test_left not in alignment.seq_to_resid):
+                            break
+                        self.continuous_to_left += 1
+                    while True:
+                        test_right = self.trans_mut_pos + self.continuous_to_right + 1
+                        if (test_right > transcript.len) or (test_right not in alignment.seq_to_resid):
+                            break
+                        self.continuous_to_right += 1
+                else:
+                    LOGGER.info("No resolved residue is present in %s for transcript position %d"%(structure.id,trans_mut_pos))
+                 
+
+        def mers_string(self,chain_count: int) -> str:
+            return { # dimer/trimer... or 7-mer/9-mer via .get default
+                1: 'mono',
+                2: 'di',
+                3: 'tri',
+                4: 'tetra',
+                5: 'penta',
+                6: 'hexa',
+                8: 'octa',
+               10: 'deca'}.get(chain_count,"%d-"%chain_count) + 'mer'
+
     
     ################################################
     # Load relevant PDBs for consideration         # 
     ################################################
-    pdbs_chains = PDBMapSIFTSdb.pdbs_chains_for_all_unp_isoforms(unp)
 
-    LOGGER.info("%d Deposited PDB Chains are for unp=%s"%(len(pdbs_chains),unp.split('-')[0]))
-
-    transcript = PDBMapTranscriptUniprot(unp)
+    if unp in unp2transcript: # Don't re-instantiate what we've already created
+        transcript = unp2transcript[unp]
+    else:
+        transcript = PDBMapTranscriptUniprot(unp)
+   
+    # Let's do some sanity checks on requested mutation 
+    if mutation:
+        if trans_mut_pos > len(transcript.aa_seq):
+            sys.exit("Variant %s is not in transcript which is only length %d"%(mutation,len(transcript.aa_seq)))
+        if transcript.aa_seq[trans_mut_pos-1] != mutation[0]:
+            sys.exit("Variant %s does not match unp transcript %s"%(mutation,transcript.aa_seq[trans_mut_pos-1]))
     unp_is_canonical = PDBMapProtein.isCanonicalByUniparc(unp)
+
+    pdbs_chains_coverage = PDBMapSIFTSdb.pdbs_chains_coverage_for_unp(unp,unp_is_canonical)
+
+    # We need to record structures that clearly are not covering a mutation of interest
+    # These non-cover structures are output as part of the dropped structures report
+    pdbs_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','trans_first_aligned','trans_last_aligned'])
+
+    pdbs_chains = []
+
+    for pcc in pdbs_chains_coverage:
+        if mutation and (pcc['min_unp_start'] > trans_mut_pos+args.maybe or pcc['max_unp_end'] < trans_mut_pos-args.maybe):
+            drop_info = {
+                  'label': 'pdb',
+                  'structure_id': pcc['pdbid'],
+                  'chain_id': pcc['mapping_pdb_chain'],
+                  'trans_first_aligned': pcc['min_unp_start'],
+                  'trans_last_aligned': pcc['max_unp_end']}
+            LOGGER.debug("%d not covered by %s"%(trans_mut_pos,str(drop_info)))
+            pdbs_not_covering_df = pdbs_not_covering_df.append(drop_info,ignore_index=True)
+        else:
+            pdb_chain_entry = (pcc['pdbid'],pcc['mapping_pdb_chain'],pcc['min_unp_start'],pcc['max_unp_end'])
+            LOGGER.debug("Retaining pdb %s"%str(pdb_chain_entry))
+            pdbs_chains.append(pdb_chain_entry)
+
+    
+    """if mutation:
+        # If we can retrieve pdbs_chains for our specific unp of interest, and only those which might cover
+        # the mutation of interest, then this is a great timesaver.  Else, we fall through and grab everything
+        # Dive again if if nothing found with the '-' isoform speicific unp the unp is canonical 
+        if not pdbs_chains and unp_is_canonical:
+            if '-' in unp:
+                # Attempt to find pdbs using the dash-less unp form.
+                pdbs_chains = PDBMapSIFTSdb.pdbs_chains_for_specific_unp(unp.split('-')[0],trans_mut_pos+args.maybe,trans_mut_pos-args.maybe)
+            else:
+                # If there is a dashed-form of this UNP, then try that.
+                full_canonical_unp = PDBMapProtein.best_unp(unp)
+                if '-' in full_canonical_unp:
+                   pdbs_chains = PDBMapSIFTSdb.pdbs_chains_for_specific_unp(full_canonical_unp,trans_mut_pos+args.maybe,trans_mut_pos-args.maybe)
+
+    else:
+        pdbs_chains = PDBMapSIFTSdb.pdbs_chains_for_all_unp_isoforms(unp)
+    """
+
+    if not pdbs_chains:
+        pdbs_chains = []
+
+    LOGGER.info("%d Deposited PDB Chains found in SIFTS database for unp=%s"%(
+       len(pdbs_not_covering_df)+len(pdbs_chains),unp))
+    if mutation:
+        LOGGER.info("PDBs Covering %s%d: %d    Not Covering: %d    Loading covering structures from filesystem...."%(
+             transcript.aa_seq[trans_mut_pos-1],trans_mut_pos,len(pdbs_chains),len(pdbs_not_covering_df)))
 
     from Bio.PDB import MMCIFParser
     from Bio.PDB import PDBParser
@@ -597,7 +765,10 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     # Biosystems give us the best 'complex' multi-chain picture
     # Asymetric units are great for single chain processing, and for
     # Backstory on method, resolution, etc
-    for pdb_upper_id,chain_id in pdbs_chains:
+    for pdb_upper_id,chain_id,_,_ in pdbs_chains:
+        if not args.debug: # The debug option will give much more info if activated.  Don't duplicate
+            sys.stderr.write(pdb_upper_id + ' ')
+            sys.stderr.flush()
         pdb_id = pdb_upper_id.lower()
         biounit = None
         structure = None
@@ -656,98 +827,8 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
                     structures_dict[pdb_id] = structure
                 else:
                     LOGGER.critical("%s: No structure file %s",pdb_id,structure_filename)
-
-    # Life is much easier if we have a class that knows 'everything' relevant about ranking pdb structures
-    class ChainInfo(object):
-        def __init__(self,_label: str = 'N/A'):
-            self.label = _label        # Typically pdb, swiss, modbase, usermodel
-            self.structure_id = None   # unique ID (filename base) of the structure within the domain of pdb/swiss/modbase
-            self.structure_url = None  # url for more information from rcsb, swissmodel, etc
-            self.struct_filename = None# Required for user models as argument to pathprox.  Nice to gather as we can for others
-            self.mers = 'monomer'      # Could be dimer/trimer/etc - Processing of an entire complex is a top level idea, with the other chains peer calculations
-            self.pdb_template = None   # For models, the deposited PDB structure upon which the model was created
-            self.template_identity = None # For models, the Swiss/Modbase provided seq identity number between transcript and pdb template
-            self.template_chain = None # The chain ID of the template primarily used to build the model
-            self.chain_id = None       # The .cif chain letter A/B/C.... possibly #s and lower letters for large cryoEM
-            self.biounit = None        # Boolean to record whether a biounit file is available
-            self.method = None         # X-RAY...  CRYO-EM, etc
-            self.resolution = None     # Resolution in Angtroms, method-specific.  Also resolution of model templates, if available
-            self.deposition_date = None# YYYY-MM-DD format
-            self.biounit_chains = None # count of chains in the biounit
-            self.nresidues = None      # Number of residues in the biounit or structure
-            self.perc_aligned = None   # percent of transcript aligned to the PDB     PDBMapAlignment.perc_aligned 
-            self.perc_identity = None  # percent of identical aligned residues        PDBMapAlignment.perc_identity
-            self.aln_score = None      # Blosum based score summed for all aligned residues  PDBMapAlignment.aln_score
-            self.mut_pdb_res = None    # The pdb residue to which the transcript mutation point is aligned
-            self.mut_pdb_icode = None  # The pdb insertion code of the residue to which the transccript mut point aligned
-            self.continuous_to_left = -1  # continuous residues to "left" in pdb.  -1 if our residue is not in the pdb at all
-            self.continuous_to_right = -1 # continuous residues to "right" in pdb  -1 if our residue of interest not in pdb
-            self.distance_from_aligned = None # minimum of the 2 continuous_to_* values
-            self.analyzable = None     # 'Yes', 'No', or 'Maybe' - supports legacy understanding
-            self.trans_mut_pos = None  # The 1..len(transcript) transcript position of the mutation site of interest
-            self.trans_first_aligned = None # The 1..len(transcript) transcript position of the first aligned amino acid
-            self.trans_last_aligned = None  # The 1..len(transcript) transcript position of the last aligned amino acid
-
-        def __str__(self):
-            return str(vars(self))
-
-        def __repr__(self):
-            return "ChainInfo:" +  str(self)
-
-        def set_alignment_profile(self,alignment: PDBMapAlignment,structure): 
-            self.perc_aligned = alignment.perc_aligned
-            self.perc_identity = alignment.perc_identity
-            self.aln_score = alignment.aln_score
-
-            sorted_align_seqs = sorted(alignment.seq_to_resid.keys())
-            self.trans_first_aligned = sorted_align_seqs[0]
-            self.trans_last_aligned = sorted_align_seqs[-1]
-
-            chain_aa_letter = None
-            self.continuous_to_left = -1
-            self.continuous_to_right = -1
-            if self.trans_mut_pos: # Typically we have a transcript position nutation number
-                if self.trans_first_aligned <= self.trans_mut_pos <= self.trans_last_aligned:
-                    self.distance_from_aligned = 0 # I.e., our mutation of interest inside the aligned transcript aa_seq range
-                elif self.trans_mut_pos < self.trans_first_aligned: # Our mutation of interest to 'left' of first aligned transcript sequence
-                    self.distance_from_aligned = self.trans_first_aligned - self.trans_mut_pos 
-                else: # Our mutation of interest to 'right' of last aligned transcript aa_seq
-                    self.distance_from_aligned = self.trans_mut_pos - self.trans_last_aligned
-                if self.distance_from_aligned == 0:
-                    self.analyzable = 'Yes'
-                elif self.distance_from_aligned <= args.maybe:
-                    self.analyzable = 'Maybe'
-                else:
-                    self.analyzable = 'No'
-
-                resid = alignment.seq_to_resid.get(self.trans_mut_pos,None)
-                if resid:
-                    self.continuous_to_left = 0
-                    self.continuous_to_right = 0
-                    self.mut_pdb_res = resid[1]
-                    self.mut_pdb_icode = resid[2]
-                    chain_aa_letter = seq1(structure[0][self.chain_id][resid].get_resname().lower())
-                    while True:
-                        test_left = self.trans_mut_pos - self.continuous_to_left - 1
-                        if (test_left <= 0) or (test_left not in alignment.seq_to_resid):
-                            break
-                        self.continuous_to_left += 1
-                    while True:
-                        test_right = self.trans_mut_pos + self.continuous_to_right + 1
-                        if (test_right > transcript.len) or (test_right not in alignment.seq_to_resid):
-                            break
-                        self.continuous_to_right += 1
-
-        def mers_string(self,chain_count: int) -> str:
-            return { # dimer/trimer... or 7-mer/9-mer via .get default
-                1: 'mono',
-                2: 'di',
-                3: 'tri',
-                4: 'tetra',
-                5: 'penta',
-                6: 'hexa',
-                8: 'octa',
-               10: 'deca'}.get(chain_count,"%d-"%chain_count) + 'mer'
+    if len(pdbs_chains) > 0 and not args.debug: # Finish off the dumping of pdb IDs above
+        sys.stderr.write('\n')
 
     # Now that we have all the candidate pdbs and biounits in memory.....
     # Create the dataframe that we will use to pick the 'best' pdb(s) for pipeline analysis
@@ -760,30 +841,48 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     # Load relevant swiss models for consideration # 
     ################################################
     swiss_modelids = PDBMapSwiss.unp2modelids(unp,IsoformOnly = True)
+    LOGGER.info("*** Evaluating %d Swiss Models for %s %s"%(len(swiss_modelids),gene,unp))
+    # We need to record structures that clearly are not covering a mutation of interest
+    # These non-cover structures are output as part of the dropped structures report
+    swiss_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','template','trans_first_aligned','trans_last_aligned'])
     for swiss_modelid in swiss_modelids:
-        info = PDBMapSwiss.get_info(swiss_modelid)
-        ci = ChainInfo('swiss')
-        ci.struct_filename= PDBMapSwiss.get_coord_file(swiss_modelid)
-        
-        if not os.path.exists(ci.struct_filename):
-            LOGGER.critical("Swiss model %s in meta data not found at %s",swiss_modelid,ci.struct_filename)
+        swiss_info = PDBMapSwiss.get_info(swiss_modelid)
+        if trans_mut_pos and (swiss_info['start'] > trans_mut_pos + args.maybe or swiss_info['end'] < trans_mut_pos - args.maybe):
+            LOGGER.info("Skipping swiss_modelid=%s because it only covers %s to %s"%(swiss_modelid,swiss_info['start'],swiss_info['end']))
+            drop_info = {
+                  'label': 'swiss',
+                  'structure_id': swiss_info['modelid'],
+                  'template': swiss_info['template'],
+                  'chain_id': swiss_info['template'][-1],
+                  'trans_first_aligned': swiss_info['start'],
+                  'trans_last_aligned': swiss_info['end']}
+            LOGGER.debug("%d not covered by %s"%(trans_mut_pos,str(drop_info)))
+            swiss_not_covering_df = swiss_not_covering_df.append(drop_info,ignore_index=True)
             continue
-        ci.structure_id = info['modelid']
-        ci.structure_url = "https://swissmodel.expasy.org/repository/%s/report"%info['coordinate_id']
+
+        # We've got a swiss model that likely covers the residue of interest.  Press on!
+        _struct_filename= PDBMapSwiss.get_coord_file(swiss_modelid)
+        if not os.path.exists(_struct_filename):
+            LOGGER.critical("Swiss model %s in meta data not found at %s",swiss_modelid,_struct_filename)
+            continue
+
+        ci = ChainInfo('swiss')
+     
+        ci.trans_mut_pos = trans_mut_pos
+        ci.struct_filename= _struct_filename
+        
+        ci.structure_id = swiss_info['modelid']
+        ci.structure_url = "https://swissmodel.expasy.org/repository/%s/report"%swiss_info['coordinate_id']
         ci.biounit = False
-        ci.pdb_template = info['template']
+        ci.pdb_template = swiss_info['template']
         # Swiss templates always formatted as pdb_id.1.chain_id
         ci.template_chain = ci.pdb_template[-1]
 
-        if mutation:
-            ci.trans_mut_pos = int(mutation[1:-1])
-        else:
-            ci.trans_mut_pos = None
 
         remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(swiss_modelid)
         ci.method = remark3_metrics['mthd']
 
-        LOGGER.info("Loading Swiss model from %s"%ci.struct_filename)
+        LOGGER.debug("Loading Swiss model from %s"%ci.struct_filename)
         swiss_structure = PDBParser().get_structure(ci.structure_id,ci.struct_filename)
         chain_count = 0
         for chain in swiss_structure[0]:
@@ -805,6 +904,9 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         else: # Strange - just grab first 
             ci.chain_id = first_swiss_chain_id
         assert ci.chain_id not in [' ',''],"UUGH - this swiss model has blank chain ID"
+        ci.ddg_quality = DDG_monomer.evaluate_swiss(swiss_info['modelid'],remark3_metrics)
+        if ci.ddg_quality:
+            LOGGER.info("DDG monomer will be attempted for swissmodel %s"%swiss_info['modelid'])
 
         ci.nresidues = len(list(swiss_structure[0][ci.chain_id].get_residues()))
         ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
@@ -821,6 +923,10 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             ci.biounit_chains = chain_count
             ci.mers = ci.mers_string(ci.biounit_chains)
             ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+
+    if mutation:
+        LOGGER.info("Swiss Models Covering %s%d: %d    Not Covering: %d"%(
+             transcript.aa_seq[trans_mut_pos-1],trans_mut_pos,len(swiss_modelids)-len(swiss_not_covering_df),len(swiss_not_covering_df)))
 
     ################################################
     # Load relevant modbase models for consideration # 
@@ -862,9 +968,29 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             modbase_structure_fin = open(ci.struct_filename,'rt')
         else:
             sys.exit("Modbase model has unrecognized file extension %s"%ci.struct_filename)
-        modbase_structure = PDBParser().get_structure(ci.structure_id,modbase_structure_fin)
+
+        modbase_structure_buffer = modbase_structure_fin.read()
+        modbase_structure_fin.close()
+
+        modbase_structure_fin = StringIO(modbase_structure_buffer)
+
+        tryParser36 = False
+
+        try:
+            modbase_structure = PDBParser().get_structure(ci.structure_id,modbase_structure_fin)
+        except ValueError:
+            tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
+
         modbase_structure_fin.close()
         modbase_structure_fin = None
+        if tryParser36: # Try hybrid36 format
+            LOGGER.critical("ValueError with traditional parser - how trying hybrid36 parser on %s"%ci.struct_filename)
+            modbase_structure_fin = StringIO(modbase_structure_buffer)
+            modbase_structure = PDB36Parser().get_structure(ci.structure_id,modbase_structure_fin)
+            modbase_structure_fin.close()
+            modbase_structure_fin = None
+
+
         # Modbase models do not enclode chain IDs to match template - so just grab what we have
         # I.e. get_chains() is an iterator, and we want to first element that comes back
         # without setting up a for loop - so next() is perfect
@@ -874,7 +1000,12 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             ci.chain_id = 'A'
         else:
             ci.chain_id = modbase_chainid
-        
+       
+        ci.ddg_quality = DDG_monomer.evaluate_modbase(StringIO(modbase_structure_buffer))
+        if ci.ddg_quality:
+            LOGGER.info("DDG monomer will be attempted for modbase %s"%modbase_summary['database_id'])
+
+        modbase_structure_buffer = None
         # Modbase super-annoying because the chain_id is often missing
         ci.nresidues = len(list(modbase_structure[0][ci.chain_id].get_residues()))
         ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
@@ -890,8 +1021,29 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         return ci
 
     modbase_2020 = PDBMapModbase2020(config_dict)
+    # Load all the modbase regardless of coverage
     modbase_summary_rows = modbase_2020.transcript2summary_rows(transcript)
+    # We need to record structures that clearly are not covering a mutation of interest
+    # These non-cover structures are output as part of the dropped structures report
+    modbase_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','template','trans_first_aligned','trans_last_aligned'])
+    LOGGER.info("*** Evaluating %d Modbase2020 Models for %s %s"%(len(modbase_summary_rows),gene,unp))
+    # if mutation:
+    #        modbase_summary_rows = modbase_2020.transcript2summary_rows(transcript,trans_mut_pos+args.maybe,trans_mut_pos-args.maybe)
+
     for modbase_summary in modbase_summary_rows:
+        if trans_mut_pos and (modbase_summary['target_beg'] > trans_mut_pos + args.maybe or modbase_summary['target_end'] < trans_mut_pos - args.maybe):
+            LOGGER.info("Skipping modbase=%s because it only covers %s to %s"%(modbase_summary['database_id'],modbase_summary['target_beg'],modbase_summary['target_end']))
+            drop_info = {
+                  'label': 'modbase',
+                  'structure_id': modbase_summary['database_id'],
+                  'template': modbase_summary['pdb_code'],
+                  'chain_id': modbase_summary['pdb_chain'],
+                  'trans_first_aligned': modbase_summary['target_beg'],
+                  'trans_last_aligned': modbase_summary['target_end']}
+            LOGGER.debug("%d not covered by %s"%(trans_mut_pos,str(drop_info)))
+            modbase_not_covering_df = modbase_not_covering_df.append(drop_info,ignore_index=True)
+            continue
+
         ci = chain_info_from_modbase_summary(modbase_2020,modbase_summary)
         if ci is not None:
             ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
@@ -926,7 +1078,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     ###########################################################################################################################
 
     full_complexes = set() # A set of pdbids for which we have noted a full complex is to be considered
-    for pdb_upper_id,_chain_id in pdbs_chains:
+    for pdb_upper_id,_chain_id,_,_ in pdbs_chains:
         LOGGER.info("Processing the next tuple: %s %s",pdb_upper_id,_chain_id)
         ci = ChainInfo('pdb')
         # Extract the mutation position
@@ -979,6 +1131,8 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         else:
             resolution_keys = ['_refine.ls_d_res_high','_reflns.d_resolution_high','_refine_hist.d_res_high']
             LOGGER.critical('%s Experimental method for %s is unknown'%(ci.method,ci.structure_id))
+
+        ci.ddg_quality = True
 
         for resolution_key in resolution_keys:
             if resolution_key in mmCIF_dict:
@@ -1075,13 +1229,12 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(ci_row['structure_id'])
             ci_df.iat[i,ci_df.columns.get_loc('template_identity')] = float(remark3_metrics['sid'])
             
+    df_dropped = pd.DataFrame(columns=ci_df.columns.values.tolist() + ["drop_reason"])
     if not ci_df.empty: #ChrisMoth added this line and indented as the code below that makes no sense for empty df
         # df["Gene"] = gene
         # df = df[["gene","label","structure_id","Chain","method","Resolution (PDB)","template_identity",
         #                "PDB Template","Residues","Seq Start","Seq End",
         #                "Transcript Pos","PDB Pos","Distance to Boundary","Analyzable?"]]
-    
-        df_dropped = pd.DataFrame(columns=ci_df.columns.values.tolist() + ["drop_reason"])
     
         # We now take pains to rid our candidate structures of models which are clearly redundant/degenerate
         # The algorithm retains all experimental structures
@@ -1093,7 +1246,11 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
                 LOGGER.warning( "Retaining %s.%s because it is the keep list, even though:\n%s",
                     ci_df.iloc[k]['structure_id'],ci_df.iloc[k]['chain_id'],reason)
                 return False
-            LOGGER.info( "Dropping ci_df duplicate row %d because %s %s"%(k,ci_df.iloc[k]['structure_id'],reason))
+            LOGGER.info( "Dropping ci_df duplicate row %d because %s.%s %s"%(
+                k,
+                ci_df.iloc[k]['structure_id'],
+                ci_df.iloc[k]['chain_id'],
+                reason))
  
             # Record the removed model for the drop report
             dropped_model = ci_df.iloc[k].copy()
@@ -1332,12 +1489,27 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         ci_df = ci_df.sort_values(by=["distance_from_aligned","method","nresidues",
                                               "resolution","template_identity"],
                                               ascending=[True,False,False,True,False])
-    
-        dropped_models_filename = "%s/%s_%s_%s_dropped_models.csv"%(mutation_dir,gene,refseq,mutation)
-        LOGGER.info("Output the %d dropped  ModBase and Swiss models to: %s"%(len(df_dropped),dropped_models_filename))
-        df_dropped.to_csv(dropped_models_filename,sep='\t',index=True)
-        #
-        # End if not df_empty
+
+   
+    not_covering_df = pd.concat([pdbs_not_covering_df,swiss_not_covering_df,modbase_not_covering_df],axis=0,ignore_index=True,sort=False) 
+    if len(not_covering_df):
+        def non_coverage_reason(row):
+            return "%s.%s covers only transcript %d-%d"%(
+                row['structure_id'],
+                row['chain_id'],
+                row['trans_first_aligned'],
+                row['trans_last_aligned'])
+        not_covering_df['reason'] = not_covering_df.apply (lambda row: non_coverage_reason(row), axis=1)
+        # Make sure that every column in our little non_covering_df is in the larger df_dropped dataframe
+        assert set(df_dropped.columns).intersection(set(not_covering_df.columns)) == set(not_covering_df.columns)
+        df_dropped = pd.concat([df_dropped,not_covering_df],axis=0,ignore_index=True,sort=False)
+
+
+    dropped_models_filename = "%s/%s_%s_%s_dropped_models.csv"%(mutation_dir,gene,refseq,mutation)
+    LOGGER.info("%d dropped PDBs and models output to: %s"%(len(df_dropped),dropped_models_filename))
+    df_dropped.fillna('').to_csv(dropped_models_filename,sep='\t',index=True)
+    #
+    # End if not df_empty
 
     ENST_transcript_ids = PDBMapProtein.unp2enst(unp)
     if ENST_transcript_ids:
@@ -1490,7 +1662,9 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         # Launch ddG on all structures with coverage
         if mutation:
             for index,ci_row in ci_df.iterrows():  # For each chain_info record...
-                # Don't run ddg unless this is a simple monomer
+                if not ci_row['ddg_quality']:
+                    LOGGER.info("Insufficient structure quality for ddg_monomer (%s)"%(ci_row['structure_id']))
+                    continue
                 if ci_row['mut_pdb_res'] and ci_row['mers'] == 'monomer':
                     _params = params.copy() # Dont affect the dictionary passed in  Shallow copy fine
                     _params['method'] = ci_row['method']
@@ -1695,6 +1869,45 @@ else:
                     msg = "unp %s was not found in the uniprot IDMapping file with a UniParc AA sequence"%unp
                 LOGGER.critical(msg)
                 sys.exit(msg)
+
+    # Now that a uniprot ID (unp) has been assigned to all rows, verify that all mutation positions are OK
+    # Simultaneously, build up  a global dictionary of preloaded uniprot Transcripts for this case
+    LOGGER.info("Checking %d uniprot identifiers"%len(df_all_mutations))
+    for index,row in df_all_mutations.iterrows():
+        if 'unp' not in row or not str(row['unp']):
+            msg="%s %d Gene %s invalid.  The Pipeline cannot operate on proteins which lack a valid uniprot identifier"%(
+                udn_csv_filename,index+1,row['Gene'])
+            LOGGER.critical(msg)
+            sys.exit(msg)
+        if row['unp'] not in unp2transcript:
+            LOGGER.debug("Creating transcript from unp=%s"%row['unp'])
+            uniprot_transcript = PDBMapTranscriptUniprot(row['unp'])
+            unp2transcript[row['unp']] = uniprot_transcript
+
+    LOGGER.info("All %d unique uniprot identifiers succesfully instantiated as transcripts"%len(unp2transcript))
+
+    LOGGER.info("Checking variants (mutations)")
+    for index,row in df_all_mutations.iterrows():
+        if 'mutation' in row and row['mutation']:
+            transcript = unp2transcript[row['unp']]
+            trans_mut_pos = None
+            try:
+                trans_mut_pos = int(row['mutation'][1:-1])
+            except:
+                sys.exit("Something wrong with mutation [%s] in line %d: %s.  Must be format AnnnnB"%(row['mutation'],index+1,str(row)))
+
+            if trans_mut_pos > len(transcript.aa_seq):
+                sys.exit("Position %d in %s is too large for transcript len %d"%(
+                    trans_mut_pos,transcript.id,len(transcript.aa_seq)))
+            if transcript.aa_seq[trans_mut_pos-1] != row['mutation'][0]:
+                sys.exit("Position %d in %s is %s, but your mutation is [%s] in line %d: %s.\nYour mutation must start with %s"%(
+                    trans_mut_pos,transcript.id,transcript.aa_seq[trans_mut_pos-1],row['mutation'],index+1,str(row),transcript.aa_seq[trans_mut_pos-1]))
+            if row['mutation'][0] == row['mutation'][-1]:
+                sys.exit("Pipeline does not handle synonymous variants.  See line %d: %s."%(
+                    index+1,str(row)))
+
+    LOGGER.info("All variant (mutation) entries passed sanity test")
+
                 
     ui_final_table = pd.DataFrame()
     for index,row in df_all_mutations.iterrows():
