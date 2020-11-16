@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import time
 import pandas as pd
+from io import StringIO
 from psb_shared.ddg_repo import DDG_repo
 from typing import Dict, List, Tuple, Union
 # from sys import argv, stderr, stdout
@@ -106,7 +107,7 @@ class DDG_monomer(object):
         return False
 
     @staticmethod
-    def evaluate_modbase(modbase_fullpath):
+    def evaluate_modbase(modbase_fullpath_or_fin):
         """Modbase models are evaluated for whether or not they are of high enough quality
         To run in ddg monomer.
         Comuted quality metrics must all be sufficient, including
@@ -114,7 +115,7 @@ class DDG_monomer(object):
         ztsvmod: RMSD of model to template.
         seqid: sequence id of model seq and template seq 
 
-        param: modbase_fullpath  Full pathname of modbase.gz file
+        param: modbase_fullpath_or_fin  Full pathname of modbase.gz file or a StringIO
 
         """
 
@@ -126,8 +127,9 @@ class DDG_monomer(object):
         rmsd_threshold = 4.0
         qual_threshold = 1.1
 
-        LOGGER.info('Checking quality of %s',modbase_fullpath)
-        with lzma.open(modbase_fullpath,'rt') as infile:
+        LOGGER.info('Checking quality of %s',modbase_fullpath_or_fin)
+        with modbase_fullpath_or_fin if type(modbase_fullpath_or_fin) == StringIO else \
+             lzma.open(modbase_fullpath_or_fin,'rt') as infile:
             for line in infile:
                 if line.startswith('REMARK 220 SEQUENCE IDENTITY'):
                     try:
@@ -140,9 +142,10 @@ class DDG_monomer(object):
                         modbase_sid = 0.0
                     if modbase_sid>=sid_threshold:
                         sequence_identity_acceptable = True
-                        LOGGER.info("Sequence identity of %0.1f acceptable as less than threshold %0.1f",modbase_sid,sid_threshold)
+                        LOGGER.info("Modbase Sequence identity of %0.1f acceptable as > threshold %0.1f",modbase_sid,sid_threshold)
                     else:
-                        LOGGER.warning("Sequence Identity: %0.1f < threshold %0.1f",modbase_sid,sid_threshold)
+                        sequence_identity_acceptable = False
+                        LOGGER.warning("Modbase Sequence Identity: %0.1f < threshold %0.1f",modbase_sid,sid_threshold)
 
                 elif line.startswith('REMARK 220 TSVMOD RMSD'):
                     try:
@@ -174,16 +177,10 @@ class DDG_monomer(object):
 
         modbase_ok = modpipe_acceptable and tsvmod_acceptable and sequence_identity_acceptable
          
-        LOGGER.info(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, seq identity: %s"%(
+        LOGGER.info(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, template identity: %s"%(
             str(modpipe_acceptable),str(tsvmod_acceptable),str(sequence_identity_acceptable)))
 
-        # DO NOT CHECK THIS IN
-        # IGNORE ALL CHECKS FOR JONATHAN 2020-80-20
-        return True
         return modbase_ok
-
-
-
 
     def final_results_filename(self) -> str:
         return "%s_%s_%s.csv" % (
