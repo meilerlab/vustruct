@@ -844,7 +844,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     LOGGER.info("*** Evaluating %d Swiss Models for %s %s"%(len(swiss_modelids),gene,unp))
     # We need to record structures that clearly are not covering a mutation of interest
     # These non-cover structures are output as part of the dropped structures report
-    swiss_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','template','trans_first_aligned','trans_last_aligned'])
+    swiss_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','pdb_template','trans_first_aligned','trans_last_aligned'])
     for swiss_modelid in swiss_modelids:
         swiss_info = PDBMapSwiss.get_info(swiss_modelid)
         if trans_mut_pos and (swiss_info['start'] > trans_mut_pos + args.maybe or swiss_info['end'] < trans_mut_pos - args.maybe):
@@ -852,7 +852,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             drop_info = {
                   'label': 'swiss',
                   'structure_id': swiss_info['modelid'],
-                  'template': swiss_info['template'],
+                  'pdb_template': swiss_info['template'],
                   'chain_id': swiss_info['template'][-1],
                   'trans_first_aligned': swiss_info['start'],
                   'trans_last_aligned': swiss_info['end']}
@@ -1025,7 +1025,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     modbase_summary_rows = modbase_2020.transcript2summary_rows(transcript)
     # We need to record structures that clearly are not covering a mutation of interest
     # These non-cover structures are output as part of the dropped structures report
-    modbase_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','template','trans_first_aligned','trans_last_aligned'])
+    modbase_not_covering_df = pd.DataFrame(columns=['label','structure_id','chain_id','pdb_template','trans_first_aligned','trans_last_aligned'])
     LOGGER.info("*** Evaluating %d Modbase2020 Models for %s %s"%(len(modbase_summary_rows),gene,unp))
     # if mutation:
     #        modbase_summary_rows = modbase_2020.transcript2summary_rows(transcript,trans_mut_pos+args.maybe,trans_mut_pos-args.maybe)
@@ -1036,7 +1036,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             drop_info = {
                   'label': 'modbase',
                   'structure_id': modbase_summary['database_id'],
-                  'template': modbase_summary['pdb_code'],
+                  'pdb_template': modbase_summary['pdb_code'],
                   'chain_id': modbase_summary['pdb_chain'],
                   'trans_first_aligned': modbase_summary['target_beg'],
                   'trans_last_aligned': modbase_summary['target_end']}
@@ -1499,7 +1499,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
                 row['chain_id'],
                 row['trans_first_aligned'],
                 row['trans_last_aligned'])
-        not_covering_df['reason'] = not_covering_df.apply (lambda row: non_coverage_reason(row), axis=1)
+        not_covering_df['drop_reason'] = not_covering_df.apply (lambda row: non_coverage_reason(row), axis=1)
         # Make sure that every column in our little non_covering_df is in the larger df_dropped dataframe
         assert set(df_dropped.columns).intersection(set(not_covering_df.columns)) == set(not_covering_df.columns)
         df_dropped = pd.concat([df_dropped,not_covering_df],axis=0,ignore_index=True,sort=False)
