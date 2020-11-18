@@ -826,7 +826,7 @@ class DDG_monomer(object):
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the minimize_directory
-                tmp_directory = 'tmp_per_residues'
+                tmp_directory = tempfile.mkdtemp(prefix='tmp_per_residues',dir='.')
                 os.makedirs(tmp_directory,mode=0o770,exist_ok=True)
                 LOGGER.info("os.chdir('%s')"%tmp_directory)
                 os.chdir(tmp_directory)
