@@ -195,7 +195,7 @@ while i < dfRows:
                 cleaned_effect = remove_unicode_control_characters(effect)
                 effect = cleaned_effect
             else:
-                effect = str(row[3]).strip().encode('utf-8')
+                effect = str(row[3]).strip() # .encode('utf-8')
 
             if gene not in genes:
                 genes[gene] = {}
