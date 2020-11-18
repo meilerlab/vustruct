@@ -127,11 +127,13 @@ def ddg_load_structure(args, config_dict):
         original_structure_filename = PDBMapSwiss.get_coord_file(args.swiss)
         structure_id = swiss_info['modelid']
         structure_info_dict['pdb_template'] = swiss_info['template']
+        # It is OK to run ddG on any chain in a multimeric swiss model
+        # until Andrew Waterhouse gives more details
         # The swiss template info has source PDB chain in the last position
-        pdb_template_chain = structure_info_dict['pdb_template'][-1]
-        assert pdb_template_chain == args.chain, \
-            "With swiss models, chain on command line %s must match modelled chain %s" % (
-                args.chain, pdb_template_chain)
+        # pdb_template_chain = structure_info_dict['pdb_template'][-1]
+        # assert pdb_template_chain == args.chain, \
+        #     "With swiss models, chain on command line %s must match modelled chain %s" % (
+        #         args.chain, pdb_template_chain)
         remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(structure_id)
 
         if not DDG_monomer.evaluate_swiss(structure_id, remark3_metrics):
