@@ -2477,8 +2477,8 @@ if __name__ == "__main__":
                 if not ensembl_transcript.aa_seq:
                     LOGGER.warning("Ensembl transcript %s has no associated aa_seq.  Skipping"%ensembl_transcript_id)
                     continue
-                assert transcript.aa_seq == ensembl_transcript.aa_seq, statusdir_info("UNP and ENS AA sequences differ:\n%s"%(
-                    PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript)))
+                assert transcript.aa_seq == ensembl_transcript.aa_seq, statusdir_info("%s and %s AA sequences differ:\n%s"%(
+                    transcript.id,ensembl_transcript.id,PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript)))
                 LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
                 if ensembl_transcript not in ENST_transcripts:
                     ENST_transcripts.append(ensembl_transcript)
