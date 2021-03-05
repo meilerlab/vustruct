@@ -1,10 +1,16 @@
-<!DOCTYPE html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<!--
+Generate doman graphics by copying the architecture, .js, .css files as seen at
+https://pfam.xfam.org/generate_graphic -->
+
 <html>
 <head lang="en">
-		<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
+		<meta charset="UTF-8" name="viewport" content="width=device-width">
 		<title>myIframe</title>
       <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
-      <link rel="stylesheet" href="css/typography.css">
+      <link rel="stylesheet" href="../html/css/typography.css">
 
     <!-- If user clicks a link in the table of seocndary structure, link to a new page -->
     <base target="_blank" />
@@ -12,56 +18,86 @@
     <script type="text/javascript" src="https://www.google.com/jsapi"></script>
     <script type="text/javascript">google.load("prototype", "1.7");</script>
 
-    <!-- the following libraries are all hosted on the Pfam site, but can obviously be
+    <!-- the following libraries are all hosted on the Pfam site, but have been here
          retrieved and served locally -->
 
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/static/javascripts/third-party/prototype.js"></script>
+<script type="text/javascript" src="../html/javascript/scriptaculous-js-1.9.0/src/scriptaculous.js"></script>
+
+
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/yahoo-dom-event.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/element-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/tabview-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/treeview-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/history-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/utilities.js'></script>
+
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/prototip.css' type='text/css' />
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/tabview.css' type='text/css' />
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/treeview.css' type='text/css' />
+
+
+<!-- prototip -->
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/shared/javascripts/prototip.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/shared/javascripts/styles.js'></script>
+
     <!-- the domain graphics library -->
-    <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/domain_graphics.js"></script>
-    <script type='text/javascript' src='https://pfam.xfam.org/shared/javascripts/tablekit.js'></script>
+    <script type="text/javascript" src="../html/javascript/pfam.xfam.org/static/javascripts/domain_graphics.js"></script>
+    <script type='text/javascript' src='../html/javascript/pfam.xfam.org/shared/javascripts/tablekit.js'></script>
 
     <!-- styles applicable to all browsers -->
-    <link rel='stylesheet' href='https://pfam.xfam.org/static/css/tab_layout.css' type='text/css' />
-    <link rel='stylesheet' href='https://pfam.xfam.org/static/css/protein.css' type='text/css' />
+    <link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/tab_layout.css' type='text/css' />
+    <link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/protein.css' type='text/css' />
 
-    <!-- in order to standardize the look of text, and in order to make it work at
-         all in older browsers (and IE), we need the canvas text library. And, in turn,
-         that library uses a font description in a separate javascript file -->
-    <!--
-      <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/canvas.text.js?dontUseMoz=true&amp;reimplement=true"></script>
-    -->
 
-    <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/canvas.text.js?dontUseMoz=true&amp;reimplement=true"></script>
-    <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/faces/optimer-bold-normal.js"></script>
+<!-- ====================================================================== -->
+<!-- local javascript files -->
 
-    <!-- we use the (non-free) prototip2 library to add tooltips. It's not free, but
-         nearly. The domain graphics code should cope if it's not loaded, so you
-         could just omit the prototip load -->
-    <script type="text/javascript" src="https://pfam.xfam.org/shared/javascripts/prototip.js"></script>
-    <script type="text/javascript" src="https://pfam.xfam.org/shared/javascripts/styles.js"></script>
+<!-- local javascript -->
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/shared/javascripts/sharedFunctions.js"></script>
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/static/javascripts/pfFunctions.js"></script>
 
-    <!-- NGL molecular graphics viewer -->
-    <script type="text/javascript" src="javascript/ngl.js"></script>
+<!-- ====================================================================== -->
+<!-- local stylesheets -->
 
-		<style type="text/css">
-		h4{text-align:center;font-size:80px}
-		h5{text-align:center;font-size:80px}
-      </style>
+<!-- global stylesheet pfam.css and prototip.css moved to javascript-only load down below -->
+<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/shared/css/buttons.css" type="text/css" />
+
+<!-- site-specific stylesheet -->
+<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/static/css/ebi.css" type="text/css" />
+
+<!-- ====================================================================== -->
+<!-- load dynamically required stylesheets and javascript files-->
+
+
+
+<!-- required javascripts -->
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/excanvas.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/domain_graphics.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/graphic_generator.js'></script>
+
+<!-- styles applicable to all browsers -->
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/graphicTools.css' type='text/css' />
+
+
+<!-- ====================================================================== -->
+<!-- set the favicon -->
+
+<link rel="shortcut icon"
+      type="image/png"
+      href="../html/javascript/pfam.xfam.org/static/images/favicon.png" />
+
+<style type="text/css">
+h4{text-align:center;font-size:80px}
+h5{text-align:center;font-size:80px}
+</style>
 
     <!-- stylesheets. We only really need the rules that are specific to the tooltips -->
     <!-- Chris Moth moved these into "script" tags because our non-javascript renderer chokes enroute to .pdf otherwise -->
     <script>
-    document.write('<link rel="stylesheet" href="https://pfam.xfam.org/static/css/pfam.css" type="text/css" />'); 
-    document.write('<link rel="stylesheet" href="https://pfam.xfam.org/shared/css/prototip.css" type="text/css" />');
+    document.write('<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/static/css/pfam.css" type="text/css" />');
+    document.write('<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/shared/css/prototip.css" type="text/css" />');
     </script>
-
-    <!-- IE, being IE, needs extra help. In particular we need to add an extra library
-         that implements <canvas> using the VML drawing layer in IE. And, so that 
-         "console.log" calls don't screw everything up, we include the firebug-lite 
-         script -->
-    <!--[if IE]>
-      <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/excanvas.js"></script>
-      <script type="text/javascript" src="https://getfirebug.com/releases/lite/1.2/firebug-lite-compressed.js"></script>
-    <![endif]-->
 
     <style type="text/css">
       #dg canvas { 
@@ -150,7 +186,7 @@ var myUniprotGraphicGenerator = Class.create( {
 } );
 
 
-document.write("<link rel='stylesheet' href='javascript/pfam.xfam.org/static/css/graphicTools.css' type='text/css' />");
+
 DomainGraphicsJSON = 
 '{{ DomainGraphicsJSON }}';
   window.onload = function() {
@@ -166,6 +202,18 @@ DomainGraphicsJSON =
 
 </head>
 <body>
+<div id="jsWarning" class="warningBox">
+  <strong>Please note:</strong> this site relies heavily on the use of javascript.
+  Without a javascript-enabled browser, this site will not function correctly.
+  Please enable javascript and reload the page, or switch to a different browser.
+</div>
+<script type="text/javascript">
+  // <![CDATA[
+  $("jsWarning").hide();
+
+  // ]]>
+</script>
+
 <div id="graphic" class="panel">
   <h5>{{graphicsLegend}}</h5>
   <div id="dg">
