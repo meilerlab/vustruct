@@ -1175,7 +1175,8 @@ class DDG_monomer(object):
         os.chdir(save_current_directory)
         return jobstatus_info
 
-    def retrieve_result(self):
+    def retrieve_result(self) -> pd.Series:
+        """Return the calculated ddG results as a pandas series, or None"""
         _,_,exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
         save_current_directory = os.getcwd()
         try:
@@ -1190,6 +1191,7 @@ class DDG_monomer(object):
 
         if previous_exit_int == 0:
             final_results_df = pd.read_csv(final_results_fullpath, sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
+            assert len(final_results_df) == 1,"Format error: single row of data not found in %s - halting"%final_results_fullpath
             final_results_df['RefAA'] = final_results_df['Mutation'].str[0]
             final_results_df['AltAA'] = final_results_df['Mutation'].str[-1]
             LOGGER.debug("ddg of %f read from %s"%(final_results_df['ddG'],final_results_fullpath))
@@ -1198,5 +1200,5 @@ class DDG_monomer(object):
             final_results_df = None
 
         os.chdir(save_current_directory)
-        return final_results_df
+        return final_results_df.iloc[0]
         
