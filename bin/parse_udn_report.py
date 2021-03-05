@@ -108,7 +108,7 @@ HeadersList = []
 i = 0
 csv_rows = []
 
-genome = 'hg38'
+genome = 'hg19'
 while i < dfRows:
     row = df.iloc[i]
     # print i, row[0]
@@ -195,7 +195,7 @@ while i < dfRows:
                 cleaned_effect = remove_unicode_control_characters(effect)
                 effect = cleaned_effect
             else:
-                effect = str(row[3]).strip().encode('utf-8')
+                effect = str(row[3]).strip() # .encode('utf-8')
 
             if gene not in genes:
                 genes[gene] = {}
@@ -238,7 +238,7 @@ while i < dfRows:
                     if possible_refseq and type(possible_refseq) == str and refseq_match(possible_refseq):
                         refseq = possible_refseq
 
-            if len(refseq) > 0:
+            if refseq and len(refseq) > 0:
                 unpsForRefseq = PDBMapProtein.refseqNT2unp(refseq)
                 if len(unpsForRefseq):
                     unp = ','.join(PDBMapProtein.refseqNT2unp(refseq))
@@ -279,6 +279,8 @@ while i < dfRows:
 
             try:
                 chrom = df.iloc[i][1]     # Example 'chr1' in Spreadsheet column B
+                # if chrom == 'chrM': # Sometimes UDN leaves off the T
+                #     chrom = 'chrMT'
                 pos = int(df.iloc[i+1][1]) # Example 150915463 below chr1 in column B
                 change = df.iloc[i][2].strip()  # Example A->G to right of chr1 (not using c.809A>G to right of pos in column C)
                 change = change[0] + '/' + change[-1] # Change format to A/G

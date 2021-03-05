@@ -24,6 +24,7 @@ from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
 from lib import PDBMapModbase2020
+from lib import PDB36Parser
 # from lib import PDBMapModbase2016
 # from lib import PDBMapModbase2013
 
@@ -46,12 +47,23 @@ def ddg_load_structure(args, config_dict):
     # We need to load the structure, clean it, and save the xref
 
     def _load_structure_file(id, coord_filename):
+        tryParser36 = False
         with gzip.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "gz" else \
           lzma.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "xz" else \
           open(coord_filename,'r') as fin:
             warnings.filterwarnings('ignore', category=PDBConstructionWarning)
-            structure = PDBParser().get_structure(id, fin)
-            warnings.resetwarnings()
+            try:
+                structure = PDBParser().get_structure(id, fin)
+            except ValueError:
+                tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
+                structure = None
+        if tryParser36: # Try hybrid36 format on modbase
+           LOGGER.critical("ValueError with traditional parser - how trying hybrid36 parser on %s"%coord_filename)
+           with gzip.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "gz" else \
+             lzma.open(coord_filename, 'rt') if coord_filename.split('.')[-1] == "xz" else \
+             open(coord_filename,'r') as fin:
+                 warnings.filterwarnings('ignore', category=PDBConstructionWarning)
+                 structure = PDB36Parser().get_structure(id, fin)
         return structure
 
     def mine_structure_info_from_mmCIF(mmCIF_dict):
@@ -95,6 +107,7 @@ def ddg_load_structure(args, config_dict):
             structure_info_dict['resolution'] = resolution
         return structure_info_dict
 
+    structure = None
     if args.pdb:
         # Load mmCIF from pdb repository
         structure_id = args.pdb.lower()
@@ -114,11 +127,13 @@ def ddg_load_structure(args, config_dict):
         original_structure_filename = PDBMapSwiss.get_coord_file(args.swiss)
         structure_id = swiss_info['modelid']
         structure_info_dict['pdb_template'] = swiss_info['template']
+        # It is OK to run ddG on any chain in a multimeric swiss model
+        # until Andrew Waterhouse gives more details
         # The swiss template info has source PDB chain in the last position
-        pdb_template_chain = structure_info_dict['pdb_template'][-1]
-        assert pdb_template_chain == args.chain, \
-            "With swiss models, chain on command line %s must match modelled chain %s" % (
-                args.chain, pdb_template_chain)
+        # pdb_template_chain = structure_info_dict['pdb_template'][-1]
+        # assert pdb_template_chain == args.chain, \
+        #     "With swiss models, chain on command line %s must match modelled chain %s" % (
+        #         args.chain, pdb_template_chain)
         remark3_metrics = PDBMapSwiss.load_REMARK3_metrics(structure_id)
 
         if not DDG_monomer.evaluate_swiss(structure_id, remark3_metrics):
@@ -192,7 +207,7 @@ def ddg_load_structure(args, config_dict):
 
         # Gather resolution information, etc, from the
         structure_info_dict = mine_structure_info_from_mmCIF(mmcif_dict)
-    else:
+    elif structure is None:
         pdb_parser = PDBParser()
         structure = pdb_parser.get_structure(structure_id, structure_fin)
         # If we ever return to deposited PDBs for ddg calculations (we now use mmcif), then this has to

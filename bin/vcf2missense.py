@@ -87,6 +87,10 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             refseq = refseq[0]
         else:
             refseq = "NA"
+        variant_aa ="%s%s%s"%(CSQ['Ref_AminoAcid'],CSQ['Protein_position'],CSQ['Alt_AminoAcid'])
+        if CSQ['Ref_AminoAcid'] == CSQ['Alt_AminoAcid']:
+            LOGGER.warning("Excluding %s VEP-predicted synonymous variant %s"%(unp,variant_aa))
+            continue
         df = df.append(
             {'gene': CSQ['SYMBOL'],
              'chrom': vcf_record.CHROM,
@@ -94,7 +98,7 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
              'transcript': CSQ['Feature'],
              'unp': unp,
              'refseq': refseq,
-             'mutation': "%s%s%s"%(CSQ['Ref_AminoAcid'],CSQ['Protein_position'],CSQ['Alt_AminoAcid'])
+             'mutation': variant_aa
             },ignore_index=True)
 
 df.to_csv(args.vcffile.split('.')[0]+'_missense.csv_withduplicates',sep=',')
