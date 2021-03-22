@@ -29,7 +29,7 @@ as cloned from github in these instructions
 
 2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/psbadmin/pdbmap
    $ cd /dors/capra_lab/users/psbadmin # << you may already be there
-   $ git clone https://github.com/CapraLab/psbadmin/
+   $ git clone https://github.com/CapraLab/pdbmap/
    $ git status # << Check that you are on the branch, typically master, you expect
 
 3) Download Anaconda3  and install to /dors/capra_lab/users/psbadmin/anaconda3
