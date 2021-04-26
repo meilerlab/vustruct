@@ -1,0 +1,40 @@
+# Dockerfile to build the psbpipeline executables on centos7 and anaconda
+# In phase 0 we build up the centos environment and Anaconda distribution so we don't have to keep downloading that
+# as we fix downstream images.
+
+
+FROM centos:7
+
+# This large .sh file must be preloaded before attempting the build
+# Be sure to update line below with latest filename from anaconda
+ARG Anaconda3_release=Anaconda3-2020.11-Linux-x86_64.sh
+
+# The Anaconda3_...sh installer will modify the root .profile
+# to include PATH=/opt/conda/bin.  HOWEVER, we ususally run
+# the container as non-root - so we have to sort that out
+# with additional ENV here
+ENV PATH="/opt/conda/bin:$PATH"
+
+#Grab anaconda python and install needed python modules
+RUN echo $Anaconda3_release && \
+  echo 'PATH=/opt/conda/bin:${PATH}' >> /etc/environment && \
+  echo 'PATH="/opt/conda/bin:$PATH"' > /etc/profile.d/pipeline_setpath0.sh && \
+  yum -y install wget && \
+  yum -y install make && \
+  yum -y install which && \
+  yum -y install gcc && \
+  yum -y install epel-release && \
+  yum -y install htslib-tools && \
+  yum -y install mysql-devel && \
+  yum -y install libXrender && \
+  yum -y install cairo && \
+  wget --quiet https://repo.anaconda.com/archive/$Anaconda3_release -O ~/anaconda.sh && \
+  /bin/bash ~/anaconda.sh -b -p /opt/conda && \
+  rm ~/anaconda.sh && \
+  ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh 
+
+# echo ". /opt/conda/etc/profile.d/conda.sh" >> /etc/profile.d/pipeline_phase0.sh && \
+
+
+
+CMD [ "/bin/bash" ]

@@ -1,0 +1,21 @@
+# Dockerfile to build the psbpipeline executables on centos7 and anconda
+# Copy in the pipeline python files, and their required supporting modules
+# via pips
+
+FROM chrismoth/image_phase3
+
+COPY . psbadmin/
+
+ENV PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"
+ENV PYTHONPATH="/psbadmin/pdbmap:/psbadmin/bin:$PYTHONPATH"
+ENV psbbin="/psbadmin/bin"
+
+
+#Grab anaconda python and install needed python modules
+RUN  \
+  echo 'PATH=/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:${PATH}' >> /etc/environment && \
+  echo 'PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"' > /etc/profile.d/pipeline_setpath9.sh && \
+  cd /psbadmin && \
+  ./rampup/pip_install_modules.bash && \
+  rm -f --verbose './psbadmin/chimera-1.15-linux_x86_64_osmesa.bin'
+CMD [ "/bin/bash" ]
