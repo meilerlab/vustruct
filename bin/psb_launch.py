@@ -23,14 +23,14 @@ import logging
 import os
 import sys
 import grp
-# import stat
+import stat
 import copy
 
 # import time
-import datetime
+from datetime import datetime
 import pprint
 from logging.handlers import RotatingFileHandler
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 from typing import TextIO
 
 import pandas as pd
@@ -41,6 +41,10 @@ from bsub import bsub_submit
 
 from psb_shared import psb_config
 from psb_shared import psb_perms
+
+# Inspect to recover bsub_submit() and slurm_submit() source code for integration
+# into generated final file
+import inspect
 
 # THIS BELOW IS CRAP
 try:
@@ -62,7 +66,7 @@ def set_capra_group_sticky(dirname):
 #    # Setting the sticky bit on directories also fantastic
 #    try:
 #        os.chmod(dirname,
-#                 stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | stat.S_ISGID)
+#                 stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR|stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP|stat.S_ISGID)
 #    except OSError:
 #        pass
 #
@@ -72,9 +76,9 @@ LOGGER = logging.getLogger()
 LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string, date_format_string)
+LOG_FORMAT_STRING = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
+DATE_FORMAT_STRING = '%H:%M:%S'
+log_formatter = logging.Formatter(LOG_FORMAT_STRING, DATE_FORMAT_STRING)
 
 LOGGER.setLevel(logging.DEBUG)
 sh.setLevel(logging.WARNING)
@@ -98,13 +102,9 @@ cmdline_parser.add_argument("-n", "--nolaunch",
 
 args, remaining_argv = cmdline_parser.parse_known_args()
 
-infoLogging = False
-
 if args.debug:
-    infoLogging = True
     sh.setLevel(logging.DEBUG)
 elif args.verbose:
-    infoLogging = True
     sh.setLevel(logging.INFO)
 # If neither option, then logging.WARNING (set at top of this code) will prevail for stdout
 
@@ -116,19 +116,28 @@ required_config_items = ['output_rootdir', 'collaboration', 'ddg_config']
 
 config, config_dict = psb_config.read_config_files(args, required_config_items)
 
-LOGGER.info("Command: %s" % ' '.join(sys.argv))
+LOGGER.info("Command: %s", ' '.join(sys.argv))
 
 # Most will launch on Slurm
 # WUSTL is LSF
 # Also, someday, hook in launching on high core boxes directly
 cluster_type = 'LSF' if 'cluster_type' in config_dict and config_dict['cluster_type'].upper() == 'LSF' else 'Slurm'
+container_type = None
+if 'container_type' in config_dict:
+    if config_dict['container_type'].upper() == 'DOCKER':
+        container_type = 'Docker'
+    elif config_dict['container_type'].upper() == 'SINGULARITY':
+        container_type = 'Singularity'
+    else:
+        sys.exit("container_type set to %s in config file.  Must be Docker or Singularity" %
+                 config_dict['container_ty[e'])
 
 try:
     launchParametersAll: Dict[str, Any] = dict(config.items("%sParametersAll" % cluster_type))
 except KeyError:
     launchParametersAll: Dict[str, Any] = {}
 
-LOGGER.info("Command Line Arguments:\n%s" % pprint.pformat(vars(args)))
+LOGGER.info("Command Line Arguments:\n%s", pprint.pformat(vars(args)))
 
 launchParametersPathProx: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
@@ -162,7 +171,7 @@ for launchParameterDictDesc, launchParameters in [
     if slurm_or_lsf_section_name in config:
         launchParameters.update(dict(config.items(slurm_or_lsf_section_name)))
 
-    LOGGER.info("%s:\n%s" % (slurm_or_lsf_section_name, pprint.pformat(launchParameters)))
+    LOGGER.info("%s:\n%s", slurm_or_lsf_section_name, pprint.pformat(launchParameters))
 
     # Now make _sure_ that required parameters are in the (updated) launchParameters dictionary.
     if cluster_type == 'Slurm':
@@ -171,8 +180,8 @@ for launchParameterDictDesc, launchParameters in [
                 LOGGER.error(
                     """\
                     Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
-                    (or %sParametersAll)\n in either file %s or %s\n""" % (
-                        cluster_type, req, cluster_type, slurm_or_lsf_section_name, args.config, args.userconfig)
+                    (or %sParametersAll)\n in either file %s or %s\n""", 
+                    cluster_type, req, cluster_type, slurm_or_lsf_section_name, args.config, args.userconfig
                 )
                 sys.exit(1)
     elif cluster_type == 'LSF':
@@ -181,8 +190,8 @@ for launchParameterDictDesc, launchParameters in [
                 LOGGER.error(
                     """\
                     Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
-                    (or %sParametersAll)\n in either file %s or %s\n""" % (
-                        cluster_type, req, cluster_type, slurm_or_lsf_section_name, args.config, args.userconfig)
+                    (or %sParametersAll)\n in either file %s or %s\n""",
+                    cluster_type, req, cluster_type, slurm_or_lsf_section_name, args.config, args.userconfig
                 )
                 sys.exit(1)
     else:
@@ -191,11 +200,22 @@ for launchParameterDictDesc, launchParameters in [
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
+
+# Mounted directories refer to filesystem locations _outside_ the docker
+# But which will be known to the Slurm and LSF environments prior to container start
+mounted_UDN_directory = None
+mounted_collaboration_directory = None
+
+if 'mounted_udn_directory' in config_dict:
+    mounted_UDN_directory = config_dict['mounted_udn_directory']
+
 if oneMutationOnly:
     # Get the parent directory above the workplan
     collaboration_dir = os.path.dirname(os.path.dirname(os.path.abspath(args.projectORworkplan)))
 else:
     collaboration_dir = os.path.join(udn_root_directory, args.projectORworkplan)
+    if mounted_UDN_directory:
+        mounted_collaboration_directory = os.path.join(mounted_UDN_directory, args.projectORworkplan)
 
 psb_permissions = psb_perms.PsbPermissions(config_dict)
 psb_permissions.makedirs(collaboration_dir)
@@ -253,11 +273,21 @@ class JobsLauncher:
     def mutation_dir(self):
         return os.path.join(collaboration_dir, self._geneRefseqMutation_OR_casewideString)
 
-    def _build_a_launch_dir(self, flavor: str) -> str:
-        return os.path.join(self.mutation_dir,
+    def _build_a_launch_dir(self, flavor: str) -> Tuple[str,str]:
+        launch_dir_inside_container = os.path.join(self.mutation_dir,
                             self._slurm_or_bsub,
                             "PathProx" if "_PP_" in flavor else flavor
                             )
+        if mounted_collaboration_directory:
+            launch_dir_outside_container = os.path.join(mounted_collaboration_directory,
+                            self._geneRefseqMutation_OR_casewideString,
+                            self._slurm_or_bsub,
+                            "PathProx" if "_PP_" in flavor else flavor
+                            )
+        else:
+            launch_dir_outside_container = None
+
+        return launch_dir_inside_container, launch_dir_outside_container
 
     def _add_launch_directory_to_df_all_jobs(self) -> None:
         """
@@ -266,7 +296,7 @@ class JobsLauncher:
         @return:  None
         """
         self._df_all_jobs['launch_directory'] = self._df_all_jobs.apply(
-            lambda a_row: self._build_a_launch_dir(a_row['flavor']),
+            lambda a_row: self._build_a_launch_dir(a_row['flavor'])[0],
             axis=1
         )
 
@@ -278,8 +308,8 @@ class JobsLauncher:
         )
 
     def _add_launch_filename_to_df_all_jobs(self):
-        self._df_all_jobs['%s_file' % self._slurm_or_bsub] = self._df_all_jobs.apply(
-            lambda a_row: os.path.join(a_row['launch_directory'], a_row['gene_refseq_mutation_flavor']),
+        self._df_all_jobs['launch_file'] = self._df_all_jobs.apply(
+            lambda a_row: os.path.join(a_row['launch_directory'], a_row['gene_refseq_mutation_flavor'] + '.' + self._slurm_or_bsub),
             axis=1
         )
 
@@ -290,14 +320,14 @@ class JobsLauncher:
         self._all_jobs_cwd = None
         for _, row in self._df_all_jobs.iterrows():
             if (not self._df_prior_exit0.empty) and (row['uniquekey'] in self._df_prior_exit0.index):
-                LOGGER.info("Job %s was successful previously.  Slurm file will not be recreated" % row['uniquekey'])
+                LOGGER.info("Job %s was successful previously.  %s file will not be recreated", row['uniquekey'], self._slurm_or_bsub)
             else:
                 assert self._all_jobs_cwd is None or self._all_jobs_cwd == row['cwd']
                 self._all_jobs_cwd = row['cwd']
                 # Create the meat of the slurm script for this job
                 # ddG monomer is simpler because it is not managed by the pipeline
                 launch_string = "%(command)s %(options)s" % row
-                LOGGER.info("%s %s" % (row['flavor'], launch_string))
+                LOGGER.info("%s %s", row['flavor'], launch_string)
                 if 'ddG' not in row['flavor']:
                     launch_string += " --outdir %(outdir)s/%(flavor)s --uniquekey %(uniquekey)s" % row
 
@@ -325,12 +355,12 @@ class JobsLauncher:
                 # the status_dir of the jobs
                 for the_file in os.listdir(status_dir):
                     file_path = os.path.join(status_dir, the_file)
-                    LOGGER.info('Deleting old file %s' % file_path)
+                    LOGGER.info('Deleting old file %s', file_path)
                     try:
                         if os.path.isfile(file_path):
                             os.unlink(file_path,)
                     except OSError:
-                        LOGGER.exception("Unable to delete %s in status directory" % file_path)
+                        LOGGER.exception("Unable to delete %s in status directory", file_path)
                         sys.exit(1)
 
                 # Well, we have not _actually_ submitted it _quite_ yet - but just save this dirname
@@ -341,7 +371,7 @@ class JobsLauncher:
         for index, row in self._df_all_jobs.iterrows():
             if (not self._df_prior_exit0.empty) and (row['uniquekey'] in self._df_prior_exit0.index):
                 LOGGER.info(
-                    "Job %s was successful previously.  Prior results will be copied to new workstatus file" % row[
+                    "Job %s was successful previously.  Prior results will be copied to new workstatus file", row[
                         'uniquekey'])
                 prior_success = self._df_prior_exit0.loc[row['uniquekey']]
                 self._jobinfo[row['uniquekey']] = prior_success['jobinfo']
@@ -352,6 +382,7 @@ class JobsLauncher:
 
     def _write_launch_independent_comments(self, launch_filename: str, slurm_f: TextIO, subdir: str):
         slurm_f.write("""\
+#!/bin/bash
 # Project        : PSB Pipeline
 # Filename       : %s
 # Generated By   : %s
@@ -363,7 +394,66 @@ class JobsLauncher:
 # Generated on   : %s
 # Description    : Runs a python script on a cluster to accomplish: %s
 #===============================================================================
-""" % (launch_filename, __file__, self._workplan_or_case_filename, str(datetime.datetime.now()), subdir))
+""" % (launch_filename, __file__, self._workplan_or_case_filename, str(datetime.now()), subdir))
+
+    def _write_launch_independent_environment(self, launch_filename: str, slurm_f: TextIO, subdir: str):
+        # In a container, our execution path should point to the container areas.  Annoyingly,
+        # variations in Docker/Singlularity/LSF demand we explicitly restate the PATH here.
+        # If NOT in a container, then init the PATH to be whatever it is outside the container.
+
+        if container_type:
+            path_statement="PATH=%s" % ':'.join([
+                "/opt/conda/bin",
+                "/ensembl/ensembl-git-tools/bin",
+                "/psbadmin/bin",
+                "/psbadmin/pdbmap",
+                "/psbadmin/pathprox",
+                "$PATH"])
+            LOGGER.info("Setting PATH for container %s", container_type)
+            LOGGER.info(path_statement)
+            slurm_f.write(path_statement + '\n')
+        else:
+            path_statement = "PATH=%s:$PATH\n" % os.getenv('PATH')
+            LOGGER.info("Setting PATH to match launch-time %s environment", __file__)
+            LOGGER.info(path_statement)
+            slurm_f.write(path_statement)
+
+        if 'ensembl_registry' in config_dict:
+            ensembl_registry = config_dict['ensembl_registry']
+            LOGGER.info("Setting ENSEMBL_REGISTRY from .config: %s", ensembl_registry)
+        else:
+            ensembl_registry = os.getenv('ENSEMBL_REGISTRY')
+            LOGGER.info("Setting ENSEMBL_REGISTRY from launch environment: %s", ensembl_registry)
+
+        if ensembl_registry:
+            slurm_f.write("""
+#  Point the ENSEMBL PERL_API to the desired genome release
+export ENSEMBL_REGISTRY=%s
+echo ENSEMBL_REGISTRY=$ENSEMBL_REGISTRY
+""" % ensembl_registry)
+        else:
+            LOGGER.warning("ENSEMBL_REGISTRY is not defined in .config or environment.  Omitting from %s",
+                           launch_filename)
+            slurm_f.write("echo WARNING: ENSEMBL_REGISTRY not defined in launch environment.  Omitted")
+
+        slurm_f.write("""
+# Prevent loading of an individual users ~/.local type python - really a mess for pipeline!
+export PYTHONNOUSERSITE=x
+
+# Don't buffer output, to get better errors if things go south
+export PYTHONUNBUFFERED=x
+""")
+
+
+    def _write_launch_independent_cd(self, launch_filename: str, slurm_f: TextIO, subdir: str):
+        slurm_f.write("""
+cd %s
+if [ $? != 0 ]; then
+echo Failure at script launch: Unable to change to directory %s
+exit 1
+fi
+""" % ( self._all_jobs_cwd,
+        self._all_jobs_cwd))
 
     def _create_slurm_file(self, subdir: str, launch_filename: str, launch_stdout_directory: str):
         """
@@ -373,11 +463,6 @@ class JobsLauncher:
         @return:
         """
         with open(launch_filename, 'w') as slurm_f:
-            slurm_f.write("""\
-#!/bin/bash
-#
-""")
-
             self._write_launch_independent_comments(launch_filename, slurm_f, subdir)
 
             slurm_f.write("\n# Slurm Parameters\n")
@@ -429,17 +514,9 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 """)
 
-            slurm_f.write("""
-source %s
-cd %s
-if [ $? != 0 ]; then
-echo Failure at script launch: Unable to change to directory %s
-exit 1
-fi
-""" % (os.path.join(
-                os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "psb_prep.bash"),
-                self._all_jobs_cwd,
-                self._all_jobs_cwd))
+            self._write_launch_independent_environment(launch_filename, slurm_f, subdir)
+
+            self._write_launch_independent_cd(launch_filename, slurm_f, subdir)
 
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
@@ -472,10 +549,6 @@ fi
         _job_name = None
         _job_count = None
         with open(launch_filename, 'w') as bsub_f:
-            bsub_f.write("""\
-#!/bin/bash
-#
-""")
             self._write_launch_independent_comments(launch_filename, bsub_f, subdir)
 
             bsub_f.write("\n# LSF Parameters\n")
@@ -554,20 +627,16 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                 'LSB_QUEUE', 'LSB_BIND_CPU_LIST', 'LS_SUBCWD'
             ]:
 
-                bsub_f.write('echo "{0}="${0}\n'.format(lsf_environment_variable))
-            bsub_f.write("""
-export LSF_DOCKER_VOLUMES="$HOME:$HOME /storage1/fs1/jonathan.sheehan/Active/psb/data:/data /storage1/fs1/jonathan.sheehan/Active/psb/vep_cache:/vep_cache /storage1/fs1/jonathan.sheehan/Active/projects/UDN:/UDN"
+                bsub_f.write('echo "{0}="${0}\n\n'.format(lsf_environment_variable))
 
-echo "Starting"
-source %s
-cd %s
-if [ $? != 0 ]; then
-echo Failure at script launch: Unable to change to directory %s
-exit 1
-fi
-""" % (os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "psb_prep.bash"),
-                self._all_jobs_cwd,
-                self._all_jobs_cwd))
+            if 'lsf_docker_volumes' in config_dict:
+                bsub_f.write("export LSF_DOCKER_VOLUMES=%s\n" % config_dict['lsf_docker_volumes'])
+            else:
+                bsub_f.write("# LSF_DOCKER_VOLUMES not written.  lsf_docker_volumes omitted from .config files\n")
+
+            self._write_launch_independent_environment(launch_filename, bsub_f, subdir)
+
+            self._write_launch_independent_cd(launch_filename, bsub_f, subdir)
 
             if _job_count == 1:
                 # No need to fiddle with the slurm case statement
@@ -616,7 +685,12 @@ fi
 
         return df_updated_workstatus.set_index(['uniquekey', 'jobid'], inplace=False)
 
-    def doit(self):
+    def doit(self) -> Tuple[pd.DataFrame, List[str]]:
+        """
+        @return: Workstatus dataframe (workplan with additional stats columns)
+                 List of .slurm or .bsub files that may need to be launched outside the container.
+        """
+
         self._add_launch_directory_to_df_all_jobs()
         self._add_gene_refseq_mutation_flavor_to_df_all_jobs()
         self._add_launch_filename_to_df_all_jobs()
@@ -625,15 +699,19 @@ fi
 
         self._update_job_statuses_from_prior_exit0s()
 
+        # For creation of a launch script external to the container
+        # retail the list of all the .slurm or .bsub files getting launched.
+        launch_filenames = []
+
         for subdir in ['PathProx', 'ddG_monomer', 'SequenceAnnotation', 'DigenicAnalysis']:
             if len(self._launch_strings[subdir]) == 0:
                 # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
                 if (self._gene == 'casewide' and subdir == 'DigenicAnalysis') or (
                         self._gene != 'casewide' and subdir != 'DigenicAnalysis'):
                     LOGGER.info(
-                        "No %s jobs will be run for %s %s %s" % (subdir, self._gene, self._refseq, self._mutation))
+                        "No %s jobs will be run for %s %s %s", subdir, self._gene, self._refseq, self._mutation)
             else:
-                launch_directory = self._build_a_launch_dir(subdir)
+                launch_directory, launch_directory_outside_container = self._build_a_launch_dir(subdir)
                 launch_stdout_directory = os.path.join(launch_directory, "stdout")
 
                 old_umask = os.umask(2)
@@ -646,12 +724,28 @@ fi
                                                "%s_%s.%s" % (self._geneRefseqMutation_OR_casewideString,
                                                              subdir,
                                                              self._slurm_or_bsub))
-                LOGGER.info("Creating: %s" % launch_filename)
+                LOGGER.info("Creating: %s", launch_filename)
+
+                launch_filename_outside_container = launch_filename
+                if launch_directory_outside_container != launch_directory:
+                    launch_filename_outside_container = os.path.join(
+                        launch_directory_outside_container,
+                        "%s_%s.%s" % (self._geneRefseqMutation_OR_casewideString,
+                        subdir,
+                        self._slurm_or_bsub))
+
 
                 job_id = None
 
+                # Repoint the -o output directory in case we are launching a container
+                if launch_directory_outside_container:
+                    launch_stdout_directory = os.path.join(launch_directory_outside_container, "stdout")
+
+                launch_filenames.append(launch_filename_outside_container)
+
                 if cluster_type == 'LSF':
-                    job_name, job_count = self._create_bsub_file(subdir, launch_filename, launch_stdout_directory)
+                    # job_name, job_count = \
+                    self._create_bsub_file(subdir, launch_filename, launch_stdout_directory)
                     if args.nolaunch:
                         LOGGER.warning("bsub will not be called to launch %s because args.nolaunch=%s",
                                        launch_filename,
@@ -679,12 +773,12 @@ fi
                         self._jobprogress[uniquekey_launchstring[0]] = 'In queue'
                         self._exitcodes[uniquekey_launchstring[0]] = None
 
-                # Now, finally, record "Submitted" in all the status info files
-                for status_dir in self._status_dir_list:
-                    with open('%s/info' % status_dir, 'w') as f:
-                        f.write('Submitted')
+            # Now, finally, record "Submitted" in all the status info files
+            for status_dir in self._status_dir_list:
+                with open('%s/info' % status_dir, 'w') as f:
+                    f.write('Submitted')
 
-            return self._df_updated_workstatus()
+        return self._df_updated_workstatus(), launch_filenames
 
 
 # collaboration_log_dir = os.path.join(collaboration_dir,"log")
@@ -700,10 +794,10 @@ def launch_one_mutation(workplan_or_case_filename: str):
     df_all_jobs = pd.read_csv(workplan_or_case_filename, sep='\t', keep_default_na=False, na_filter=False)
 
     if len(df_all_jobs) < 1:
-        LOGGER.warning("No rows in work plan file %s.  No jobs will be launched." % workplan_or_case_filename)
+        LOGGER.warning("No rows in work plan file %s.  No jobs will be launched.", workplan_or_case_filename)
         return pd.DataFrame(), workplan_or_case_filename
 
-    LOGGER.info("%d rows read from work plan file %s" % (len(df_all_jobs), workplan_or_case_filename))
+    LOGGER.info("%d rows read from work plan file %s", len(df_all_jobs), workplan_or_case_filename)
 
     # Let's take care to not relaunch jobs that are already running, or complete, unless --relaunch flag is active
     workstatus_filename = workplan_or_case_filename.replace('workplan', 'workstatus')
@@ -723,8 +817,8 @@ def launch_one_mutation(workplan_or_case_filename: str):
         df_prior_exit0 = df_workstatus[df_workstatus['ExitCode'] == '0'].copy()
         df_prior_exit0.set_index('uniquekey', inplace=True)
 
-    if args.relaunch and len(df_prior_exit0):
-        LOGGER.info("--relaunch flag was passed, including %d with prior ExitCode=0" % len(df_prior_exit0))
+    if args.relaunch and len(df_prior_exit0) > 0:
+        LOGGER.info("--relaunch flag was passed, including %d with prior ExitCode=0", len(df_prior_exit0))
 
     jobs_launcher = JobsLauncher(workplan_or_case_filename, df_all_jobs, df_prior_exit0)
     old_umask = os.umask(2)
@@ -739,7 +833,7 @@ def launch_one_mutation(workplan_or_case_filename: str):
     if oneMutationOnly:
         sys.stderr.write("psb_launch log file is %s\n" % log_filename)
     else:
-        LOGGER.info("additionally logging to file %s" % log_filename)
+        LOGGER.info("additionally logging to file %s", log_filename)
 
     need_roll = os.path.isfile(log_filename)
 
@@ -753,7 +847,7 @@ def launch_one_mutation(workplan_or_case_filename: str):
     if need_roll:
         local_fh.doRollover()
 
-    df_updated_workstatus = jobs_launcher.doit()
+    df_updated_workstatus,launch_filenames = jobs_launcher.doit()
 
     # Now create a new workstatus file
     print("Recording %d jobids in %s" % (len(df_updated_workstatus), workstatus_filename))
@@ -764,15 +858,106 @@ def launch_one_mutation(workplan_or_case_filename: str):
 
     LOGGER.removeHandler(local_fh)
     # local_fh = None
-    return df_updated_workstatus, workstatus_filename
+    return df_updated_workstatus, workstatus_filename, launch_filenames
 
 
 def main():
     global mutation_dir
     # Main logic here.  A period in the argument means the user wants to launch one mutation only,
     # directly from a single mutation output file of psb_plan.py
+
+
+    # custom_launcher_filename = os.path.join(
+    #     collaboration_dir,
+    #     ('launch_%s.py' % args.projectORworkplan) if not oneMutationOnly else "launch_custom.py")
+
+    custom_launcher_filename = ('launch_%s.py' % args.projectORworkplan) if not oneMutationOnly else "launch_custom.py"
+
+    LOGGER.info("%s will be created as an external launch utility", custom_launcher_filename)
+
+    # We create a super-simple (few dependencies) launcher program that can be run _outside_ the container
+    launcher_f = open(custom_launcher_filename,'w')
+
+    # Make the customer launcher .py file executable by user and group
+    mode = os.fstat(launcher_f.fileno()).st_mode
+    mode |= stat.S_IXUSR | stat.S_IXGRP
+    os.fchmod(launcher_f.fileno(), stat.S_IMODE(mode))
+
+    # We care not whether python 2 or python 3 in this small app....
+    launcher_f.write("""\
+#!/usr/bin/env python3\n""")
+
+    # Add a docstring to the launcher program
+    launcher_f.write('"""\n')
+    launcher_f.write("%s: Launcher utility for PSB Pipeline\n" % custom_launcher_filename)
+    launcher_f.write("""\
+Created %s by command line:
+%s
+""" % (datetime.now(), ' '.join(sys.argv)))
+
+    launcher_f.write('\n"""\n')
+
+    launcher_f.write("""\
+
+import subprocess as sp
+import sys
+import re
+import csv
+import logging
+
+logging.basicConfig(level=logging.INFO)
+""")
+
+    bsub_submit_function_source_code = inspect.getsource(bsub_submit)
+
+    launcher_f.write("""\
+
+# bsub_submit() function copied from bsub.py
+""")
+
+    launcher_f.write(bsub_submit_function_source_code)
+
+    launcher_f.write("""\
+
+# slurm_submit() function copied from slurm.py
+""")
+
+    slurm_submit_function_source_code = inspect.getsource(slurm_submit)
+    launcher_f.write(slurm_submit_function_source_code)
+    launcher_f.write("\n")
+
+    launcher_f.write("""\
+# Read the workstatus.csv file for a variant
+# And load it into a list of dictionaries
+# one per row.  The Dictionary keys for each row are the 
+# row1 header elements
+def read_workstatus_csv(workstatus_filename):
+    workstatus_rows = []
+    with open(workstatus_filename) as f:
+        reader = csv.DictReader(f,delimiter='\\t')
+        for csv_row in reader:
+            workstatus_rows.append(csv_row)
+    return workstatus_rows
+
+# Write the workstatus rows, with the 'jobid' now populated    
+def write_workstatus_csv(workstatus_filename,workstatus_rows):
+    with open(workstatus_filename,'w') as f:
+        writer = csv.DictWriter(f,fieldnames=workstatus_rows[0].keys(),delimiter='\\t')
+        writer.writeheader()
+        for csv_row in workstatus_rows:
+            writer.writerow(csv_row)
+
+# For every workstatus file row that is launched by the sbatch/bsub file
+# Update the jobid
+def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
+    for csv_row in workstatus_csv:
+        if 'launch_file' in  csv_row and csv_row['launch_file'] == launch_filename:
+            csv_row['jobid'] = job_id
+""")
+
     if oneMutationOnly:
-        launch_one_mutation(args.projectORworkplan)  # The argument is a complete workplan filename
+        # The argument is a complete workplan filename
+        df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(args.projectORworkplan)
     else:
         # The argument is an entire project UDN124356
         udn_csv_filename = os.path.join(collaboration_dir,
@@ -783,6 +968,9 @@ def main():
                                        comment='#', skipinitialspace=True)
         df_all_mutations.fillna('NA', inplace=True)
         print("Launching all jobs for %d mutations" % len(df_all_mutations))
+
+        # For each variant in the case, create workstatus files, and gather job ids if
+        # launching now.  Build up the custom launcher launcher_f script for a later launch
         for index, row in df_all_mutations.iterrows():
             print("Launching %-10s %-10s %-6s" % (row['gene'], row['refseq'], row['mutation']))
             if 'GeneOnly' in row['refseq']:
@@ -796,13 +984,74 @@ def main():
 
             workplan_filename = "%s/%s_%s_%s_workplan.csv" % (mutation_dir, row['gene'], row['refseq'], row['mutation'])
             # print workplan_filename
-            launch_one_mutation(workplan_filename)  # The argument is a complete workplan filename
+            # The argument is a complete workplan filename
+            df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(workplan_filename)
+
+            # Very cheesy - but the idea is that we need the external launcher to use the mounted
+            # Directory - NOT the container-visible directory:
+            if mounted_collaboration_directory and mounted_collaboration_directory != collaboration_dir:
+                workstatus_filename = workstatus_filename.replace(collaboration_dir, mounted_collaboration_directory, 1)
+
+            launcher_f.write("""
+
+# Launching all jobs for %s
+""" % "%s_%s_%s" % (row['gene'], row['refseq'], row['mutation']))
+
+            launcher_f.write("workstatus_csv = read_workstatus_csv('%s')\n" % workstatus_filename)
+            launcher_f.write("launch_filenames = [\n    '%s']\n" % "',\n    '".join(launch_filenames))
+            launcher_f.write("for launch_filename in launch_filenames:\n")
+
+            # Write code to call bsub_submit or slurm_submit included in the .py above
+            if cluster_type == 'LSF':
+                launcher_f.write("    job_id = bsub_submit(launch_filename)\n")
+            else:
+                launcher_f.write("    job_id = slurm_submit(['sbatch',launch_filename])\n")
+
+            launcher_f.write("    add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id)\n")
+
+            launcher_f.write("write_workstatus_csv('%s',workstatus_csv)\n" % workstatus_filename)
+
+        # The casewide launch is a separate case from the above
         casewide_workplan_filename = "casewide/casewide_workplan.csv"
         if os.path.exists(casewide_workplan_filename):
             print("Launching casewide job(s) listed in %s" % casewide_workplan_filename)
-            launch_one_mutation(casewide_workplan_filename)  # The argument is a complete workplan filename
+            df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(
+                casewide_workplan_filename)
+
+            # Very cheesy - but the idea is that we need the external launcher to use the mounted
+            # Directory - NOT the container-visible directory:
+            if mounted_collaboration_directory and mounted_collaboration_directory != collaboration_dir:
+                workstatus_filename = workstatus_filename.replace(collaboration_dir, mounted_collaboration_directory, 1)
+
+            launcher_f.write("""
+
+# Launching casewide jobs
+""")
+            launcher_f.write("workstatus_csv = read_workstatus_csv('%s')\n" % workstatus_filename)
+            launcher_f.write("launch_filenames = [\n    '%s']\n" % "',\n    '".join(launch_filenames))
+            launcher_f.write("for launch_filename in launch_filenames:\n")
+            # Write code to call bsub_submit or slurm_submit included in the .py above
+            if cluster_type == 'LSF':
+                launcher_f.write("    job_id = bsub_submit(launch_filename)\n")
+            else:
+                launcher_f.write("    job_id = slurm_submit(['sbatch',launch_filename])\n")
+
+            launcher_f.write("    add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id)\n")
+
+            launcher_f.write("write_workstatus_csv('%s',workstatus_csv)\n" % workstatus_filename)
         else:
             print("No casewide file (%s) was found.  No casewide jobs will be started" % casewide_workplan_filename)
+
+    user_launch_message = None
+    if container_type:
+        user_launch_message = "./%s should be run outside %s container to launch jobs" % (
+            custom_launcher_filename, container_type)
+    elif args.nolaunch:
+        user_launch_message = "Run ./%s to launch jobs" % custom_launcher_filename
+
+    if user_launch_message:
+        LOGGER.info(user_launch_message)
+        print("\n\n" + user_launch_message)
 
 
 if __name__ == '__main__':
