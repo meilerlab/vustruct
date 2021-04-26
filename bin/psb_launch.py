@@ -123,14 +123,21 @@ LOGGER.info("Command: %s", ' '.join(sys.argv))
 # Also, someday, hook in launching on high core boxes directly
 cluster_type = 'LSF' if 'cluster_type' in config_dict and config_dict['cluster_type'].upper() == 'LSF' else 'Slurm'
 container_type = None
+singularity_image = None
 if 'container_type' in config_dict:
     if config_dict['container_type'].upper() == 'DOCKER':
         container_type = 'Docker'
     elif config_dict['container_type'].upper() == 'SINGULARITY':
         container_type = 'Singularity'
+        singularity_image = os.getenv('SINGULARITY_CONTAINER')
+        if not singularity_image:
+            msg = "SINGULARITY_CONTAINER is not defined in the launch environment.  container_type of Singularity is nonsensical"
+            LOGGER.critical(msg)
+            sys.exit(msg)
     else:
         sys.exit("container_type set to %s in config file.  Must be Docker or Singularity" %
                  config_dict['container_ty[e'])
+
 
 try:
     launchParametersAll: Dict[str, Any] = dict(config.items("%sParametersAll" % cluster_type))
@@ -518,9 +525,15 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 
             self._write_launch_independent_cd(launch_filename, slurm_f, subdir)
 
+            # Prepend the slurm file case/esac command with a 
+            if container_type == 'Singularity':
+                container_exec_prefix = 'singularity exec %s ' % singularity_image
+            else:
+                container_exec_prefix = ''
+
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
-                slurm_f.write(self._launch_strings[subdir][0][1])
+                slurm_f.write(container_exec_prefix + self._launch_strings[subdir][0][1])
                 slurm_f.write("\n")
             else:
                 # Via the case/esac mechanism, select the specific job to run
@@ -532,7 +545,7 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                     # Save this to put back later
                     self._arrayids[uniquekey_launchstring[0]] = slurm_array_id
                     slurm_array_id += 1
-                    slurm_f.write(uniquekey_launchstring[1])
+                    slurm_f.write(container_exec_prefix + uniquekey_launchstring[1])
                     # end the case tag
                     slurm_f.write("\n;;\n\n")
                 slurm_f.write("esac\n")
@@ -727,7 +740,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                 LOGGER.info("Creating: %s", launch_filename)
 
                 launch_filename_outside_container = launch_filename
-                if launch_directory_outside_container != launch_directory:
+                if launch_directory_outside_container and launch_directory_outside_container != launch_directory:
                     launch_filename_outside_container = os.path.join(
                         launch_directory_outside_container,
                         "%s_%s.%s" % (self._geneRefseqMutation_OR_casewideString,
