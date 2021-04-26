@@ -328,9 +328,13 @@ if csv_rows:
 
     liftover_input_df.to_csv(liftover_bed_input,sep='\t',header=False,index=False)
     import subprocess as sp
-    liftover_arg_list = ['/dors/capra_lab/bin/liftOver',
+    # Ugly - but we need to find liftover either in a docker container or in the Vandy accre filesystem
+    liftover_files = ('/psbadmin/liftover/liftOver','/psbadmin/liftover/hg19ToHg38.over.chain.gz')
+    if not os.path.exists(liftover_files[0]) or not os.path.exists(liftover_files[1]):
+        liftover_files = ('/dors/capra_lab/bin/liftOver','/dors/capra_lab/data/ucsc/liftOver/hg19ToHg38.over.chain.gz')
+    liftover_arg_list = [liftover_files[0],
          liftover_bed_input,
-         '/dors/capra_lab/data/ucsc/liftOver/hg19ToHg38.over.chain.gz',
+         liftover_files[1], 
          liftover_output_lifted,
          liftover_output_unlifted]
 
@@ -345,13 +349,13 @@ if csv_rows:
         df_lifted_grch38 = pd.read_csv(liftover_output_lifted,header=None,sep='\t',names=["chrom","bed_zerobased_pos_hg38","pos",'original_lineno'])
         LOGGER.info("%d genomic postions lifted to GRCh38",df_lifted_grch38.shape[0])
         df_lifted_grch38 = df_lifted_grch38.drop('bed_zerobased_pos_hg38',axis='columns').set_index('original_lineno',drop=False)
-    except pd.io.common.EmptyDataError:
+    except pd.errors.EmptyDataError:
         LOGGER.critical("Liftover to GRCh38 created null lifted output")
 
     try:
         df_unlifted = pd.read_csv(liftover_output_unlifted,header=None,sep='\t')
         LOGGER.critical("%d genomic postions could not be lifted to GRCh38",df_unlifted.shape[0])
-    except pd.io.common.EmptyDataError:
+    except pd.errors.EmptyDataError:
         LOGGER.info("All positions lifted to GRCh38 successfully")
 
     df_missense_grch38 = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
