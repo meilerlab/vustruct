@@ -45,17 +45,17 @@ def bsub_submit(launch_filename):
                 if run_result.returncode == 0 and job_submitted_match:  # Case of clear success
                     # Extract and return the jobid (e.g. "Submitted batch job 12345678")
                     logging.getLogger(__name__).info('%s successfully launched: %s',
-                                                     bsub_command_look, run_result.stdout)
+                                                     bsub_command_look, run_result.stdout.decode('latin'))
                     cluster_jobno = job_submitted_match.group(1)
                     submit_fail = False
                 else:
                     if run_result.stderr:
                         logging.getLogger(__name__).warning('Retrying because "%s" gave stderr: "%s"',
-                                                            bsub_command_look, run_result.stderr)
+                                                            bsub_command_look, run_result.stderr.decode('latin'))
                     else:
                         logging.getLogger(__name__).warning(
                             'Dubious return of sp.run for job "%s" with returncode %s\nstdout: %s\nstderr: %s',
-                            bsub_command_look, run_result.returncode, run_result.stdout, run_result.stderr)
+                            bsub_command_look, run_result.returncode, run_result.stdout.decode('latin'), run_result.stderr.decode('latin'))
                 # Unknown BSUB submission error.
                 # Don't give up - loop again !!!
                 # Was raise Exception("%s\n"%stderr)
