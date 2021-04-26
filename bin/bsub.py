@@ -19,17 +19,28 @@ import logging
 
 
 def bsub_submit(launch_filename):
+    """
+    This function is also copied into the external launch module, by psb_launch.py
+    Careful when modifying this file as it must stay compatible with old Python 3.6
+    """
+
     submit_fail = True
-    job_submitted_pattern = re.compile(r'Job <(\d+)> Submitted', re.IGNORECASE)
+    # Use 'byte' strings throughout, for Python 3.6 compatability
+    job_submitted_pattern = re.compile(b'Job <(\d+)> is Submitted', re.IGNORECASE)
 
     job_submitted_match = None
-    while submit_fail:
+    tries = 0
+    while submit_fail and tries < 10:
         logging.getLogger(__name__).info("Calling bsub < %s", launch_filename)
         cluster_jobno = ''
         bsub_command_look = "bsub < " + launch_filename
-        with open(launch_filename, 'r') as launch_f:
+        with open(launch_filename, 'rb') as launch_f:
             try:
-                run_result = sp.run(args=["bsub"], stdin=launch_f, text=True, capture_output=True, timeout=120, check=True)
+                # Do NOT use newer Python 3.7 etc parameters to facilitate text checking
+                run_result = sp.run(
+                    args=["bsub"],
+                    stdin=launch_f, stdout=sp.PIPE, stderr= sp.PIPE,
+                    timeout=120, check=True)
                 job_submitted_match = job_submitted_pattern.match(run_result.stdout)
                 if run_result.returncode == 0 and job_submitted_match:  # Case of clear success
                     # Extract and return the jobid (e.g. "Submitted batch job 12345678")
@@ -56,6 +67,9 @@ def bsub_submit(launch_filename):
                     bsub_command_look, str(error))
                 logging.getLogger(__name__).critical(msg)
                 sys.exit(msg)
+
+    if submit_fail:
+        sys.exit("Failed to execute bsub after %d tries" % tries)
 
     # Convert the bytes to str
     return cluster_jobno
