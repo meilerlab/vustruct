@@ -1,15 +1,23 @@
-# Runnign the PSB Pipeline from a Singularity Container,  2021-05-12
-### Use this documentation after README.md and performing setups in the Manifest.txt file
+# Runnimg the PSB Pipeline from a Singularity Container,  2021-05-12
+# Overview
+
+The Personal Structural Biology Pipeline reads a table of mutations from a missense.csv file for a given patient (also known as project, or case) and launches a variety of analysis algorithms (pathprox, ddG, sequence) on each mutation.
+
+A typical case run involves ~50 mutations, and runs of ~500 indepent programs.  Currently, the Pipeline runs on a "slurm" cluster, though this requirement could easily be circumvented in a future release, if requested.
+
+The final outputs are per-mutation structural analysis reports.
+
 
 ## Quick Rampup
 ### Prep, Parse, Plan, Launch, Monitor, Report  
 
 1) Obtain the singularity image file from Chris Moth.
 
-2) Download structure, genomic, and variant files as documented in DownloadData.md << Youve got this
-Ideally, but not necessarily, data will 
+2) Download structure, genomic, and variant files as documented in DownloadData.md
 
-3) Create an empty parent work directory on your file system.  Each variant set, or UDN 'case' will occupy a child directory under this parent.
+3) Create an empty parent work directory on your file system.  Each variant set, or UDN 'case' will occupy a child directory under this parent.  It is convenient to point an environment variable to this directory in your .bashrc file.  We tend to 'export UDN=/our/case_caseparent'
+
+It may be convenient, though unnecessary, to place your .simg container file in this directory.
 
 Verify that you can access this directory from inside your container (singularity shell /your/location/image_phase9.simg)
 
@@ -18,58 +26,12 @@ Create a config/ directory under the parent.  Copy the provided global.config fi
 4) In the parent work directory (will move to config/ later), create a your_username.config file.  This will specify minimally your email address, and preferences, to be included in the generated slurm files.
 See mothcw.config as an example
 
+5) Under the parent work directory, create a case directory, where a set of variants will be analyzed together.  
 
+   Example: mkdir $UDN/mycase
 
-
-0) Customize your shell environment ($UDN, $PATH, $PYTHONPATH, perl5) with the command:
-
-```
-source /dors/capra_lab/users/psbadmin/psb_prep.bash
-```
-
-(psb_prep.**csh** is alternately available for tcsh/csh shell users)
-
-The modified environment settings will be shown, and your prompt changes to a distinctive blue:
-
-![Blue Prompt Indicates Pipeline prep'd](doc/BashPipelineBluePrompt.png "Blue Prompt Indicates Pipeline prep'd")
-
-Note the convenient $UDN variable, the root directory for all our cases. Currently, for production work, we set $UDN to /dors/capra_lab/projects/psb_collab/UDN
-
->**ENSURE** that all pipeline commands are run with the blue prompt active.  If you accidentally close your shell, repeat the psb_prep.bash source command upon opening a new shell.
-
-1) Create a case directory from the UDN124356 case identifier:
-
-```
-mkdir $UDN/UDN124356
-cd $UDN/UDN124356
-```
-
-2) Copy and rename the UDN supplied .xlsx file to $UDN/UDN124356/UDN123456.xlsx
-
-3) Copy your user-specific pipeline yourUserId.config file to the $UDN directory, from where it will provide default configuration overrides for this case, and future cases you might run.
-Details on creating yourUserId.config are later in this document.  If this is your first run of the pipeline, find a recent sheehajh.config file in a sibling directory, and copy to $UDN/UDN124356/yourUserId.config.  Then, edit the contents of the file to reflect your email address.
-
-4) Parse the complex UDN .xlsx file to pipeline-ready missense mutation list, and gene text files:
-```
-cd $UDN/UDN124356
-parse_udn_report.py 
-```
-Compare both the created .csv file of missense mutations, and the gene list, to the original .xlsx.
-
-4b) User-supplied models:  You may add one user-supplied model to any mutation line in the missense.csv file.
-This model will supplement Swiss and Modbase models, and PDB srtuctures, found in the pipeline's SQL database.
-Place your model .pdb file in the case directory, and append a comma, and the .pdb filename, at the right.
-ALSO, you must add the text ",user_model" to the right of the first header line of the missense.csv file
-
-__Your user model must have amino acids numbered to match transcript numbering.  It can contain only one chain at this time.__
-
-For example, your file would be hand-edited to look something like this
-
-```
-,gene,refseq,mutation,unp,user_model
-0,SCN11A,NM_014139,R60S,Q9UI33-1,test_SCN11A.pdb
-1,ABCD,NM_012435,A59H,Q12345-2
-```
+Create a mycase_missense.csv file following the instructions below ("Preparation of Input") 
+The section below shows what should happen when the container launches, and you run psb_plan.py.  Return to the instructions here, with step 6.
 
 5) Plan the work (jobs to be run for each mutation, based on available structures)
 ```
@@ -77,8 +39,11 @@ psb_plan.py
 ```
 6) Launch the jobs
 ```
-psb_plan.py
+psb_plan.py --nolaunch
 ```
+
+The --nolaunch option is important, because .slurm files cannot be launched (sbatch) inside the container.  Follow the on-screen instructions to run the created launch.py program.  Then, return to the container to monitor jobs.
+
 7) Monitor progress at intervals
 ```
 psb_monitor.py
@@ -92,150 +57,9 @@ You may move the final .zip or .tar.gz files to extract to a laptop, or public w
 
 
 
-# Detailed Instructions
-
-The Personal Structural Biology Pipeline reads a table of clinic-supplied mutations for a given patient (also known as project, or case) and launches a variety of analysis algorithms (pathprox, ddG, sequence) on each mutation.
-
-A typical patient run involves ~50 mutations, and runs of ~500 indepent programs.  Currently, the Pipeline runs on a "slurm" cluster, though this requirement could easily be circumvented in a future release, if requested.
-
-The final outputs are per-mutation structural analysis reports.
-
-Most software is housed in a write-protected area of /dors, writeable only by user "psbadmin"
-
-It is convenient to reference the root directory for all UDN patient cases as $UDN:
-
-   bash shell example: `export UDN=/dors/capra_lab/projects/psb_collab/UDN`
-
-## Configuration
-The PSB Pipeline requires the compute environment (PATH, PYTHONPATH, PERL5LIB) to be unambiguously configured.  Your first comamnd on the pipeline will be:
-
-   **`source /dors/capra_lab/users/psbadmin/psb_prep.bash`**
-
-to prepare these settings.  (psb_prep.csh serves the same purpose for tcsh preparation)
-
-Once you "source" psb_prep.bash, you run the psb_*.py application programs like any other linux binary, with no regard to their specific location.
-
-
-The PSB Pipeline integrates a wide variety of external genomic data, external structural models, MySQL database queries, PDBMap library support files, and other resources.  The locations of these resources, as well as tuning parameters for slurm requests, of two configuration files: global and local
-
-
-The *global* configuration file defaults to /dors/capra_lab/users/psbadmin/config/global.config  (technically, it is ../../config/global.config, relative to the psb_*.py scripts directory).  
-However, that default can be over-ridden with the "-c" (or "--config") command line parameter.  
-
-Here is an example of the current global.config file:
-
-#Global configuraton settings copied from the old v13.config file  
-[Genome_PDB_Mapper]  
-dbhost = chgr2.accre.vanderbilt.edu  
-dbname = pdbmap_v13  
-dbuser = psb_access  
-dbpass = psb-access  
-pdb_dir = /dors/capra_lab/data/rcsb  
-swiss_dir = /dors/capra_lab/data/swissmodel/SWISS-MODEL_Repository/  
-swiss_summary = /dors/capra_lab/data/swissmodel/SWISS-MODEL_Repository/INDEX_JSON  
-modbase2013_dir = /dors/capra_lab/data/modbase/ModBase_H_sapiens_2013_GRCh37.70.pep.all/models/model/  
-modbase2013_summary = /dors/capra_lab/data/modbase/ModBase_H_sapiens_2013_GRCh37.70.pep.all/H_sapiens_2013_GRCh37.70.pep.all.summary.txt  
-modbase2016_dir = /dors/capra_lab/data/modbase/H_sapiens_2016/Homo_sapiens_2016/model/  
-modbase2016_summary = /dors/capra_lab/data/modbase/H_sapiens_2016/Homo_sapiens_2016.summary.txt  
-idmapping = /dors/capra_lab/users/mothcw/mydata/idmapping/HUMAN_9606_idmapping_sprot.dat.gz  
-interpro_dir=/dors/capra_lab/data/interpro/  
-\# idmapping = /dors/capra_lab/data/uniprot/idmapping/HUMAN_9606_idmapping_sprot.dat.gz  
-sec2prim = /dors/capra_lab/data/uniprot/idmapping/uniprot_sec2prim_ac.txt  
-sprot = /dors/capra_lab/data/uniprot/swissprot/uniprot_sprot_human.dat  
-pfam = pfam/pdb_pfam_mapping.txt  
-sifts = data/sifts/xml  
-create_new_db = False  
-vep = /dors/capra_lab/opt/ensembl-tools-release-87/scripts/variant_effect_predictor/variant_effect_predictor.pl  
-chimera_headless = /dors/capra_lab/users/mothcw/chimera/bin/chimera  
-  
-\# config_dict parameters specific to udn_pipeline.py  
-dssp_exe = /dors/capra_lab/projects/psb_collab/psb_pipeline/data/dssp/dssp_local.exe  
-chimera_headless = /dors/capra_lab/users/mothcw/chimera/bin/chimera  
-output_rootdir = /dors/capra_lab/projects/psb_collab  
-collaboration = UDN  
-  
-[SlurmParametersAll]  
-account = capra_lab_csb  
-ntasks = 1  
-  
-[SlurmParametersUDNSequence]  
-\# These are for ddg and sequence analysis (udn_pipeline.py configs)  
-time = 12:00:00  
-mem = 10GB  
-  
-[SlurmParametersUDNStructure]  
-\# These are for ddg and sequence analysis (udn_pipeline.py configs)  
-time = 96:00:00  
-mem = 10GB  
-  
-[SlurmParametersReport]  
-\# These are used when the psb_rep.py program is called with --slurm to make a .slurm run  
-\# to simultaneously run all the reports  Usually only done for BIG mutation sets.  
-time = 1:00:00  
-mem = 3GB  
-
-
-User-specific parameter overrides are essential for configuration of slurm emails, and to use test data sets.
-You should create a user-specific config file as shown below, and place it in your pipeline working directory.
-By default, pipeline modules look for this file in the parent directory of the case, typically $UDN.  
-However, you may override this default with the -u command line option.
-
-% cd $UDN
-...... Create the file as you like...
-% cat mothcw.config
-[UserSpecific]  
-idmapping = /dors/capra_lab/users/mothcw/mydata/idmapping/HUMAN_9606_idmapping_sprot.dat.gz  
-[SlurmParametersAll]  
-mail-user=chris.moth@vanderbilt.edu  
-mail-type=end  
-[SlurmParametersPathProxCOSMIC]  
-time = 1-0  
-mem = 30GB  
-[SlurmParametersPathProxClinvar]  
-time = 1-0  
-mem = 30GB  
-
-These two config files default for every pipeline application.  (As shown in psb_plan.py --help)  You may find it helpful to place both the -c global.config and -u local.config command line parameters into a single short environment variable.
-
-Finally, a third config file, defaulting to the casename.config (overrideable with -g)  is searched in the case directory.  Ths file is typically unnecessary, but it is extremely convenient for when a case should be procssed with variant lists other than the default exac/clinvar/COSMIC
-
-Here is an example case-config file showing three changes from the defaults:
-* neutral variants for pathrpox are switched from default exac in the sql database to gnomad in the sql database
-* disease1 variants for pathprox reports are changed from clinvars in the sql database, to a custom list in a .txt file.  
-* Disease2 variants are switched from the COSMIC cancer set to tcga in the sql database
-
-
-$ cd $UDN/UDN123456  
-$ cat UDN123456.config  
-[PathProx]  
-neutral_variant_short_description=gnomad  
-neutral_variant_sql_label=gnomad  
-disease1_variant_filename=P10636-1_13clinvars.txt  
-disease1_variant_short_description=13clinvars  
-disease1_variant_sql_label=13clinvars  
-disease2_variant_short_description=TCGA  
-disease2_variant_sql_label=tcga
-
-
 # Preparation of input
 
-## Optional step 0: Run parse_udn_report.py Parse the UDN-supplied .xlsx (Excel) file to create a pipeline-ready .csv file
-
-Each case from the Undiagnosed Disease Network (UDN) is identified by a six digit number.  Prepend this number with a string like "UDN" or "TEST" and copy (and rename) 
-the UDN-supplied .xlsx file to your $UDN directory as $UDN/UDN123456/UDN123456.xlsx or $UDN/Test123456/Test123456.xlsx.
-
-Parse the complex xlsx file to csv with:
-
-      cd ~/psbwork
-      parse_udn_report.py -u mothcw.config UDN124356
-
-Because of the config file parameters, parse_udn_report.py will locate UDN123456.xlsx as $UDN/UDN123456/UDN123456.xlsx.
-
-parse_udn_report.py will create a final "UDN124356_missense.csv" output file name (also UDN123456_genes.json and UDN124356_genes.txt for other analyses)
-
-The Excel .xlsx file will not be used again for any other pipeline processing.
-
-The format of the .csv file is precise, but simple.  It is typically "easy" to create or edit these files by hand if a source .xlsx is not available, or is badly mis-formatted.  
+The format of the yourcase_missense.csv file is precise, but simple.  It is typically "easy" to create or edit these files by hand if a source .xlsx is not available, or is badly mis-formatted.  
 
 Each row contains an index value (ignored), a gene name, a refseq identifier, a transcript-referenced amino acid mutation, and a uniprot ID for the refseq ID (likely optional - need to check). 
 
@@ -257,7 +81,11 @@ Each row contains an index value (ignored), a gene name, a refseq identifier, a 
 
 Be sure to specify the global and local config files, as well as your job name.  Your command sequence will look like:  
 
-% cd ~/psbwork
+$ cd $UDN/mycase
+$ singularity shell /wherever/image_phase9.simg
+
+Then at the blue container prompt....
+
 $ psb_plan.py
 
 Here is what I see on my system with the above command:
@@ -321,13 +149,14 @@ These files, in combination with the details in the log file itself, document th
 Login to your slurm cluster head node, and launch all the jobs with 
 
 ```
-% cd ~/psbwork
-% psb_launch UDN123456 -u mothcw.config
+$ psb_launch.py --nolaunch
 ```
+
+The program generates a custom launch.py program, which in turn must be run outside the container.
 
 For each of the jobs in the workplan.csv files, a slurm file will be created, and submitted with the "sbatch" command 
 
-Here is a sample run:
+Here is a sample run (which is not right at all -because things look different when you are using hte container, and the external launch program - sorry).
 
 ```
 ~/psbwork$ psb_launch.py TestJED -u mothcw.config --relaunch
