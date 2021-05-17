@@ -31,7 +31,7 @@ import tempfile
 import datetime
 
 # from time import strftime
-from typing import Dict,Tuple
+from typing import Dict,Tuple,List
 
 from Bio.SeqUtils import seq1
 
@@ -47,6 +47,7 @@ from psb_shared import psb_config
 from psb_shared.ddg_repo import DDG_repo
 from psb_shared import ddg_clean
 from psb_shared.ddg_monomer import DDG_monomer
+# from # psb_shared.ddg_monomer import DDG_cartesian
 from psb_shared.psb_progress import PsbStatusManager
 
 from slurm import slurm_submit
@@ -71,6 +72,8 @@ ch.setFormatter(log_formatter)
 
 LOGGER.setLevel(logging.DEBUG)
 ch.setLevel(logging.DEBUG)
+
+ddg_flavor='ddg_monomer'
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__,
                                                            os.path.dirname(os.path.dirname(__file__)),
@@ -106,6 +109,10 @@ cmdline_parser.add_argument(
 cmdline_parser.add_argument(
             "--species_filter", type=str, required=False, default=None,
             help="Optionally retain only residues with DBREF of, example 'HUMAN'")
+
+cmdline_parser.add_argument(
+            "-s", "--residues_per_slurm", type=int, required=False, default=1,
+            help="Increase to reduce the number of slurm files submitted, and incase the array jobs per slurm file")
 
 cmdline_parser.add_argument("-n", "--nosbatch",
                             help="Create slurm files, but do NOT exec sbatch to launch them.", default=False,
@@ -251,21 +258,27 @@ for slurmSettingsDesc, slurmSettings in [('slurmParametersDDGMonomer', slurmPara
 LOGGER.info("Command Line Arguments:\n%s" % pprint.pformat(vars(args)))
 LOGGER.info("slurmParametersDDGMonomer:\n%s" % pprint.pformat(slurmParametersDDGMonomer))
 
-def slurm_file_create(residue_id: Tuple[str,int,str], aa: str) -> int:
+def slurm_file_create(residue_id_list: List[Tuple[str,int,str]], resname_list: List[str]) -> int:
     """
 
-    :param residue_d:  Residue id from original (not cleaned) structure that is to have ddg run
-    :param aa:       Three letter standard amino acid, as standardized by the cleabner
+    :residues_in_slurm_file is a List of pairs, each containing:
+        1) Residue id from original (not cleaned) structure that is to have ddg run
+        2) Three letter standard amino acid, as standardized by the cleaner
     :return:         launched slurm jobid
     """
-    # Make a PDB position string using the residue number, and the insertion code if it exists
-    # Make a single letter residue for the native/un-varied AA in the structure
-    pdb_position = residue_id[1]
-    if residue_id[2].strip():
-        pdb_position += residue_id[2]
-    native_aa_letter =  seq1(aa)
 
-    slurm_filename = os.path.join(ddg_repo.slurm_dir,"%s_%s.slurm"%(structure_id,pdb_position))
+    first_residue_id = residue_id_list[0]
+    pdb_residue_range_for_jobname = str(first_residue_id[1]) + str(first_residue_id[2]).strip()
+
+    # Make the slurm job filename, and jobname, include the end residue
+    # if more than one residue per slurm file
+    if len(residue_id_list) > 1:
+        last_residue_id = residue_id_list[-1]
+        pdb_residue_range_for_jobname += '_' + str(last_residue_id[1]) + str(last_residue_id[2]).strip()
+
+
+    # Write out the slurm file meta/docs
+    slurm_filename = os.path.join(ddg_repo.slurm_dir,"%s_%s.slurm"%(structure_id,pdb_residue_range_for_jobname))
     with open(slurm_filename, 'w') as slurmf:
         slurmf.write("""\
 #!/bin/bash
@@ -285,19 +298,19 @@ def slurm_file_create(residue_id: Tuple[str,int,str], aa: str) -> int:
 """ % (slurm_filename, __file__, str(datetime.datetime.now())))
 
         slurmf.write("\n")
-        # It is important to make shallow copies of the default dictionaries, else mutations #7 can pick up dictionary entries set by mutation #4
+
+        # It is important to make shallow copies of the default slurm confugration dictionaries, 
+        # else mutations #7 can pick up dictionary entries set by mutation #4
         # slurmDict contains all the entries that will fill the header of our generated .slurm files
         slurmDict = dict(slurmParametersDDGMonomer)
 
-
-
         slurmDict['output'] = os.path.join(
             slurm_stdout_directory,
-            "%s_%s_%%A_%%a.out" % (structure_id,pdb_position))
+            "%s_%s_%%A_%%a.out" % (structure_id,pdb_residue_range_for_jobname))
 
-        slurmDict['job-name'] = "%s_%s" % (structure_id, pdb_position)
+        slurmDict['job-name'] = "%s_%s_%s" % (ddg_flavor,structure_id, pdb_residue_range_for_jobname)
 
-        jobCount = 20 # Launch all 19 + 1 do nothing ddG calculations
+        jobCount = len(residue_id_list) * 20 # Launch all 19 + 1 do nothing ddG calculations for each of N residues in this .slurm file
         slurmDict['array'] = "0-%d" % (jobCount - 1)
 
 
@@ -310,8 +323,9 @@ def slurm_file_create(residue_id: Tuple[str,int,str], aa: str) -> int:
             if slurm_field in slurmDict:
                 slurmf.write("#SBATCH --%s=%s\n" % (slurm_field, slurmDict[slurm_field]))
 
+        # The job outputs start with a dump of runtime job->node assignment info 
         slurmf.write("""
-echo "SLURM_ARRAY_TASKID="$SLURM_ARRAY_TASKID
+echo "SLURM_ARRAY_TASK_ID="$SLURM_ARRAY_TASK_ID
 echo "SLURM_JOBID="$SLURM_JOBID
 echo "SLURM_JOB_NODELIST"=$SLURM_JOB_NODELIST
 echo "SLURM_NNODES"=$SLURM_NNODES
@@ -319,27 +333,32 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 """)
 
-
-
         all_amino_acids = list("ACDEFGHIKLMNPQRSTVWY")
-
         slurmf.write("""
-native_aa='%s'       # The residue in the original model, as cleaned by Rosetta
-pdb_position='%s'    # The PDB position (possibly including an insertion code)
-
 # For each n Job Array # 0 to 19, start ddg_run.py on the nth amino acid variant   
 amino_acids=(%s)
-variant_aa=${amino_acids[$SLURM_ARRAY_TASK_ID]}
-variant=$native_aa$pdb_position$variant_aa
-""" % (native_aa_letter, pdb_position, ' '.join(all_amino_acids)))
+"""%' '.join(all_amino_acids))
+
+        bash_formatted_residue_ids = [
+                seq1(resname) + str(resid[1])+resid[2].strip() for (resid,resname) in zip(residue_id_list,resname_list)]
 
         slurmf.write("""
-echo Variant for this run is $variant
-if [[ $variant_aa == $native_aa ]]; then
-echo
-"No amino acid change requested.  Terminating early"
-exit 0
-fi
+# AminoAcid, PDB residue number, optional insertion code of each residues on which ddG is being run
+pdb_positions=(\n %s)
+"""%' '.join([bash_formatted_residue_id + '\n' * (1 if (i+1)%10 == 0 else 0) for i,bash_formatted_residue_id in enumerate(bash_formatted_residue_ids)]))
+
+
+        slurmf.write("""
+residue_subscript=$((SLURM_ARRAY_TASK_ID/20))
+amino_acid_subscript=$((SLURM_ARRAY_TASK_ID%20))
+
+pdb_position=${pdb_positions[$residue_subscript]:1}
+native_aa=${pdb_positions[$residue_subscript]:0:1}
+variant_aa=${amino_acids[$amino_acid_subscript]}
+
+variant=$native_aa$pdb_position$variant_aa
+
+echo Running ddG for variant $variant
 """)
 
         slurmf.write("""
@@ -373,13 +392,15 @@ fi
         except ValueError:
             jobid = -1
             
-        LOGGER.info("sbatch %s returned jobid=%d",slurm_filename,jobid)
+        LOGGER.info("sbatch %s returned jobid=%d  WARNING CLEARING STATUS DIRECTORIES",slurm_filename,jobid)
 
-        for variant_aa in all_amino_acids:
-            if variant_aa != native_aa_letter:
-                ddg_repo.set_variant("%s%s%s"%(native_aa_letter,pdb_position,variant_aa))
-                ddg_repo.psb_status_manager.clear_status_dir()
-                ddg_repo.psb_status_manager.write_info('Launched Job %d'%jobid)
+        for bash_formatted_residue_id in bash_formatted_residue_ids:
+            native_aa_letter = bash_formatted_residue_id[0]
+            for variant_aa in all_amino_acids:
+                if variant_aa != native_aa_letter:
+                    ddg_repo.set_variant("%s%s"%(bash_formatted_residue_id,variant_aa))
+                    ddg_repo.psb_status_manager.clear_status_dir()
+                    ddg_repo.psb_status_manager.write_info('Launched Job %d'%jobid)
 
     return jobid
 
@@ -397,13 +418,22 @@ else:
     # If the residue is in the cleaned protein submitted
     # to rosetta - then we need to process all variants in it
 
+residue_ids_in_slurm_file = []
+resnames_in_slurm_file = []
 for residue_id in residue_list:
     if residue_id in residue_to_clean_xref:
         cleaned_residue_id = residue_to_clean_xref[residue_id]
-        print("Slurm file for %s %s"%(str(residue_id),cleaned_structure[0][args.chain][cleaned_residue_id].get_resname()))
-        slurm_file_create(residue_id,cleaned_structure[0][args.chain][cleaned_residue_id].get_resname())
+        residue_ids_in_slurm_file.append(residue_id)
+        resnames_in_slurm_file.append(cleaned_structure[0][args.chain][cleaned_residue_id].get_resname())
+        if len(residue_ids_in_slurm_file) == args.residues_per_slurm:
+            slurm_file_create(residue_ids_in_slurm_file,resnames_in_slurm_file)
+            residue_ids_in_slurm_file = [] # Clear out the list for the next slurm file
+            resnames_in_slurm_file = [] # Clear out the list for the next slurm file
     else:
         if residue_id[0] != 'W': # No need to report on skipping waters
-            print("DDG will not be run on residue %s"%str(residue_id))
+            LOGGER.info("DDG will not be run on residue %s"%str(residue_id))
 
+assert len(residue_ids_in_slurm_file) == len(resnames_in_slurm_file)
+if len(residue_ids_in_slurm_file) > 0:
+    slurm_file_create(residue_ids_in_slurm_file,resnames_in_slurm_file)
 

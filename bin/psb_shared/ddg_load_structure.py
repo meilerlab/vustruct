@@ -82,22 +82,27 @@ def ddg_load_structure(args, config_dict):
                 LOGGER.warning("Deposition date %s apparently not YYYY-MM-DD", raw_deposition_date)
 
         resolution = None  # Not applicable is correct for NMR structures
+        resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
         if method == 'X-RAY DIFFRACTION':
-            resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
-            ethod = 'X-RAY'
+            method = 'X-RAY'
         elif method == 'ELECTRON MICROSCOPY':
             method = 'EM'
             resolution_keys = ['_em_3d_reconstruction.resolution']
         elif method.find('NMR') > -1:  # resolution is not applicable for nmr
             resolution_keys = []
+        elif method.find('SOLUTION SCATTERING') > -1:
+            # SOLUTION SCATTERING does not have 'resolution' notion
+            # But the keys are often in the .cif file - and we'll try to fish something out.
+            # Generally, it will flow through like NMR
+            method = 'SCAT'
         else:
-            resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
             LOGGER.critical('%s Experimental method for %s is unknown' % (method, pdb_id))
 
         for resolution_key in resolution_keys:
             if resolution_key in mmCIF_dict:
                 # Congratulations.  You found the old REMARK 2 RESOLUTION entry.... or so we hope.
-                resolution = float(mmCIF_dict[resolution_key][0])
+                if len(mmCIF_dict[resolution_key]) > 0 and mmCIF_dict[resolution_key][0].strip() != '.':
+                    resolution = float(mmCIF_dict[resolution_key][0])
                 break
         if not resolution and method.find('X-RAY') > 0:
             LOGGER.warning("pdb %s is method=%s with no resolution entry" % (pdb_id, method))

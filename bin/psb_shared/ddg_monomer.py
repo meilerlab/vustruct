@@ -176,8 +176,8 @@ class DDG_monomer(object):
                     LOGGER.info("Modpipe quality score (not checked) %0.2f"%qual)
 
         modbase_ok = modpipe_acceptable and tsvmod_acceptable and sequence_identity_acceptable
-         
-        LOGGER.info(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, template identity: %s"%(
+
+        LOGGER.log(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, template identity: %s"%(
             str(modpipe_acceptable),str(tsvmod_acceptable),str(sequence_identity_acceptable)))
 
         return modbase_ok
@@ -1200,5 +1200,5 @@ class DDG_monomer(object):
             final_results_df = None
 
         os.chdir(save_current_directory)
-        return final_results_df.iloc[0]
+        return final_results_df.iloc[0] if final_results_df is not None else None
         

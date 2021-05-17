@@ -565,7 +565,6 @@ class CalculationResultsLoader:
                     LOGGER.critical(msg)
                     sys.exit(msg)
 
-
                 if workstatus_row['flavor'].endswith(config_pathprox_dict['disease1_variant_sql_label']):
                     pathprox_disease1_results_df,msg = self.load_Pathprox_results_dataframe(
                         workstatus_row,'disease1')
@@ -626,10 +625,13 @@ class CalculationResultsLoader:
             #    cifSSdirname = os.path.realpath(os.path.dirname(pathprox_output_json['cifSSfilename']))
             #    pathprox_output_json['cifSSfilename'] = os.path.join(os.path.relpath(cifSSdirname,variant_report_directory),cifSSbasename)
 
+            def _variant_count(variant_type: str):
+                return sum([len(chain_variants[1]) for chain_variants in pathprox_output_json[variant_type].items()])
+
             LOGGER.info('Loaded %d variants, %d neutrals, %d pathogenic from %s' % (
-                len(pathprox_output_json['variants']),
-                len(pathprox_output_json['neutrals']),
-                len(pathprox_output_json['pathogenics']),
+                _variant_count('variants'),
+                _variant_count('neutrals'),
+                _variant_count('pathogenics'),
                 pathprox_output_json_filename))
 
             return pathprox_output_json
@@ -698,9 +700,12 @@ class CalculationResultsLoader:
             for disease1_or_2,pathprox_results_dict_of_dfs in zip(
                     ['disease1','disease2'],
                     [self.pathprox_disease1_results_dict_of_dfs,self.pathprox_disease2_results_dict_of_dfs]):
+                structure_graphics_dict["pathprox_%s_results" % disease1_or_2] = {}
+                structure_graphics_dict['%s_pathogenics' % disease1_or_2] = {}
                 if structure_key in pathprox_results_dict_of_dfs:
                     pathprox_result_series_for_structure = pathprox_results_dict_of_dfs[structure_key].iloc[0]
                     pathprox_output_json = self._load_pathprox_output_json(pathprox_result_series_for_structure)
+
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
@@ -1196,10 +1201,14 @@ class PfamDomainGraphics:
             # However not all subsequences of a protein is a domain of course
             domain_table_entry = ''
             if 'text' in region:
-                if 'href' in region:
-                    domain_table_entry = "<a href=" +  region['href'] + ">" + region['text'] + "</a>"
-                else:
-                    domain_table_entry = region['text']
+                region_text = region['text']
+            else:
+                region_text = 'Text Missing'
+
+            if 'href' in region:
+                domain_table_entry = "<a href=" +  region['href'] + ">" + region_text + "</a>"
+            else:
+                domain_table_entry = region_text
             table_rows.append({
                 'type': region['metadata']['type'],
                 'domain': domain_table_entry,
@@ -1603,40 +1612,40 @@ else:
             genome_headers.append(genome_header)
 
     else: # There are no chrom positions in this case.  Use the old format
-        for index, row in df_all_mutations.iterrows():
+        variant_isoform_summaries = [] # One line per variant
+        for index, variant_row in df_all_mutations.iterrows():
             msg = "%s %-10s %-10s %-6s" % (
-            "Generating slurm entry for" if args.slurm else "Reporting on", row['gene'], row['refseq'], row['mutation'])
+            "Generating slurm entry for" if args.slurm else "Reporting on", variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
             if not infoLogging:
                 print(msg)
             LOGGER.info(msg)
 
-            if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
-                row['refseq'] = 'NA'
-            gene_refseq_mutation,structure_report_filename,workstatus_filename,dropped_structure_filenames = paths_for_variant_row(row)
+            if 'RefSeqNotFound_UsingGeneOnly' in variant_row['refseq']:
+                variant_row['refseq'] = 'NA'
+            # gene_refseq_mutation,structure_report_filename,workstatus_filename,dropped_structure_filenames = paths_for_variant_row(row)
 
             if args.slurm:
                 slurm_array.append("./psb_rep.py -c %s -u %s %s %s" % (
                 args.config, args.userconfig, structure_report_filename, workstatus_filename))
             else:
-                gathered_info = report_one_variant_one_isoform(structure_report_filename, workstatus_filename)
-                if gathered_info:
-                    gathered_info['#'] = index
-                    if not gathered_info['Error'] and gathered_info['variant_report_directory']:
-                        gathered_info['html_fname'] = os.path.join(gathered_info['variant_report_directory'],
-                                                                   gathered_info['html_fname'])
-                        msg = "%s %s %s report saved to %s/.pdf/.wkhtml.pdf" % (
-                        row['gene'], row['refseq'], row['mutation'], gathered_info['html_fname'])
+                variant_directory = "%s_%s_%s" % (variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
+                variant_isoform_summary = report_one_variant_one_isoform(variant_directory)
+                if variant_isoform_summary:
+                    variant_isoform_summary['#'] = index
+                    if not variant_isoform_summary['Error']:
+                        msg = "%s %s %s report saved to %s" % (
+                                variant_row['gene'], variant_row['refseq'], variant_row['mutation'], variant_isoform_summary['html_filename'])
                         if not infoLogging:
                             print(msg)
                         LOGGER.info(msg)
-                    gathered_info['Gene'] = row[
-                        'gene']  # "%-9.9s %-10.10s %-10.10s %-7.7s"%(row['gene'],row['refseq'],gathered_info['unp'],row['mutation'])
-                    gathered_info['Chrom'] = row['chrom'] if 'chrom' in row else None
-                    gathered_info['POS'] = row['pos'] if 'pos' in row else None
-                    mutation_summaries.append(gathered_info)
+                    variant_isoform_summary['Gene'] = variant_row['gene']
+                    variant_isoform_summary['Unp'] = variant_row['unp']
+                    variant_isoform_summary['Refseq'] = variant_row['refseq']
+                    variant_isoform_summary['Mutation'] = variant_row['mutation']
+                    variant_isoform_summaries.append(variant_isoform_summary)
                 else:
                     msg = "Due to lack of pathprox or ddG outputs, %s %s %s has no html (or pdf) report" % (
-                    row['gene'], row['refseq'], row['mutation'])
+                    variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
                     if not infoLogging:
                         print(msg)
                     LOGGER.info(msg)

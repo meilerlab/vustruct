@@ -1,5 +1,6 @@
 import grp
 import os
+import stat
 
 ## Function Definitions ##
 capra_group = grp.getgrnam('capra_lab').gr_gid
