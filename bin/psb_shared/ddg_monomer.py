@@ -1200,5 +1200,5 @@ class DDG_monomer(object):
             final_results_df = None
 
         os.chdir(save_current_directory)
-        return final_results_df.iloc[0]
+        return final_results_df.iloc[0] if final_results_df is not None else None
         
