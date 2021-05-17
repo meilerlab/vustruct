@@ -451,7 +451,8 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             pathprox_flavor="PP_%s_%s"%("complex" if multimer else "monomer",disease_variant_sql_label)
             structure_designation = ''
             if ci_row['label'] == 'usermodel':
-                structure_designation = "--usermodel=%s --label=%s_%s "%(ci_row['struct_filename'],ci_row['structure_id'],params['chain'])
+                # Pathprox will append args.label to include lots of other things, including the chain
+                structure_designation = "--usermodel=%s --label=%s "%(ci_row['struct_filename'],ci_row['structure_id']) # ,params['chain'])
             elif ci_row['label'] == 'swiss':
                 structure_designation = "--swiss=%s "%ci_row['structure_id'] # <- Pathprox will make label from this and --chain
             elif ci_row['label'] == 'modbase':
@@ -625,13 +626,21 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             return "ChainInfo:" +  str(self)
 
         def set_alignment_profile(self,alignment: PDBMapAlignment,structure): 
+            """Set various alignment percentages, etc, based on alignment"""
             self.perc_aligned = alignment.perc_aligned
             self.perc_identity = alignment.perc_identity
             self.aln_score = alignment.aln_score
 
-            sorted_align_seqs = sorted(alignment.seq_to_resid.keys())
-            self.trans_first_aligned = sorted_align_seqs[0]
-            self.trans_last_aligned = sorted_align_seqs[-1]
+            if len(alignment.seq_to_resid) > 0:
+                sorted_align_seqs = sorted(alignment.seq_to_resid.keys())
+                self.trans_first_aligned = sorted_align_seqs[0]
+                self.trans_last_aligned = sorted_align_seqs[-1]
+            else:
+                # In event of total wipeout, quit early
+                self.trans_first_aligned = None
+                self.trans_last_aligned = None
+                self.analyzable = 'No'
+                return
 
             chain_aa_letter = None
             self.continuous_to_left = -1
@@ -913,7 +922,10 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         ci.mers = ci.mers_string(ci.biounit_chains)
         alignment = PDBMapAlignment(swiss_structure,ci.chain_id,None,'trivial')
         success,errormsg = alignment.align_trivial(transcript,swiss_structure,ci.chain_id)
-        assert success,errormsg
+        if not success:
+            LOGGER.critical("Swiss Model %s fails to align to transcript - skipping.  Error:\n%s",
+                ci.structure_id,errormsg)
+            continue
         ci.method = 'swiss'
         ci.set_alignment_profile(alignment,swiss_structure)
 
