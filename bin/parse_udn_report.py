@@ -260,25 +260,30 @@ while i < dfRows:
             try:
                 raw_mut = df.iloc[i + 2][2]
                 mut = raw_mut.replace("p.", "")
-            except IndexError:
-                LOGGER.warning("Row %3d: %-8s  Could not read mutation info from spreadsheet" % (i, gene))
-                i += 2
-                continue
+            except (AttributeError,IndexError):
+                LOGGER.warning("Row %3d: %-8s  Could not read AA variant from spreadsheet" % (i, gene))
+                raw_mut = ''
+                mut = ''
 
-            # Convert 3-letter amino acid codes to 1-letter codes
-            try:
-                int(mut[1:-1])
-            except (TypeError, IndexError, ValueError):
-                # Convert mutation argument to 1-letter codes
+            if mut:
+                # Convert 3-letter amino acid codes to 1-letter codes
                 try:
-                    mut = ''.join([longer_names[mut[:3].upper()], mut[3:-3], longer_names[mut[-3:].upper()]])
-                except IndexError:
-                    LOGGER.warning("Row %3d: %-8s  Failed to parse mutation %s" % (i, gene, raw_mut))
-                    i += 2
-                    continue  # Do not add this mutation
+                    int(mut[1:-1])
+                except (TypeError, IndexError, ValueError):
+                    # Convert mutation argument to 1-letter codes
+                    try:
+                        mut = ''.join([longer_names[mut[:3].upper()], mut[3:-3], longer_names[mut[-3:].upper()]])
+                    except IndexError:
+                        LOGGER.warning("Row %3d: %-8s  Failed to parse mutation %s" % (i, gene, raw_mut))
+                        i += 2
+                        continue  # Do not add this mutation
 
             try:
                 chrom = df.iloc[i][1]     # Example 'chr1' in Spreadsheet column B
+
+                # liftover requires lower case chr
+                # liftover requires capital X and Y if those are the chromosomes
+                chrom = chrom[0:3].lower() + chrom[3:].upper()
                 # if chrom == 'chrM': # Sometimes UDN leaves off the T
                 #     chrom = 'chrMT'
                 pos = int(df.iloc[i+1][1]) # Example 150915463 below chr1 in column B
@@ -287,6 +292,10 @@ while i < dfRows:
               
             except (TypeError, IndexError):
                 LOGGER.warning("Row %3d: Failed to parse Chr/Position/Change from columns B and C"%i)
+                if not mut:
+                    LOGGER.warning("Row %3d: %-8s  Skipping because neither AA variant nor genomic change found" % (i, gene))
+                    i += 2
+                    continue
        
 
             if genome != 'hg19':
@@ -334,7 +343,7 @@ if csv_rows:
          liftover_output_lifted,
          liftover_output_unlifted]
 
-    LOGGER.info("Running liftOver to convert to GRCh38 positions:\n%s",str(''.join(liftover_arg_list)))
+    LOGGER.info("Running liftOver to convert to GRCh38 positions:\n%s",str(' '.join(liftover_arg_list)))
 
     completed_process = sp.run(liftover_arg_list,
          capture_output=True,check=True,text=True)
@@ -345,16 +354,16 @@ if csv_rows:
         df_lifted_grch38 = pd.read_csv(liftover_output_lifted,header=None,sep='\t',names=["chrom","bed_zerobased_pos_hg38","pos",'original_lineno'])
         LOGGER.info("%d genomic postions lifted to GRCh38",df_lifted_grch38.shape[0])
         df_lifted_grch38 = df_lifted_grch38.drop('bed_zerobased_pos_hg38',axis='columns').set_index('original_lineno',drop=False)
-    except pd.io.common.EmptyDataError:
+    except pd.errors.EmptyDataError:
         LOGGER.critical("Liftover to GRCh38 created null lifted output")
 
     try:
         df_unlifted = pd.read_csv(liftover_output_unlifted,header=None,sep='\t')
         LOGGER.critical("%d genomic postions could not be lifted to GRCh38",df_unlifted.shape[0])
-    except pd.io.common.EmptyDataError:
+    except pd.errors.EmptyDataError:
         LOGGER.info("All positions lifted to GRCh38 successfully")
 
-    df_missense_grch38 = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
+    df_missense_grch38 = pd.DataFrame(columns=['gene','chrom','pos','change','transcript','unp','refseq','mutation'])
     if len(df_lifted_grch38): # Create a hg38 .vcf file that we can run vcf2missense.py on to create a new case
         df_vcf_hg38 = pd.DataFrame(
             columns = ["CHROM","POS","ID","REF","ALT"])
@@ -393,6 +402,9 @@ if csv_rows:
                     {'gene': CSQ['SYMBOL'],
                      'chrom': vcf_record.CHROM,
                      'pos': vcf_record.POS,
+                     'change': "%s/%s"%(
+                         vcf_record.REF[0], # .translate(str.maketrans('','',string.punctuation)),
+                         vcf_record.ALT[0]), #.translate(str.maketrans('','',string.punctuation))),
                      'transcript': CSQ['Feature'],
                      'unp': unp,
                      'refseq': refseq,
@@ -410,7 +422,8 @@ if csv_rows:
     df_indexed = df_missense_grch38.set_index(['gene','unp','refseq','mutation'])
     for index,row in df_without_duplicates.iterrows():
         variant_index = (row['gene'],row['unp'],row['refseq'],row['mutation'])
-        rows_with_various_transcripts = df_indexed.loc[variant_index]
+        # Enclose the variant_index in [[]] to be sure to get back a dataframe
+        rows_with_various_transcripts = df_indexed.loc[[variant_index]] 
         transcript_list = rows_with_various_transcripts['transcript'].tolist()
         # print("for variant_index %s rows are %s"%(str(variant_index),str(rows_with_various_transcripts)))
         # import pdb; pdb.set_trace()
