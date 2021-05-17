@@ -204,10 +204,12 @@ for variant in variant_list:
     # Get None or a dataframe with results
     ddg_result = ddg_monomer.retrieve_result()
 
-    if ddg_all_results is None:
-        ddg_all_results = ddg_result
-    else:
-       ddg_all_results = pd.concat([ddg_all_results,ddg_result],ignore_index=True)
+    if ddg_result is not None:
+        ddg_result = ddg_result.to_frame().T
+        if ddg_all_results is None:
+            ddg_all_results = ddg_result
+        else:
+           ddg_all_results = pd.concat([ddg_all_results,ddg_result],ignore_index=True)
 
 if ddg_all_results is None:
     message = "No matching results were found in the ddg repository.  Have calculations been run?"
