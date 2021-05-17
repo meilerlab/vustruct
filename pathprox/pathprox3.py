@@ -797,8 +797,6 @@ class PDBMapVariantSet():
             first_one = False
         transcript_in_str += ')'
 
-        # import pdb; pdb.set_trace()
-        
         query_str = ("SELECT distinct GC.protein_pos,GC.ref_amino_acid,GC.alt_amino_acid,\n"
                      "GC.chrom as chrom,GC.pos as pos,GC.end as end,GC.id as id,\n"
                      "GC.transcript,GC.allele,GC.ref_codon,GC.alt_codon\n"
@@ -2477,9 +2475,18 @@ if __name__ == "__main__":
                 if not ensembl_transcript.aa_seq:
                     LOGGER.warning("Ensembl transcript %s has no associated aa_seq.  Skipping"%ensembl_transcript_id)
                     continue
-                assert transcript.aa_seq == ensembl_transcript.aa_seq, statusdir_info("%s and %s AA sequences differ:\n%s"%(
-                    transcript.id,ensembl_transcript.id,PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript)))
-                LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
+                differences,pct_different = PDBMapTranscriptBase.analyze_transcript_differences(transcript,ensembl_transcript)
+                if differences == 0: # Awesome - the usual case where uniprot and ENST match
+                    LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
+                elif differences == 1: # Let's not kill pathprox if only one variant between uniprot and ENST
+                    LOGGER.warning("Transcripts vary in one position: %s"%PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                elif pct_diffent < 0.01: # Similarly let Pathprox continue if we have a few variants off - but less than 1% of the sequence
+                    LOGGER.warning("Transcripts vary in multiple positions: %s"%PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                else:
+                    termination_info = "%s and %s AA sequences differ markedly:\n%s"%(transcript.id,ensembl_transcript.id,PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                    statusdir_info(termination_info)
+                    sys.exit(termination_info)
+
                 if ensembl_transcript not in ENST_transcripts:
                     ENST_transcripts.append(ensembl_transcript)
 
@@ -2488,7 +2495,6 @@ if __name__ == "__main__":
         return ENST_transcripts
 
     for chain in structure[0]:
-        # import pdb; pdb.set_trace()
         if chain.id not in chain_to_alignment:
             LOGGER.critical("Chain %s has not been aligned to a transcript.  Skipping SQL variant load",chain.id)
             continue
