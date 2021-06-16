@@ -3,7 +3,8 @@
 # Project        : PDBMap
 # Filename       : psb_plan.py
 # Authors        : R. Michael Sivley
-#project Organization   : Vanderbilt Genetics Institute,
+# project        : PSB Pipeline
+# Organization   : Vanderbilt Genetics Institute,
 #                : Vanderbilt University
 # Email          : mike.sivley@vanderbilt.edu
 # Date           : 2017-01-22
@@ -91,7 +92,8 @@ from lib import PDB36Parser
 from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
 # from lib.PDBMapTranscriptEnsembl import PDBMapTranscriptEnsembl
 from lib.PDBMapAlignment import PDBMapAlignment
-from psb_shared.ddg_monomer import DDG_monomer
+# The planning phase will ask the DDG class about structure quality only
+from psb_shared.ddg_base import DDG_base
 from lib.amino_acids import longer_names
 import pprint
 import shutil
@@ -483,6 +485,13 @@ def makejob_ddg_monomer(params):
           ("--config %(config)s --userconfig %(userconfig)s " +
            "--%(label)s %(structure_id)s " + 
            "--chain %(chain)s --variant %(pdb_mutation)s")%params) # options
+
+def makejob_ddg_cartesian(params):
+    return makejob("ddG_cartesian","ddg_run_cartesian.py",params,   #command
+          ("--config %(config)s --userconfig %(userconfig)s " +
+           "--%(label)s %(structure_id)s " +
+           "--chain %(chain)s --variant %(pdb_mutation)s")%params) # options
+
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
 # Fix this in python 3 - where we have additional local scoping options
@@ -913,9 +922,9 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         else: # Strange - just grab first 
             ci.chain_id = first_swiss_chain_id
         assert ci.chain_id not in [' ',''],"UUGH - this swiss model has blank chain ID"
-        ci.ddg_quality = DDG_monomer.evaluate_swiss(swiss_info['modelid'],remark3_metrics)
+        ci.ddg_quality = DDG_base.evaluate_swiss(swiss_info['modelid'],remark3_metrics)
         if ci.ddg_quality:
-            LOGGER.info("DDG monomer will be attempted for swissmodel %s"%swiss_info['modelid'])
+            LOGGER.info("DDG monomer and DDG cartesian will be attempted for swissmodel %s"%swiss_info['modelid'])
 
         ci.nresidues = len(list(swiss_structure[0][ci.chain_id].get_residues()))
         ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
@@ -1013,9 +1022,9 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         else:
             ci.chain_id = modbase_chainid
        
-        ci.ddg_quality = DDG_monomer.evaluate_modbase(StringIO(modbase_structure_buffer))
+        ci.ddg_quality = DDG_base.evaluate_modbase(StringIO(modbase_structure_buffer))
         if ci.ddg_quality:
-            LOGGER.info("DDG monomer will be attempted for modbase %s"%modbase_summary['database_id'])
+            LOGGER.info("DDG monomer and DDG base will be attempted for modbase %s"%modbase_summary['database_id'])
 
         modbase_structure_buffer = None
         # Modbase super-annoying because the chain_id is often missing
@@ -1691,8 +1700,9 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
                          str(int(ci_row['mut_pdb_res'])) + 
                          str(ci_row['mut_pdb_icode']).strip() + 
                          mutation[-1])
-                    LOGGER.info("ddG will be run at %s of %s"%(_params['pdb_mutation'],_params['struct_filename']))
+                    LOGGER.info("ddG calculations will be run at %s of %s"%(_params['pdb_mutation'],_params['struct_filename']))
                     df_all_jobs = df_all_jobs.append(makejob_ddg_monomer(_params,),ignore_index = True)
+                    df_all_jobs = df_all_jobs.append(makejob_ddg_cartesian(_params,),ignore_index = True)
 
         
         # Launch sequence and spatial jobs on a minimally overlapping subset of structures
