@@ -786,14 +786,10 @@ class PDBMapVariantSet():
         # when we're done we'll have nice "in" string so that we get ALL the transcripts in one query
         transcript_in_str = 'transcript in ('
         first_one = True
-        ENST_transcripts_str = ''  # Build up a string that can be part of the dump'd query .tsv filename
         for transcript in ENST_transcripts:
             if not first_one:
                 transcript_in_str += ','
             transcript_in_str += "'%s'"%transcript.id
-            if len(ENST_transcripts_str) > 1:
-                ENST_transcripts_str += '_'
-            ENST_transcripts_str += transcript.id
             first_one = False
         transcript_in_str += ')'
 
@@ -824,6 +820,9 @@ class PDBMapVariantSet():
             query_str += " AND GC.pos = GenomicData.pos AND GC.end = GenomicData.end"
             query_str += " AND GenomicData.maf >= 1E-5 \n"  # GNOMAD only include maf of 1 in 10,000 or more to be neutral
 
+
+
+
         query_str += ( " WHERE GC.label=%s and " + transcript_in_str +
                        " and consequence LIKE '%%missense_variant%%' and length(ref_amino_acid)=1 and length(alt_amino_acid)=1 ")
 
@@ -835,6 +834,20 @@ class PDBMapVariantSet():
                 query_str += "and %s = %d"%(kwarg,kwargs[kwarg])
             else:
                 query_str += "and %s = '%s'"%(kwarg,kwargs[kwarg])"""
+
+
+        ENST_transcripts_str = ''  # Build up a string that can be part of the dump'd query .tsv filename
+        if len(ENST_transcripts) > 3:
+            ENST_transcripts_str = "%s_%s_%d_more_%s"%(
+                ENST_transcripts[0].id,
+                ENST_transcripts[1].id,
+                4-len(ENST_transcripts),
+                ENST_transcripts[-1].id)
+        else: 
+            for transcript in ENST_transcripts:
+                if len(ENST_transcripts_str) > 1:
+                    ENST_transcripts_str += '_'
+                ENST_transcripts_str += transcript.id
 
         force_chain = None # <- For all these SQL queries there is no chain
         prior_variant_count = 0
