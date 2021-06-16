@@ -683,11 +683,11 @@ class CalculationResultsLoader:
         # Let's round some columns for sane output
         structure_report_df_appended = structure_report_df_appended.round(
             {
-                'ddG_monomer': 1,
-                'disease1_pathprox': 1,
-                'disease1_pr_auc': 1,
-                'disease2_pathprox': 1,
-                'disease2_pr_auc': 1
+                'ddG_monomer': 2,
+                'disease1_pathprox': 2,
+                'disease1_pr_auc': 3,
+                'disease2_pathprox': 2,
+                'disease2_pr_auc': 3
              }
         )
 
@@ -1501,6 +1501,23 @@ else:
     genome_variants = defaultdict(list)
     # mutation_summaries = [] # Used to populate old format report, one line per gene
     genome_headers = []     # Used for new format report, with one line per gene, expandable to transcript isoforms
+
+    def fetch_gene_id(uniprot_id: str):
+
+        query = """\
+SELECT ID FROM Idmapping 
+where Id_Type = 'GeneID' and unp = %(unp)s"""
+
+        with PDBMapSQLdb(config_dict) as sql_connection:
+            unp_base = uniprot_id.split('-')[0]
+            sql_connection.execute(query, {'unp': unp_base})
+            row = sql_connection.fetchone()
+            if not row or len(row) != 1:
+                LOGGER.warning("unp %s is invalid, or lacks a GeneID entry in the idmapping file" % unp_base)
+                return ""
+            else:
+                return row[0].strip()
+
     if set(['chrom','pos','change']).issubset(df_all_mutations.columns) and not args.slurm:
         for index, row in df_all_mutations.iterrows():
             chrom_pos_change = (row['chrom'], row['pos'], row['change'])
@@ -1547,7 +1564,9 @@ else:
                             print(msg)
                         LOGGER.info(msg)
                     variant_isoform_summary['Gene'] = genome_variant_row['gene']
+
                     variant_isoform_summary['Unp'] = genome_variant_row['unp']
+                    variant_isoform_summary['gene_id'] = fetch_gene_id(variant_isoform_summary['Unp'])
                     transcript_list = genome_variant_row['transcript'].split(';')
                     variant_isoform_summary['Transcript'] = transcript_list[0]
                     if len(transcript_list) > 1:
@@ -1564,17 +1583,7 @@ else:
             genome_header['variant_isoform_summaries'] = variant_isoform_summaries
 
             # Go to SQL to get the Gene ID for this gene.....
-            genome_header['gene_id'] = None
-            query = """
-            SELECT ID FROM Idmapping 
-            where Id_Type = 'GeneID' and unp = %(unp)s"""
-            with PDBMapSQLdb(config_dict) as sql_connection:
-                unp_base = variant_isoform_summaries[0]['Unp'].split('-')[0]
-                sql_connection.execute(query, {'unp': unp_base})
-                row = sql_connection.fetchone()
-                if not row or len(row) != 1:
-                    LOGGER.warning( "unp %s is invalid, or lacks a GeneID entry in the idmapping file" % unp_base)
-                genome_header['gene_id'] = row[0].strip()
+            genome_header['gene_id'] = variant_isoform_summary['gene_id']
 
             genome_header['ddG Min'] = min([variant_isoform_summary['ddG Min'] for variant_isoform_summary in variant_isoform_summaries \
                                             if 'ddG Min' in variant_isoform_summary and variant_isoform_summary['ddG Min'] is not None],
@@ -1640,6 +1649,7 @@ else:
                         LOGGER.info(msg)
                     variant_isoform_summary['Gene'] = variant_row['gene']
                     variant_isoform_summary['Unp'] = variant_row['unp']
+                    variant_isoform_summary['gene_id'] = fetch_gene_id(variant_isoform_summary['Unp'])
                     variant_isoform_summary['Refseq'] = variant_row['refseq']
                     variant_isoform_summary['Mutation'] = variant_row['mutation']
                     variant_isoform_summaries.append(variant_isoform_summary)
