@@ -95,7 +95,7 @@ def slurm_submit(job_submit_command_line):
             run_result = sp.run(
                 args=job_submit_command_line,
                 stdout=sp.PIPE, stderr=sp.PIPE,
-                timeout=120, check=True)
+                timeout=120, check=True) # If there is an exception, then e.stderr has stderr
 
         except AttributeError as e:
             msg = "Exception: %s\n\
@@ -107,7 +107,7 @@ This module requires the subprocess.run() function, which is only available in P
             logging.getLogger(__name__).warning('sbatch timeout on %s' % job_submit_command_line)
         except (sp.CalledProcessError, OSError) as e:
             msg = "Failed to run '%s'\nException: %s\nstderr: %s--->>> You do not seem to be logged in to a slurm cluster.\n" % (
-            job_submit_command_line, str(e), run_result.stderr)
+            job_submit_command_line, str(e), e.stderr)
             logging.getLogger(__name__).critical(msg)
             sys.exit(1)
 
