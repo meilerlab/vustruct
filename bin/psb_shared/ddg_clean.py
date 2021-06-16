@@ -739,8 +739,22 @@ def query_modres(aa):
 #     return mutation
 
 class DDG_Cleaner(object):
-    def __init__(self, structure: Structure, mmcif_dict: Dict[str, List], verbose: bool = True,
-                 species_filter: str = None, nmr: bool = False):
+    def __init__(self,
+                 structure: Structure,
+                 mmcif_dict: Dict[str, List],
+                 verbose: bool = True,
+                 species_filter: str = None,
+                 renumber_residues: bool = True):
+        """
+
+        @param structure:      Biopython "structure" loaded into RAM, and iterable over model/chain/residue
+        @param mmcif_dict:     The mmcif dictionary of th estructure, if available.
+        @param verbose:        Adds some logging verbiage when true (default)
+        @param species_filter: A name which, if present, will direct the cleaner to remove tag residues or other non-
+                               biological constructs
+        @param renumber_residues: Set this to "False" for ddg_cartesian.  Otherwise the cleaned
+                               residues will be numbered 1,2,3..N.  When "True" original residue IDs are retained
+        """
         """Convery an input BioPython structure for cleaning by class member functions,
            to setup processing by Rosetta ddg_monomer"""
 
@@ -753,12 +767,16 @@ class DDG_Cleaner(object):
         self.outfile_rev = ""
         # self._pdbfile = ""
         # self._pdbfile_rev = ""
-        self.nmr = nmr
+        # self.nmr = nmr
         self._keepdna = False
         self._non_species_residues = {}
         self._species_residues = {}
-        self._next_residue_sequence = 1
+        self._renumber_residues = renumber_residues
+
+        # Only track next residue number if we are renumbering
         self._next_atom_serial = 1
+        if self._renumber_residues:
+            self._next_residue_sequence = 1
 
         if mmcif_dict:
             self._identify_species_residues()
@@ -838,11 +856,17 @@ class DDG_Cleaner(object):
             if type(template_residue) == DisorderedResidue:
                 template_residue = template_residue.disordered_get()
 
-        new_residue = Residue((' ',
+        if self._renumber_residues:
+            new_residue = Residue((' ',
                                sequence_identifier if sequence_identifier else self._next_residue_sequence,
                                insertion_code if insertion_code else ' '),
                               override_resname if override_resname else template_residue.get_resname(),
                               override_segid if override_segid else template_residue.get_segid())
+        else: # In ddg cartesian case, we are not renumbering the residues
+            new_residue = Residue(template_residue.id,
+                              override_resname if override_resname else template_residue.get_resname(),
+                              override_segid if override_segid else template_residue.get_segid())
+
 
         for atom in template_residue:
             if atom.is_disordered():
@@ -1043,8 +1067,10 @@ class DDG_Cleaner(object):
                 if residue and not residue_invalid:
                     if (self.check_residue(residue, bbcheck)):
                         cleaned_chain.add(residue)
-                        self._next_residue_sequence += 1
+                        if self._renumber_residues:
+                            self._next_residue_sequence += 1
                         self._next_atom_serial += len(residue)
+
                         residue_to_clean_xref[chain_id][residue_iterator.id] = residue.id
                     else:
                         self._skipped += 1
