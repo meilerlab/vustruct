@@ -395,7 +395,7 @@ class DDG_monomer(object):
         :return: (True if success,  dataframe of final results)
         """
 
-        self._ddg_repo.make_calculation_directory_heirarchy()
+        self._ddg_repo.make_variant_directory_heirarchy()
 
         # Mirror the log - with INFO level details - to a local file
         
@@ -408,54 +408,10 @@ class DDG_monomer(object):
         LOGGER.info('DDG_monomer.run called with\nsilent: %s\n,standard_ddg: %s\n,Row16: %s' % (
             silent, standard_ddg, high_resolution))
 
-        # timestamp_suffix = datetime.datetime.now().strftime("%d%m%y%H%M%S")
-        # isoresult, isopdbname, to_pdb = isolate_chain(self._pdb, self._chain)
-        # if not isoresult:
-        #    return self.failure(None, to_pdb)
-        # else:
-        #    self._to_pdb = to_pdb
 
-        # Convert mutation to pose numbering for internal consistency
-        rosetta_mutations = []  # List of mutations input to ddg
-
-        mutation_resids = []
-        # Capture the inner bytes,123A of the S123AW format, as Biopython resid tuple
-        for mutation in self._mutations:
-            if mutation[-2].isalpha():  # Then Mutation is like ex: S123AF (Ser->Phe at res 123A)
-                mutation_resid = (' ', int(mutation[1:-2]), mutation[-2])
-            else:  # The much more common case of format S456T
-                mutation_resid = (' ', int(mutation[1:-1]), ' ')
-            assert mutation_resid in self._ddg_repo.residue_to_clean_xref, (
-                    "mutation %s is not in source structure" % str(mutation_resid))
-            mutation_resids.append(mutation_resid)
-
-        for mutation, mutation_resid in zip(self._mutations, mutation_resids):
-            rosetta_residue_number = self._ddg_repo.residue_to_clean_xref[mutation_resid][1]
-            LOGGER.info("Res %s converted to rosetta cleaned res # %d" % (mutation_resid, rosetta_residue_number))
-            # Add to list of rosetta mutations in form A123S
-            rosetta_mutations.append(mutation[0] + str(rosetta_residue_number) + mutation[-1])
-
-        if not rosetta_mutations:
-            self._ddg_repo.psb_status_manager.sys_exit_failure("No mutations found in parameter self._mutations %s" % self._mutations)
-
-        if len(rosetta_mutations) != 1:
-            self._ddg_repo.psb_status_manager.sys_exit_failure("Only 1 mutation can be setisfied in parameter self._mutations %s" % self._mutations)
-
-        # Create a reverse lookup dictionary, mapping the 1..N rosetta resdiue numbers
-        # back to source structure residue IDs (which might have insertion codes)
-        rosetta_residue_number_to_residue_xref = {}
-        for residue, clean in self._ddg_repo.residue_to_clean_xref.items():
-            try:
-                rosetta_residue_number = int(clean[1])
-                rosetta_residue_number_to_residue_xref[rosetta_residue_number] = residue
-                LOGGER.debug("%s %s"%(rosetta_residue_number,residue))
-            except:
-                self._ddg_repo.psb_status_manager.sys_exit_failure(
-                    "Creating rosetta->residue reverse xref Failure to deal with residue=%s clean=%s"%(residue,clean))
-         
 
         save_current_directory = os.getcwd()
-        os.chdir(self._ddg_repo.calculation_dir)
+        os.chdir(self._ddg_repo.variant_dir)
 
         def move_prior_file_if_exists(filename):
             if os.path.exists(filename):
@@ -1153,10 +1109,10 @@ class DDG_monomer(object):
         jobstatus_info = {}
         save_current_directory = os.getcwd()
         try:
-            os.chdir(self._ddg_repo.calculation_dir)
+            os.chdir(self._ddg_repo.variant_dir)
         except FileNotFoundError:
             jobstatus_info['ExitCode'] = None
-            jobstatus_info['jobinfo'] = 'ddg_monomer has not created %s'%self._ddg_repo.calculation_dir
+            jobstatus_info['jobinfo'] = 'ddg_monomer has not created %s'%self._ddg_repo.variant_dir
             jobstatus_info['jobprogress'] = jobstatus_info['jobinfo']
             return jobstatus_info
 
@@ -1180,14 +1136,14 @@ class DDG_monomer(object):
         _,_,exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
         save_current_directory = os.getcwd()
         try:
-            os.chdir(self._ddg_repo.calculation_dir)
+            os.chdir(self._ddg_repo.variant_dir)
         except FileNotFoundError:
-            LOGGER.info("No results directory %s",self._ddg_repo.calculation_dir)
+            LOGGER.info("No results directory %s",self._ddg_repo.variant_dir)
             return None
 
         previous_exit,previous_exit_int = self._get_previous_exit(exitcd_filename)
 
-        final_results_fullpath = os.path.join(self._ddg_repo.calculation_dir,self.final_results_filename())
+        final_results_fullpath = os.path.join(self._ddg_repo.variant_dir,self.final_results_filename())
 
         if previous_exit_int == 0:
             final_results_df = pd.read_csv(final_results_fullpath, sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
