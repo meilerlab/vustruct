@@ -383,7 +383,7 @@ img {
 			  <th class="sorter-false">Pathogenic Kt</th>
 			  <th class="sorter-false">ROC AUC</th>
 			  <th class="sorter-false">PR AUC</th>
-			  <th class="sorter-false">Mutation</th>
+			  {# <th class="sorter-false">Mutation</th> #}
 			  <th class="sorter-false">PathProx</th>
 			  <th class="sorter-false">Neutral Constraint</th>
 			  <th class="sorter-false">Pathogenic Constraint</th>
@@ -393,14 +393,14 @@ img {
 			<tr>
 			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kz_neut']|float) }}</td>
 			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kt_neut']|float) }}</td>
-			  <td>{{ structure['pathprox_disease1_results']['Kz_path'] }}</td>
-			  <td>{{ structure['pathprox_disease1_results']['Kt_path'] }}</td>
-			  <td>{{ structure['pathprox_disease1_results']['roc_auc'] }}</td>
-			  <td>{{ structure['pathprox_disease1_results']['pr_auc'] }}</td>
-		      <td>{{ structure['mutation'] }}</td>
-		      <td>{{ structure['pathprox'] }}</td>
-		      <td>{{ structure['neutcon'] }}</td>
-		      <td>{{ structure['pathcon'] }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kz_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kt_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['roc_auc']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['pr_auc']|float) }}</td>
+		      {# <td>{{ structure['mutation'] }}</td> #}
+		      <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['pathprox']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['neutcon']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['pathcon']|float) }}</td>
 			</tr>
 		  </tbody>
 		</table>
@@ -421,7 +421,6 @@ img {
 			  <th class="sorter-false">Pathogenic Kt</th>
 			  <th class="sorter-false">ROC AUC</th>
 			  <th class="sorter-false">PR AUC</th>
-			  <th class="sorter-false">Mutation</th>
 			  <th class="sorter-false">PathProx</th>
 			  <th class="sorter-false">Neutral Constraint</th>
 			  <th class="sorter-false">Pathogenic Constraint</th>
@@ -431,14 +430,13 @@ img {
 			<tr>
 			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kz_neut']|float) }}</td>
 			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kt_neut']|float) }}</td>
-			  <td>{{ structure['pathprox_disease2_results']['Kz_path'] }}</td>
-			  <td>{{ structure['pathprox_disease2_results']['Kt_path'] }}</td>
-			  <td>{{ structure['pathprox_disease2_results']['roc_auc'] }}</td>
-			  <td>{{ structure['pathprox_disease2_results']['pr_auc'] }}</td>
-		      <td>{{ structure['mutation'] }}</td>
-		      <td>{{ structure['pathprox'] }}</td>
-		      <td>{{ structure['neutcon'] }}</td>
-		      <td>{{ structure['pathcon'] }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kz_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kt_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['roc_auc']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['pr_auc']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['pathprox']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['neutcon']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['pathcon']|float) }}</td>
 			</tr>
 		  </tbody>
 		</table>

@@ -141,6 +141,7 @@ LOGGER.info("Command Line Arguments:\n%s", pprint.pformat(vars(args)))
 
 launchParametersPathProx: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+launchParametersDDGCartesian: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersUDNSequence: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDigenicAnalysis: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 
@@ -161,6 +162,7 @@ LSF_required_settings = [
 for launchParameterDictDesc, launchParameters in [
     ('ParametersPathProx', launchParametersPathProx),
     ('ParametersDDGMonomer', launchParametersDDGMonomer),
+    ('ParametersDDGCartesian', launchParametersDDGCartesian),
     ('ParametersUDNSequence', launchParametersUDNSequence),
     ('ParametersDigenicAnalysis', launchParametersDigenicAnalysis)
 ]:
@@ -256,7 +258,7 @@ class JobsLauncher:
         self._all_jobs_cwd = None
 
         # Whether by slurm, LSF or other, each job has s specific command line with arguments that must be run.
-        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'SequenceAnnotation': [], 'DigenicAnalysis': []}
+        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'ddG_cartesian': [],'SequenceAnnotation': [], 'DigenicAnalysis': []}
 
         # After jobs are launched, we will create a 'submitted' file in the status directories for the jobs
         # Might collide with launched program though - so perhaps rethink a bit....
@@ -325,7 +327,7 @@ class JobsLauncher:
                 assert self._all_jobs_cwd is None or self._all_jobs_cwd == row['cwd']
                 self._all_jobs_cwd = row['cwd']
                 # Create the meat of the slurm script for this job
-                # ddG monomer is simpler because it is not managed by the pipeline
+                # ddG monomer and cartesian are simpler because they is not managed by the pipeline
                 launch_string = "%(command)s %(options)s" % row
                 LOGGER.info("%s %s", row['flavor'], launch_string)
                 if 'ddG' not in row['flavor']:
@@ -472,6 +474,8 @@ fi
                 slurm_dict = dict(launchParametersPathProx)
             elif subdir == "ddG_monomer":
                 slurm_dict = dict(launchParametersDDGMonomer)
+            elif subdir == "ddG_cartesian":
+                slurm_dict = dict(launchParametersDDGCartesian)
             elif subdir == "SequenceAnnotation":
                 slurm_dict = dict(launchParametersUDNSequence)
             elif subdir == "DigenicAnalysis":
@@ -558,6 +562,8 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 bsub_dict = dict(launchParametersPathProx)
             elif subdir == "ddG_monomer":
                 bsub_dict = dict(launchParametersDDGMonomer)
+            elif subdir == "ddG_cartesian":
+                bsub_dict = dict(launchParametersDDGCartesian)
             elif subdir == "SequenceAnnotation":
                 bsub_dict = dict(launchParametersUDNSequence)
             elif subdir == "DigenicAnalysis":
@@ -703,7 +709,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         # retail the list of all the .slurm or .bsub files getting launched.
         launch_filenames = []
 
-        for subdir in ['PathProx', 'ddG_monomer', 'SequenceAnnotation', 'DigenicAnalysis']:
+        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','SequenceAnnotation', 'DigenicAnalysis']:
             if len(self._launch_strings[subdir]) == 0:
                 # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
                 if (self._gene == 'casewide' and subdir == 'DigenicAnalysis') or (
