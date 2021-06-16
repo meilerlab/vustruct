@@ -295,6 +295,8 @@
 						{%endif %}
 					</td>
 
+
+
 					<td /> <!-- skip 2 gene interaction columns -->
 					<td />
 					<td> {{ isoform_summary['Error'] }} </td>
@@ -304,80 +306,104 @@
 			{% endfor %}
 			</tbody>
 			{% elif variant_isoform_summaries %}
+			{# This is the second major case report structure.  Here, there are no genomic headers
+			becauase there were no genomic coordinates on initial input #}
 			<thead>
 				<tr>
-					<th>#</th>
-					<th>Gene</th>
-					<th>Chrom</th>
-					<th>Pos</th>
-					<th>Error</th>
-					<th>PP {{ disease1_variant_short_description }}</th>
-					<th>PP {{ disease2_variant_short_description }}</th>
-					<th>ddg Max</th>
-					<th>ddg Min</th>
-<!-- Great to get everything for debugging
+					<th class="sorter-false"></th> {#  Above Above #}
+					<th class="sorter-false"></th> {#  Above Gene #}
+					<th class="sorter-false"></th> {# Above Unp #}
+					<th class="sorter-false"></th> {# Above Refseq #}
+					<th class="sorter-false"></th> <!-- Above Variant -->
+					<th class="sorter-false"></th> <!-- Above AA len -->
+					<th colspan="2" class="sorter-false">PP {{ disease1_variant_short_description }}</th>
+					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
+					<th colspan="2" class="sorter-false">ddg Monomer</th>
+					<th colspan="2" class="sorter-false">Gene Interactions</th>
+					<th class="sorter-false"></th> <!-- Above Notes -->
+<!-- Sometimes for debugging - dump everything -
 					{% for colname in variant_isoform_summaries[0] %}
 					<th>{{ colname }}</th>
 					{% endfor %}
 -->
 				</tr>
+
+
+				<tr>
+					<th>#</th>
+                    <th class="sorter-false">Gene</th>
+                    <th class="sorter-false">Unp</th>
+                    <th class="sorter-false">Refseq</th>
+                    <th class="sorter-false">Variant</th>
+                    <th class="sorter-false">AA len</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th class="sorter-false">Generic</th>
+					<th class="sorter-false">Familial</th>
+					<th class="sorter-false">Notes</th>
+				</tr>
 			</thead>
 			<tbody>
-				{% for variant_isoform_summary in variant_isoform_summaries %}
+				{% for isoform_summary in variant_isoform_summaries %}
 				<tr>
-					<td> {{ variant_isoform_summary['#'] }} </td>
-					<td><A href={{ variant_isoform_summary['html_fname'] }}>{{ variant_isoform_summary['Gene'] }}</A></td>
-					<td><A href={{ variant_isoform_summary['html_fname'] }}>{{ variant_isoform_summary['Chrom'] }}</A></td>
-					<td><A href={{ variant_isoform_summary['html_fname'] }}>{{ variant_isoform_summary['POS'] }}</A></td>
-					<td> {{ variant_isoform_summary['Error'] }} </td>
-					<td>
-						{% if variant_isoform_summary['disease1_pp Min'] is not none %}
-						    {{ variant_isoform_summary['disease1_pp Min']|round(2) }}
-						{%endif %}
-					</td>
+					<td><A href={{ isoform_summary['html_filename'] }}>{{ isoform_summary['#'] }}</A></td>
+
+					<td><A href="https://www.ncbi.nlm.nih.gov/gene/{{ isoform_summary['gene_id'] }}">{{ isoform_summary['Gene'] }}</A></td>
+
+					<td><A href="https://www.uniprot.org/uniprot/{{ isoform_summary.Unp }}">{{ isoform_summary.Unp }}</A></td>
 
 					<td>
-						{% if variant_isoform_summary['disease1_pp Max'] is not none %}
-						    {{ variant_isoform_summary['disease1_pp Max']|round(2) }}
-						{%endif %}
-					</td>
-
-					<td>
-						{% if variant_isoform_summary['disease2_pp Min'] is not none %}
-						    {{ variant_isoform_summary['disease2_pp Min']|round(2) }}
-						{%endif %}
-					</td>
-
-					<td>
-						{% if variant_isoform_summary['disease2_pp Max'] is not none %}
-						    {{ variant_isoform_summary['disease2_pp Max']|round(2) }}
-						{%endif %}
-					</td>
-
-					<td>
-						{% if variant_isoform_summary['ddG Min'] is not none %}
-						    {{ variant_isoform_summary['ddG Min']|round(2) }}
-						{%endif %}
-					</td>
-					
-					<td>
-						{% if variant_isoform_summary['ddG Max'] is not none %}
-						    {{ variant_isoform_summary['ddG Max']|round(2) }}
+						{# If we have a refseq ID that could be of interest, output it with hyperlink to ncbi #}
+						{% if isoform_summary.Refseq is not none and isoform_summary.Refseq != "NA" %}
+						<A href="https://www.ncbi.nlm.nih.gov/nuccore/{{ isoform_summary.Refseq.split('.')[0] }}">{{ isoform_summary.Refseq }}</A>
+						{% else %}
+						{{ isoform_summary.Refseq }}
 						{% endif %}
+					<td>{{ isoform_summary.Mutation }}</td>
+					<td> {{ isoform_summary.AA_len }} </td>
+
+					<td>
+						{% if isoform_summary['disease1_pp Min'] is not none %}
+						    {{ isoform_summary['disease1_pp Min']|round(2) }}
+						{%endif %}
 					</td>
 
-
-					<td> {% for other_gene in variant_isoform_summary['Gene Interactions Generic'] %}
-						{{ variant_isoform_summary['Gene Interactions Generic'][other_gene] }} blech
-						{% endfor %}
+					<td>
+						{% if isoform_summary['disease1_pp Max'] is not none %}
+						    {{ isoform_summary['disease1_pp Max']|round(2) }}
+						{%endif %}
 					</td>
 
-					<td> {% for other_gene in variant_isoform_summary['Gene Interactions Familial'] %}
-						{{ variant_isoform_summary['Gene Interactions Familial'][other_gene] }} blech
-						{% endfor %}
+					<td>
+						{% if isoform_summary['disease2_pp Min'] is not none %}
+						    {{ isoform_summary['disease2_pp Min']|round(2) }}
+						{%endif %}
 					</td>
 
-					<td>Gene Note</td>
+					<td>
+						{% if isoform_summary['disease2_pp Max'] is not none %}
+						    {{ isoform_summary['disease2_pp Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Min'] is not none %}
+						    {{ isoform_summary['ddG Min']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if isoform_summary['ddG Max'] is not none %}
+						    {{ isoform_summary['ddG Max']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td /> <!-- skip 2 gene interaction columns -->
+					<td />
+					<td> {{ isoform_summary['Error'] }} </td>
 
 
 <!-- Great to get everything for debugging
