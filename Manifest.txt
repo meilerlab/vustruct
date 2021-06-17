@@ -49,7 +49,7 @@ $ which python
 /dors/capra_lab/users/psbadmin/anaconda3/bin/python
 
 $ python --version
-Python 3.8.3
+Python 3.8.8
 
 
 Then install add-on libraries with 
@@ -97,8 +97,8 @@ Your commands will differ as perl versions shift around
 
 $ cd /dors/capra_lab/users/psbadmin/
 $ wget https://www.cpan.org/src/5.0/perl-5.32.0.tar.gz
-$ tar -xzf perl-5.32.0.tar.gz
-$ cd perl.5.32.0
+$ tar -xzf perl-5.34.0.tar.gz
+$ cd perl.5.34.0
 
 # Get rid of the annoying PERL5LIB set by anaconda's conda init
 # as we do NOT want ANY of our fresh PERL getting tangled up with this
