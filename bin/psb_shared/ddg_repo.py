@@ -78,12 +78,13 @@ class DDG_repo():
 
         if ddg_config_filename in DDG_repo._my_config_dicts:
             LOGGER.info("Re-using config from prior read of %s"%ddg_config_filename)
-            self._ddg_config_dict = DDG_repo._my_config_dicts[ddg_config_filename]
         else:
-            ddg_full_config = DDG_repo.ddg_config_read(ddg_config_filename)
-            self._ddg_config_dict =  ddg_full_config[calculation_flavor]
-            self._ddg_config_dict['repo_root'] = ddg_full_config['ddG']['repo_root']
-            DDG_repo._my_config_dicts[ddg_config_filename] = self._ddg_config_dict
+            DDG_repo._my_config_dicts[ddg_config_filename] = \
+                DDG_repo.ddg_config_read(ddg_config_filename)
+            LOGGER.info("ddG Repo config file read: %s"%ddg_config_filename)
+
+        self._ddg_config_dict =  DDG_repo._my_config_dicts[ddg_config_filename][calculation_flavor]
+        self._ddg_config_dict['repo_root'] = DDG_repo._my_config_dicts[ddg_config_filename]['ddG']['repo_root']
 
         self._ddg_config_filename = ddg_config_filename
 

@@ -38,6 +38,7 @@ from array import array
 from logging.handlers import RotatingFileHandler
 
 from psb_shared.ddg_monomer import DDG_monomer
+from psb_shared.ddg_cartesian import DDG_cartesian
 from psb_shared.ddg_repo import DDG_repo
 import shutil
 import numpy as np
@@ -498,9 +499,9 @@ class CalculationResultsLoader:
                 pathprox_summary_df[score_string] = pathprox_summary_df["%s_%s"%(mutation,score_string)]
         return pathprox_summary_df,None
 
-    def load_ddG_results_dataframe(self,workplan_df_row: pd.Series) -> (pd.DataFrame,str):
+    def load_ddG_results_dataframe(self,workplan_df_row: pd.Series,calculation_flavor: str) -> (pd.DataFrame,str):
         ddg_repo = DDG_repo(config_dict['ddg_config'],
-                            calculation_flavor='ddg_monomer')
+                            calculation_flavor=calculation_flavor)
 
         structure_id = workplan_df_row['pdbid']
         chain_id = workplan_df_row['chain']
@@ -515,11 +516,11 @@ class CalculationResultsLoader:
 
         variant = workplan_df_row['pdbmut']
         ddg_repo.set_variant(variant)
-        ddg_monomer = DDG_monomer(ddg_repo, variant)
+        ddg_monomer_or_cartesian = DDG_monomer(ddg_repo, variant) if calculation_flavor == 'ddG_monomer' else DDG_cartesian(ddg_repo,variant)
 
-        ddg_results_df = ddg_monomer.retrieve_result()
+        ddg_results_df = ddg_monomer_or_cartesian.retrieve_result()
         if ddg_results_df is None:
-            msg='No DDG results found for %s.%s:%s' % (structure_id, chain_id, variant)
+            msg='No %s results found for %s.%s:%s' % (calculation_flavor,structure_id, chain_id, variant)
             LOGGER.warning(msg)
             return None, msg
 
@@ -583,15 +584,18 @@ class CalculationResultsLoader:
                         # structure_row['disease2_pr_aoc'] = pathprox_disease2_results_df['pr_auc']
                         self.pathprox_disease2_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = pathprox_disease2_results_df
 
-                elif workstatus_row['flavor'] == 'ddG_monomer':
-                    ddg_results_df,msg = self.load_ddG_results_dataframe(workstatus_row)
+                elif workstatus_row['flavor'] in ['ddG_monomer', 'ddG_cartesian']:
+                    ddg_results_df,msg = self.load_ddG_results_dataframe(workstatus_row,workstatus_row['flavor'])
                     if ddg_results_df is None:
                         workstatus_row['Notes'] = msg
                     else:
-                        # structure_row['ddG_monomer'] = ddg_results_df['ddG']
-                        self.ddG_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = ddg_results_df
+                        if workstatus_row['flavor'] == 'ddG_monomer':
+                            # structure_row['ddG_monomer'] = ddg_results_df['ddG']
+                            self.ddG_monomer_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = ddg_results_df
+                        else:
+                            self.ddG_cartesian_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = ddg_results_df
                 else:
-                    die_msg = "flavor in workstatus row is neither %s nor %s nor ddG_monomer - cannot continue:\n%s"%(
+                    die_msg = "flavor in workstatus row is neither %s nor %s nor ddG_monomer not ddG_cartesian - cannot continue:\n%s"%(
                               config_pathprox_dict['disease1_variant_sql_label'],
                               config_pathprox_dict['disease2_variant_sql_label'],
                               str(workstatus_row))
@@ -652,9 +656,14 @@ class CalculationResultsLoader:
             set_index(['method', 'structure_id', 'chain_id', 'mers'], drop=False)
 
         structure_report_df_appended['ddG_monomer'] = np.nan
-        for ddg_results_key in self.ddG_results_dict_of_dfs:
+        for ddg_results_key in self.ddG_monomer_results_dict_of_dfs:
             structure_report_df_appended.at[ddg_results_key, 'ddG_monomer'] = \
-                self.ddG_results_dict_of_dfs[ddg_results_key].ddG
+                self.ddG_monomer_results_dict_of_dfs[ddg_results_key].ddG
+
+        structure_report_df_appended['ddG_cartesian'] = np.nan
+        for ddg_results_key in self.ddG_cartesian_results_dict_of_dfs:
+            structure_report_df_appended.at[ddg_results_key, 'ddG_cartesian'] = \
+                self.ddG_cartesian_results_dict_of_dfs[ddg_results_key].total
 
         structure_report_df_appended['disease1_pathprox'] = np.nan
         structure_report_df_appended['disease1_pr_auc'] = np.nan
@@ -684,6 +693,7 @@ class CalculationResultsLoader:
         structure_report_df_appended = structure_report_df_appended.round(
             {
                 'ddG_monomer': 2,
+                'ddG_cartesian': 2,
                 'disease1_pathprox': 2,
                 'disease1_pr_auc': 3,
                 'disease2_pathprox': 2,
@@ -840,7 +850,8 @@ class CalculationResultsLoader:
 
         # We build up dictionaries of dataframes, which link each 3D structure to the raw dataframes of computed
         # results for that structure
-        self.ddG_results_dict_of_dfs = {}
+        self.ddG_monomer_results_dict_of_dfs = {}
+        self.ddG_cartesian_results_dict_of_dfs = {}
         self.pathprox_disease1_results_dict_of_dfs = {}
         self.pathprox_disease2_results_dict_of_dfs = {}
 
@@ -888,7 +899,7 @@ class CalculationResultsLoader:
                 print(msg)
             LOGGER.info(msg)
 
-    def ddG_html_vars(structure, thestruct):
+    """ OBSOLETEdef ddG_html_vars(structure, thestruct):
         if not 'ddG_monomer' in thestruct:
             return structure, None
 
@@ -920,6 +931,7 @@ class CalculationResultsLoader:
             return structure, None
 
         return structure, ddg_results_df
+    """
 
     def load_calculations(self) -> None:
         """
@@ -952,9 +964,6 @@ class CalculationResultsLoader:
                 method_pdbid_chain_mers_tuple = (row['Method'], row['pdbid'], row['chain'], row['mers'])
                 thestruct = struct_dict.get(method_pdbid_chain_mers_tuple, {})
 
-
-
-
                 thestruct['mutation'] = row['mutation']
                 thestruct['pdbid'] = row['pdbid']
                 thestruct['chain'] = row['chain']
@@ -967,6 +976,8 @@ class CalculationResultsLoader:
                     continue  # UDN Sequence annotations are NOT a part of generated reports
                 elif 'ddG_monomer' == row['flavor']:
                     thestruct['ddG_monomer'] = row.to_dict()
+                elif 'ddG_cartesian' == row['flavor']:
+                    thestruct['ddG_cartesian'] = row.to_dict()
                 else:
                     LOGGER.critical("flavor in row is neither %s nor %s nor ddG_monomer - cannot continue:\n%s",
                                     config_pathprox_dict['disease1_variant_sql_label'],
@@ -1338,15 +1349,22 @@ def report_one_variant_one_isoform(variant_directory_segment: str) -> Dict:
     # mutation = row0['mutation']  # Sorry for alias - but this is all over the code
 
     variant_isoform_summary['Error'] = ''  # < This is False for truth but looks fine on the report
-    variant_isoform_summary['ddG Max'] = variant_isoform_summary['ddG Min'] = None
+    variant_isoform_summary['ddG Monomer Max'] = variant_isoform_summary['ddG Monomer Min'] = None
+    variant_isoform_summary['ddG Cartesian Max'] = variant_isoform_summary['ddG Cartesian Min'] = None
     variant_isoform_summary['disease1_pp Min'] = variant_isoform_summary['disease1_pp Max'] = None
     variant_isoform_summary['disease2_pp Min'] = variant_isoform_summary['disease2_pp Max'] = None
 
-    if calculation_results_loader.ddG_results_dict_of_dfs:
-        ddG_list = [calculation_results_loader.ddG_results_dict_of_dfs[ddg_results_key].ddG \
-             for ddg_results_key in calculation_results_loader.ddG_results_dict_of_dfs]
-        variant_isoform_summary['ddG Max'] = max(ddG_list)
-        variant_isoform_summary['ddG Min'] = min(ddG_list)
+    if calculation_results_loader.ddG_monomer_results_dict_of_dfs:
+        ddG_list = [calculation_results_loader.ddG_monomer_results_dict_of_dfs[ddg_results_key].ddG \
+             for ddg_results_key in calculation_results_loader.ddG_monomer_results_dict_of_dfs]
+        variant_isoform_summary['ddG Monomer Max'] = max(ddG_list)
+        variant_isoform_summary['ddG Monomer Min'] = min(ddG_list)
+
+    if calculation_results_loader.ddG_cartesian_results_dict_of_dfs:
+        ddG_list = [calculation_results_loader.ddG_cartesian_results_dict_of_dfs[ddg_results_key].total \
+             for ddg_results_key in calculation_results_loader.ddG_cartesian_results_dict_of_dfs]
+        variant_isoform_summary['ddG Cartesian Max'] = max(ddG_list)
+        variant_isoform_summary['ddG Cartesian Min'] = min(ddG_list)
 
     def nan_to_None(x: np.float64):
         return None if np.isnan(x) else x
@@ -1585,11 +1603,18 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             # Go to SQL to get the Gene ID for this gene.....
             genome_header['gene_id'] = variant_isoform_summary['gene_id']
 
-            genome_header['ddG Min'] = min([variant_isoform_summary['ddG Min'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'ddG Min' in variant_isoform_summary and variant_isoform_summary['ddG Min'] is not None],
+            genome_header['ddG Monomer Min'] = min([variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in variant_isoform_summaries \
+                                            if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary['ddG Monomer Min'] is not None],
                                            default=None)
-            genome_header['ddG Max'] = max([variant_isoform_summary['ddG Max'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'ddG Max' in variant_isoform_summary and variant_isoform_summary['ddG Max'] is not None],
+            genome_header['ddG Monomer Max'] = max([variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in variant_isoform_summaries \
+                                            if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary['ddG Monomer Max'] is not None],
+                                           default=None)
+
+            genome_header['ddG Cartesian Min'] = min([variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in variant_isoform_summaries \
+                                            if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary['ddG Cartesian Min'] is not None],
+                                           default=None)
+            genome_header['ddG Cartesian Max'] = max([variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in variant_isoform_summaries \
+                                            if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary['ddG Cartesian Max'] is not None],
                                            default=None)
 
             genome_header['AA_Len Min'] = min([variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \

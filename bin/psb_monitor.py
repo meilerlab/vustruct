@@ -56,6 +56,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from psb_shared.ddg_repo import DDG_repo
 from psb_shared.ddg_monomer import DDG_monomer
+from psb_shared.ddg_cartesian import DDG_cartesian
 
 from slurm import SlurmJob,slurm_scontrol_show_job,slurm_jobstate_isfinished
 
@@ -153,10 +154,10 @@ def monitor_one_mutation(workstatus):
             continue
 
         if 'ddG' in row['flavor'] and 'repo' in row['outdir']:
+            calculation_flavor = 'ddG_cartesian' if 'cartesian' in row['flavor'] else 'ddG_monomer'
             ddg_repo = DDG_repo(config_dict['ddg_config'],
-                    calculation_flavor='ddg_monomer')
+                    calculation_flavor=calculation_flavor)
 
-            # import pdb; pdb.set_trace()
             if row['method'] == 'swiss':
                 ddg_repo.set_swiss(row['pdbid'],row['chain'])
             elif row['method'] == 'modbase':
@@ -168,12 +169,15 @@ def monitor_one_mutation(workstatus):
 
             ddg_repo.set_variant(row['pdbmut'])
 
-            ddg_monomer = DDG_monomer(ddg_repo,row['pdbmut'])
+            ddg_monomer_or_cartesian = \
+                DDG_monomer(ddg_repo,row['pdbmut']) if calculation_flavor == 'ddG_monomer' else \
+                DDG_cartesian(ddg_repo,row['pdbmut'])
+                
 
             # Ask ddg_monomer to return information about the job
             # The ddG jobs are under the watch of the repository, not us so much
             # It will return dictionary with ExitCode, jobprogress, jobinfo
-            interesting_info.update(ddg_monomer.jobstatus())
+            interesting_info.update(ddg_monomer_or_cartesian.jobstatus())
             LOGGER.info("Status of DDG job:\n%s"%str(interesting_info))
         else: # non DDG jobs
             # We dig down to the status directory outputs

@@ -14,6 +14,7 @@ import time
 import pandas as pd
 from io import StringIO
 from psb_shared.ddg_repo import DDG_repo
+from psb_shared.ddg_base import DDG_base
 from typing import Dict, List, Tuple, Union
 # from sys import argv, stderr, stdout
 # from os import popen, system
@@ -25,7 +26,7 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 
-class DDG_monomer(object):
+class DDG_monomer(DDG_base):
 
     def refresh_ddg_repo_and_mutations(self,ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
@@ -50,6 +51,11 @@ class DDG_monomer(object):
         # Keep thinking about it.
         self._mutationtext = ",".join(self._mutations)
 
+    @property
+    def _mutation_list_filename(self):
+        filename_prefix = "%s_%s_%s" % (
+            self._ddg_repo.structure_id, self._ddg_repo.chain_id, self._mutationtext)
+        return filename_prefix + ".mut"
 
     def _verify_applications_available(self):
         for application in [
@@ -69,6 +75,11 @@ class DDG_monomer(object):
 
         self.refresh_ddg_repo_and_mutations(ddg_repo, mutations)
 
+        # Convert mutation to pose numbering for internal consistency
+        # rosetta_mutations = []  # List of mutations input to ddg
+        self._mutation_resids, self._rosetta_mutations, self._rosetta_residue_number_to_residue_xref = \
+            self.mutations_to_rosetta_poses()
+
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
         self._minimize_application_filename =    'minimize_with_cst.default.linuxgccrelease'
@@ -79,108 +90,7 @@ class DDG_monomer(object):
         self._application_timers = ['minimize', 'rescore', 'ddg_monomer']
         self._to_pdb = []
 
-        LOGGER.info("ddg_monomer.__init__ completed after setting:\n%s" % pprint.pformat(self.__dict__))
-
-    @staticmethod
-    def evaluate_swiss(swiss_modelid,swiss_remark3_metrics):
-        """Swiss models are assumed to be of reasonable fundamental quality.
-           We just  check for sequence id >= 40 and move on
-
-           :param swiss_model_id:         Unique swiss model identifier
-           :param swiss_remark3_metrics:  Dictionary preloaded via PDBMapSwiss call
-           
-           :return True/False for OK to continue or NOT
-        """
-        sid_threshold = 30.0
-        if 'sid' in swiss_remark3_metrics:
-            swiss_sid = float(swiss_remark3_metrics['sid'])
-            sequence_identity_acceptable = (swiss_sid >= sid_threshold)
-            if sequence_identity_acceptable:
-                LOGGER.info("Swiss Model %s seq identity=%f  >= Minimum Acceptable: %f"%(
-                    swiss_modelid,swiss_sid,sid_threshold))
-            else:
-                LOGGER.warning("Swiss Model %s seq identity=%f  <= Minimum Acceptable: %f"%(
-                    swiss_modelid,swiss_sid,sid_threshold))
-            return sequence_identity_acceptable
-
-        LOGGER.warning("Swiss Model %s lacks REMARK for sid (seq identity)"%modelid)
-        return False
-
-    @staticmethod
-    def evaluate_modbase(modbase_fullpath_or_fin):
-        """Modbase models are evaluated for whether or not they are of high enough quality
-        To run in ddg monomer.
-        Comuted quality metrics must all be sufficient, including
-        modpipe: modpipe quality score (cumulative overall score from modbase pipeline)
-        ztsvmod: RMSD of model to template.
-        seqid: sequence id of model seq and template seq 
-
-        param: modbase_fullpath_or_fin  Full pathname of modbase.gz file or a StringIO
-
-        """
-
-        modpipe_acceptable = True #Removed filter for low modpipe scores (seqid and rmsd to template should be enough)
-        tsvmod_acceptable  = False
-        sequence_identity_acceptable = False
-
-        sid_threshold = 30.0
-        rmsd_threshold = 4.0
-        qual_threshold = 1.1
-
-        LOGGER.info('Checking quality of %s',modbase_fullpath_or_fin)
-        with modbase_fullpath_or_fin if type(modbase_fullpath_or_fin) == StringIO else \
-             lzma.open(modbase_fullpath_or_fin,'rt') as infile:
-            for line in infile:
-                if line.startswith('REMARK 220 SEQUENCE IDENTITY'):
-                    try:
-                        modbase_sid = float(line.strip().split()[4])
-                    except IndexError: # Sometimes this line is entirely blank in modbase
-                        modbase_sid = 0.0
-                    except TypeError:
-                        modbase_sid = 0.0
-                    except ValueError:
-                        modbase_sid = 0.0
-                    if modbase_sid>=sid_threshold:
-                        sequence_identity_acceptable = True
-                        LOGGER.info("Modbase Sequence identity of %0.1f acceptable as > threshold %0.1f",modbase_sid,sid_threshold)
-                    else:
-                        sequence_identity_acceptable = False
-                        LOGGER.warning("Modbase Sequence Identity: %0.1f < threshold %0.1f",modbase_sid,sid_threshold)
-
-                elif line.startswith('REMARK 220 TSVMOD RMSD'):
-                    try:
-                        rmsd = float(line.strip().split()[4])
-                    except IndexError: # Sometimes this line is entirely blank in modebase
-                        rmsd = 1000.0
-                    except TypeError:
-                        rmsd = 1000.0
-                    except ValueError:
-                        rmsd = 1000.0
-                    tsvmod_acceptable = rmsd<=rmsd_threshold
-                    if tsvmod_acceptable:
-                        LOGGER.info("TSVMOD RMSD: %0.1f OK ( <= threshold %0.1f)",rmsd,rmsd_threshold)
-                    else:
-                        LOGGER.info("TSVMOD RMSD: %0.1f TOO HIGH, threshold %0.1f",rmsd,rmsd_threshold)
-                elif line.startswith('REMARK 220 MODPIPE QUALITY SCORE'):
-                    try:
-                        qual = float(line.strip().split()[5])
-                    except IndexError: # Sometimes this line is entirely blank in modbase
-                        qual = 0.0
-                    except TypeError:
-                        qual = 0.0
-                    except ValueError:
-                        qual = 0.0
-
-                    if qual>=1.1:
-                        modpipe = True # Well - does not do much given low filter removal ...
-                    LOGGER.info("Modpipe quality score (not checked) %0.2f"%qual)
-
-        modbase_ok = modpipe_acceptable and tsvmod_acceptable and sequence_identity_acceptable
-
-        LOGGER.log(logging.INFO if modbase_ok else logging.WARNING, "Modbase modpipe: %s, tsvmod: %s, template identity: %s"%(
-            str(modpipe_acceptable),str(tsvmod_acceptable),str(sequence_identity_acceptable)))
-
-        return modbase_ok
+        LOGGER.debug("ddg_monomer.__init__ completed after setting:\n%s" % pprint.pformat(self.__dict__))
 
     def final_results_filename(self) -> str:
         return "%s_%s_%s.csv" % (
@@ -214,171 +124,6 @@ class DDG_monomer(object):
 
         return previous_exit,previous_exit_int
         
-
-
-
-    #        with open(self._pdb) as infile:
-    #            self._pdblines = infile.readlines()
-
-    # def log_success(self, times):
-    #   mutationtext = ",".join("".join(str(x) for x in y) for y in self._mutations)
-    #   nres = str(len(self._to_pdb) - 1)
-    #   curdate = datetime.datetime.now().strftime("%d_%m_%y")
-    #   curtime = datetime.datetime.now().strftime("%H_%M")
-    #   wd = os.getcwd()
-    #   if not os.path.isfile(self._success):
-    #       with open(self._success, 'w') as outfile:
-    #           header = ['date', 'time', 'pdbfile', 'chain', 'nres', 'mutation'] + self._timers + ['path']
-    #           outfile.write("\t".join(header))
-    #           outfile.write("\n")
-    #   with open(self._success, 'a') as outfile:
-    #       line = [curdate, curtime, self._pdb, self._chain, nres, mutationtext] + \
-    #              ["%.2f" % (times[x] / 60.0) if x in times else 'NaN' for x in self._timers] + [wd]
-    #       outfile.write("\t".join(line))
-    #       outfile.write("\n")
-
-    # def log_failure(self, message):
-    #   wd = os.getcwd()
-    #   mutationtext = ",".join("".join(str(x) for x in y) for y in self._mutations)
-    #   curdate = datetime.datetime.now().strftime("%d_%m_%y")
-    #   curtime = datetime.datetime.now().strftime("%H_%M")
-    #   if not os.path.isfile(self._fail):
-    #       with open(self._fail, 'w') as outfile:
-    #           header = ['date', 'time', 'pdbfile', 'chain', 'mutation', 'message', 'path']
-    #           outfile.write("\t".join(header))
-    #           outfile.write("\n")
-    #   with open(self._fail, 'a') as outfile:
-    #       line = [curdate, curtime, self._pdb, self._chain, mutationtext, message, wd]
-    #       outfile.write("\t".join(line))
-    #       outfile.write("\n")
-
-    # def failure(self, dumps, message):
-    #   LOGGER.warning(message)
-    #   if dumps is not None:
-    #       for item in dumps:
-    #           LOGGER.warning("Dumping %s to %s", item[0], item[1])
-    #           with open(item[1], 'w') as outfile:
-    #               outfile.write(item[2])
-    #   # self.log_failure(message)
-    #   return [False, message]
-
-    """
-    Old code that seems no longer used "non-standard ddg"
-    def get_ddg(self, quality, silent=False):
-        timestamp_suffix = datetime.datetime.now().strftime("%d%m%y%H%M%S")
-
-        with open("ddg_predictions.out") as infile:
-            muts = [x.strip().split()[1] for x in infile.readlines()[1:] if len(x.strip().split()) > 1]
-        if not os.path.exists('top_models'):
-            os.makedirs('top_models')
-        top_three = {'wt': []}
-
-        if not silent:
-            wt_files = glob.glob("repacked*.pdb")
-            mut_files = glob.glob("mut*.pdb")
-            modellist = "models_%s.ls" % timestamp_suffix
-            rescorefile = "ddg_%s.sc" % timestamp_suffix
-            with open(modellist, 'w') as outfile:
-                for x in wt_files:
-                    outfile.write("\n".join(wt_files + mut_files))
-                    outfile.write("\n")
-            command = "score_jd2.linuxgccrelease -l %s -score:weights talaris2014 -out:file:scorefile %s" % (
-            modellist, rescorefile)
-            LOGGER.info("Scoring all ddg models with command:\n%s/%s", self._rosetta, command)
-            runscore = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
-            (scout, scerr) = runscore.communicate()
-            scout = out.decode('latin')
-            scerr = scerr.decode('latin')
-            try:
-                assert os.path.isfile(rescorefile)
-            except AssertionError:
-                scoutfile = "modscorefail%s.out" % timestamp_suffix
-                scerrfile = "modscorefail%s.err" % timestamp_suffix
-                return self.failure([["rescore output", scoutfile, scout], ["rescore stderr", scerrfile, scerr]],
-                                    "Error scoring ddg models, scorefile is missing.")
-
-            with open(rescorefile) as infile:
-                raw_rescore = [x.strip().split() for x in infile.readlines() if x.strip() != '']
-
-            try:
-                assert len(raw_rescore) > 0
-            except AssertionError:
-                scoutfile = "modscorefail%s.out" % timestamp_suffix
-                scerrfile = "modscorefail%s.err" % timestamp_suffix
-                return self.failure([["rescore output", scoutfile, scout], ["rescore stderr", scerrfile, scerr]],
-                                    "Error scoring ddg models, scorefile is empty.")
-        else:
-            raw_rescore = []
-            with open("wt_.out") as infile:
-                raw_rescore += [x.strip().split() for x in infile.readlines() if
-                                x.strip().split()[-1] != 'description' and x.strip().split()[0] == 'SCORE:']
-            for item in muts:
-                with open("mut_%s.out" % item) as infile:
-                    raw_rescore += [x.strip().split() for x in infile.readlines() if
-                                    x.strip().split()[-1] != 'description' and x.strip().split()[0] == 'SCORE:']
-
-        if not silent:
-            try:
-                score_ix = raw_rescore[0].index('total_score')
-                name_ix = raw_rescore[0].index('description')
-                headend = 0
-            except ValueError:
-                score_ix = raw_rescore[1].index('total_score')
-                name_ix = raw_rescore[1].index('description')
-                headend = 1
-        else:
-            score_ix = 1
-            name_ix = -1
-            headend = -1
-
-        for line in raw_rescore[headend + 1:]:
-            if silent:
-                curmodel = line[name_ix]
-            else:
-                curmodel = "%s.pdb" % line[name_ix][:-5]
-            curscore = float(line[score_ix])
-            curkey = None
-            if curmodel[:11] == 'repacked_wt':
-                curkey = 'wt'
-            else:
-                for mut in muts:
-                    if curmodel.startswith("mut_%s" % mut):
-                        curkey = mut
-            if curkey is None:
-                continue
-            if curkey not in top_three:
-                top_three[curkey] = [[curscore, curmodel]]
-            elif len(top_three[curkey]) < 3:
-                top_three[curkey].append([curscore, curmodel])
-            elif curscore < sorted(top_three[curkey])[-1][0]:
-                LOGGER.info(sorted(top_three[curkey])[-1][0])
-                top_three[curkey][-1] == [curscore, curmodel]
-        allmeans = {}
-        for keys in top_three:
-            topmod = sorted(top_three[keys])[0][1]
-            if silent:
-                if keys == 'wt':
-                    outfile = "wt_.out"
-                else:
-                    outfile = "mut_%s.out" % keys
-                command = "extract_pdbs.linuxgccrelease -in:file:silent %s -in:file:tags %s" % (outfile, topmod)
-                topmod += ".pdb"
-                extcom = subprocess.Popen("%s/%s" % (self._rosetta, command), shell=True, stdout=subprocess.PIPE,
-                                          stderr=subprocess.PIPE)
-                (cstout, csterr) = extcom.communicate()
-                cstout = cstout.decode('latin')
-                csterr = csterr.decode('latin')
-            copyfile(topmod, 'top_models/%s' % topmod)
-            curmean = mean([x[0] for x in top_three[keys]])
-            allmeans[keys] = curmean
-        scores = []
-        for keys in allmeans:
-            if keys == 'wt': continue
-            scores.append("%s\t%.3f" % (keys, (allmeans[keys] - allmeans['wt'])))
-        return [True, scores]
-    """
-
     def run(self,
             iterations: int = 50,
             standard_ddg: bool = True,
@@ -892,18 +637,18 @@ class DDG_monomer(object):
                 except OSError:
                     pass
 
-                # Create a list of mutations to be analyzed by ddg_monomer, using Rosetta 1..N numberings.
-                # Documented https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
-                mutation_list_filename = "%s_%s_%s.mut" % (
-                    self._ddg_repo.structure_id, self._ddg_repo.chain_id, self._mutationtext)
-                with open(mutation_list_filename, 'w') as mutation_list_f:
-                    mutation_list_f.write("total %d\n" % len(rosetta_mutations))
-                    for rosetta_mutation in rosetta_mutations:
+                with open(self._mutation_list_filename, 'w') as mutation_list_f:
+                    mutation_list_f.write("total %d\n" % len(self._mutation_resids))
+                    for rosetta_mutation in self._rosetta_mutations:
                         mutation_list_f.write("1\n")
+                        rosetta_resno = int(rosetta_mutation[1:-1])
+
                         mutation_list_f.write("%s %d %s\n" % (
-                                              rosetta_mutation[0],
-                                              int(rosetta_mutation[1:-1]), 
-                                              rosetta_mutation[-1]))
+                            rosetta_mutation[0],
+                            rosetta_resno,
+                            rosetta_mutation[-1]))
+
+
 
                 #
                 # https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
@@ -916,7 +661,7 @@ class DDG_monomer(object):
                 ddg_options = [
                     '-in:file:s ' + minimized_pdb_relpath,  # PDB file of structure on which point mutations should be made
                     '-in::file::fullatom',  # read the input PDB file as a fullatom structure
-                    '-ddg::mut_file ' + mutation_list_filename,  # the list of point mutations to consider in this run
+                    '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
                     '-fa_max_dis 9.0',  # optional -- if not given, the default value of 9.0 Angstroms is used.
                     '-ddg::dump_pdbs true',  # write one PDB for the wildtype and one for the pointmutant for each iteration
                     '-database ' + self._ddg_repo.rosetta_database_dir,  # the full oath to the database is required
@@ -1006,7 +751,7 @@ class DDG_monomer(object):
                     expected_files = [
                             "repacked_wt_round_%d.pdb" % (x + 1) for x in range(iterations)] + \
                                      [ddg_predictions_filename]
-                    for mut in rosetta_mutations:
+                    for mut in self._rosetta_mutations:
                         expected_files += ["mut_%s_round_%d.pdb" % ("".join(str(x) for x in mut), x + 1) for x in
                                            range(iterations)]
                 else:
@@ -1055,7 +800,7 @@ class DDG_monomer(object):
 
                         # Populate the ddgs back to the original structure positions (perhaps with insertion codes)
 
-                        original_residue = rosetta_residue_number_to_residue_xref[int(rosetta_mutation[1:-1])]
+                        original_residue = self._rosetta_residue_number_to_residue_xref[int(rosetta_mutation[1:-1])]
                         original_residue_insertion_code = original_residue[2] if original_residue[2].isalpha() else ''
                         original_mutation = (
                                 rosetta_mutation[0] +
@@ -1147,7 +892,7 @@ class DDG_monomer(object):
 
         final_results_fullpath = os.path.join(self._ddg_repo.variant_dir,self.final_results_filename())
 
-        if previous_exit_int == 0:
+        if previous_exit_int == 0 and os.path.exists(final_results_fullpath):
             final_results_df = pd.read_csv(final_results_fullpath, sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
             assert len(final_results_df) == 1,"Format error: single row of data not found in %s - halting"%final_results_fullpath
             final_results_df['RefAA'] = final_results_df['Mutation'].str[0]

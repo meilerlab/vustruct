@@ -276,6 +276,7 @@ img {
             <th>Seq<br />Start</th>
             <th>Seq<br />End</th>
             <th>ddG<br />Monomer</th>
+            <th>ddG<br />Cartesian</th>
             <th>Pathprox<br>{{ config_pathprox_dict['disease1_variant_short_description'] }}</th>
             <th>Pathprox<br />{{ config_pathprox_dict['disease1_variant_short_description'] }} AOC</th>
             <th>Pathprox<br />{{ config_pathprox_dict['disease2_variant_short_description'] }}</th>
@@ -296,6 +297,7 @@ img {
         <td>{{ structure.trans_first_aligned }}</td>
         <td>{{ structure.trans_last_aligned }}</td>
         <td>{{ structure.ddG_monomer }}</td>
+        <td>{{ structure.ddG_cartesian }}</td>
         <td>{{ structure.disease1_pathprox }}</td>
         <td>{{ structure.disease1_pr_auc }}</td>
         <td>{{ structure.disease2_pathprox }}</td>
@@ -337,6 +339,7 @@ img {
 				<th class="sorter-false">Seq<br />Start</th>
 				<th class="sorter-false">Seq<br />End</th>
 				<th class="sorter-false">ddG<br />Monomer</th>
+				<th class="sorter-false">ddG<br />Cartesian</th>
 				<th class="sorter-false">Pathprox<br>{{ config_pathprox_dict['disease1_variant_short_description'] }}</th>
 				<th class="sorter-false">Pathprox<br />{{ config_pathprox_dict['disease1_variant_short_description'] }} AOC</th>
 				<th class="sorter-false">Pathprox<br />{{ config_pathprox_dict['disease2_variant_short_description'] }}</th>
@@ -356,6 +359,7 @@ img {
 			<td>{{ structure.trans_first_aligned }}</td>
 			<td>{{ structure.trans_last_aligned }}</td>
 			<td>{{ structure.ddG_monomer }}</td>
+			<td>{{ structure.ddG_cartesian }}</td>
 			<td>{{ structure.disease1_pathprox }}</td>
 			<td>{{ structure.disease1_pr_auc }}</td>
 			<td>{{ structure.disease2_pathprox }}</td>

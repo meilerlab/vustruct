@@ -134,6 +134,7 @@
 					<th colspan="2" class="sorter-false">PP {{ disease1_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
+					<th colspan="2" class="sorter-false">ddg Cartesian</th>
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
 					<th class="sorter-false"></th> <!-- Above Notes -->
 <!-- Sometimes for debugging - dump everything -
@@ -151,6 +152,8 @@
                     <th class="sorter-false"><div class="appearWithTranscriptsOnly">Transcript ENSEMBL</div></th>
                     <th class="sorter-false"><div class="appearWithTranscriptsOnly">Prot Change</div></th>
                     <th class="sorter-false"><div>Amino Acid Length</div></th>
+					<th>Min</th>
+					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
 					<th>Min</th>
@@ -213,14 +216,26 @@
 						{%endif %}
 					</td>
 					<td>
-						{% if genome_header['ddG Min'] is not none %}
-						    {{ genome_header['ddG Min'].round(2) }}
+						{% if genome_header['ddG Monomer Min'] is not none %}
+						    {{ genome_header['ddG Monomer Min'].round(2) }}
 						{%endif %}
 					</td>
 					
 					<td>
-						{% if genome_header['ddG Max'] is not none %}
-						    {{ genome_header['ddG Max'].round(2) }}
+						{% if genome_header['ddG Monomer Max'] is not none %}
+						    {{ genome_header['ddG Monomer Max'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['ddG Cartesian Min'] is not none %}
+						    {{ genome_header['ddG Cartesian Min'].round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if genome_header['ddG Cartesian Max'] is not none %}
+						    {{ genome_header['ddG Cartesian Max'].round(2) }}
 						{%endif %}
 					</td>
 
@@ -284,14 +299,25 @@
 						{%endif %}
 					</td>
 					<td>
-						{% if isoform_summary['ddG Min'] is not none %}
-						    {{ isoform_summary['ddG Min']|round(2) }}
+						{% if isoform_summary['ddG Monomer Min'] is not none %}
+						    {{ isoform_summary['ddG Monomer Min']|round(2) }}
 						{%endif %}
 					</td>
 					
 					<td>
-						{% if isoform_summary['ddG Max'] is not none %}
-						    {{ isoform_summary['ddG Max']|round(2) }}
+						{% if isoform_summary['ddG Monomer Max'] is not none %}
+						    {{ isoform_summary['ddG Monomer Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Cartesian Min'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Cartesian Max'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Max']|round(2) }}
 						{%endif %}
 					</td>
 
@@ -319,6 +345,7 @@
 					<th colspan="2" class="sorter-false">PP {{ disease1_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
+					<th colspan="2" class="sorter-false">ddg Cartesian</th>
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
 					<th class="sorter-false"></th> <!-- Above Notes -->
 <!-- Sometimes for debugging - dump everything -
@@ -336,6 +363,8 @@
                     <th class="sorter-false">Refseq</th>
                     <th class="sorter-false">Variant</th>
                     <th class="sorter-false">AA len</th>
+					<th>Min</th>
+					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
 					<th>Min</th>
