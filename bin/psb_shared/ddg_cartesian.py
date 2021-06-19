@@ -1,7 +1,26 @@
 #!/usr/bin/env python
 """
-class DDG_monomer manages all aspects of Rosetta ddg_monomer calculations 
+class DDG_cartesian manages all aspects of Rosetta ddg_cartesian calculations 
 inside the directory heirarchy supplied by a ddg_repo object
+
+Perform a rosetta ddg_cartesian calculation per the guidelines at
+https://new.rosettacommons.org/docs/latest/cartesian-ddG
+supplemented by 2 critically important papers.
+
+Paper 1 of 2: 2016
+https://doi.org/10.1021/acs.jctc.6b00819
+Hahnbeom Park, et al. David Baker, and Frank DiMaio
+Simultaneous optimization of biomolecular energy function on features from small molecules and macromolecules"
+JCTC.
+
+Paper 2 of 2: 2020 - Critical improvements:
+https://doi.org/10.3389/fbioe.2020.558247
+Frenz, Frank DiMaio, et al. Yifan Song. 2020.
+Prediction of Protein Mutational Free Energy:
+Benchmark and Sampling Improvements Increase Classification Accuracy.
+Frontiers in Bioengineering and Biotechnology 8 (October): 558247.
+
+:return: (True if success,  dataframe of final results)
 """
 import os
 import datetime
@@ -54,7 +73,6 @@ class DDG_cartesian(DDG_base):
         self._relax_application_filename = 'relax.default.linuxgccrelease'
         self._ddg_cartesian_application_filename = 'cartesian_ddg.default.linuxgccrelease'
 
-        # self._application_timers = ['relax', 'rescore', 'ddg_monomer']
         self._to_pdb = []
 
         # Convert mutation to pose numbering for internal consistency
@@ -94,7 +112,7 @@ class DDG_cartesian(DDG_base):
         return os.path.join(self._ddg_repo.variant_dir,"ddg_cartesian")
 
     @property
-    def analyze_cartesian_ddg(self):
+    def analyze_cartesian_ddg(self) -> pd.DataFrame:
         """
         Closely copied from Bian Li's analyse_cartesian.py script
         This class function opens the weird Rosetta ddg_cartesian output file, parses the energy/value pairs
@@ -196,7 +214,8 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
         wt_energy_stds = wt_energy_df.std(axis=0)
 
         mut_energy_df = pd.DataFrame(mut_energy_dictionaries)
-        mut_energy_2_lowest = mut_energy_df.nsmallest(2,'total','all')
+        mut_energy_2_lowest = mut_energy_df.nsmallest(2,'total') # Do NOT use 'all' as you can get more than 2 rows!!
+
         lowest_2_total_energies = mut_energy_2_lowest['total'].to_numpy()
         abs_mut_energy_2_lowest_diff = abs(lowest_2_total_energies[0] - lowest_2_total_energies[1])
 
@@ -209,37 +228,17 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
 
         # mut_energy_means = mut_energy_2_lowest.mean(axis=0)
 
-        wt_2_rows_matching_mut_2_lowest = wt_energy_df.iloc[mut_energy_2_lowest.index]
+        wt_2_rows_matching_mut_2_lowest_df = wt_energy_df.iloc[mut_energy_2_lowest.index]
 
         # mut_energy_stds = mut_energy_2_lowest.std(axis=0)
 
-        ddgs = (wt_2_rows_matching_mut_2_lowest -  mut_energy_2_lowest).mean(axis=0)
+        ddgs_df = pd.DataFrame((mut_energy_2_lowest - wt_2_rows_matching_mut_2_lowest_df).mean()).transpose()
 
-        LOGGER.debug("DDGs Calculated from %s\n%s",self._ddg_predictions_filename,str(ddgs))
+        LOGGER.debug("DDGs Calculated from %s\n%s",self._ddg_predictions_filename,str(ddgs_df))
 
-        return ddgs
+        return ddgs_df
 
     def run(self) -> Tuple[bool, pd.DataFrame]:
-        """
-        Perform a rosetta ddg_cartesian calculation per the guidelines at
-        https://new.rosettacommons.org/docs/latest/cartesian-ddG
-        supplemented by 2 critically important papers.
-
-        Paper 1 of 2: 2016
-        https://doi.org/10.1021/acs.jctc.6b00819
-        Hahnbeom Park, et al. David Baker, and Frank DiMaio
-        Simultaneous optimization of biomolecular energy function on features from small molecules and macromolecules"
-        JCTC.
-
-        Paper 2 of 2: 2020 - Critical improvements:
-        https://doi.org/10.3389/fbioe.2020.558247
-        Frenz, Frank DiMaio, et al. Yifan Song. 2020.
-        Prediction of Protein Mutational Free Energy:
-           Benchmark and Sampling Improvements Increase Classification Accuracy.
-        Frontiers in Bioengineering and Biotechnology 8 (October): 558247.
-
-        :return: (True if success,  dataframe of final results)
-        """
 
         self._ddg_repo.make_variant_directory_heirarchy()
 
@@ -269,15 +268,14 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
         # Part 1 of 2        Relax the cleaned a PDB
         #############################################################################################
 
-        # We will generate file of harmonic restraints - an input to the part 3 calculation
         relax_directory = os.path.join(self._ddg_repo.structure_dir, "relax")
 
         def run_part1_relax() -> Tuple[str, List[str]]:
             """
-            :return minimized_pdb filename - maybe...
+            Relax creates a number of candidate 'relaxed' .pdb files.  In part 2, we select
+            lowest energy conformation for ddg cartesian calculation
             """
-            # 2020-June-28 Chris Moth Command copied from
-            # https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
+            # See 2020 Frenz et al for guidance
             self._verify_applications_available()
 
             save_curwd = os.getcwd()
@@ -455,7 +453,7 @@ endrepeat""")
 
                 # Create a list of mutations to be analyzed by ddg_monomer, .
                 # Documented https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
-                # Cartesian uses same format as monomer
+                # Cartesian uses same format as monomer for th e".mut" file
                 with open(self._mutation_list_filename, 'w') as mutation_list_f:
                     mutation_list_f.write("total %d\n" % len(self._mutation_resids))
                     for rosetta_mutation in self._rosetta_mutations:
@@ -527,14 +525,14 @@ endrepeat""")
         jobstatus_info = {}
         save_current_directory = os.getcwd()
         try:
-            os.chdir(self._ddg_repo.variant_dir)
+            os.chdir(self._ddg_cartesian_final_directory)
         except FileNotFoundError:
             jobstatus_info['ExitCode'] = None
-            jobstatus_info['jobinfo'] = 'ddg_monomer has not created %s' % self._ddg_repo.variant_dir
+            jobstatus_info['jobinfo'] = 'ddg_cartesian has not created %s' % self._ddg_cartesian_final_directory
             jobstatus_info['jobprogress'] = jobstatus_info['jobinfo']
             return jobstatus_info
 
-        _, _, exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
+        _, _, exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
         previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
         if previous_exit_int == 0:
             jobstatus_info['ExitCode'] = '0'
@@ -566,44 +564,16 @@ endrepeat""")
                                                                                exitcd_filename))
 
         if previous_exit_int == 0:
-            ddg_cartesian_result_series = self.analyze_cartesian_ddg
+            ddg_cartesian_result_df = self.analyze_cartesian_ddg
             # Above returns None if results could not be loaded.  Put variant at front of series
-            if isinstance(ddg_cartesian_result_series,pd.Series):
-                ddg_cartesian_result_series = pd.Series(
-                    {'structure_id': self._ddg_repo.structure_id,
-                     'chain': self._ddg_repo.chain_id,
-                     'variant': self._mutationtext}).append(
-                            ddg_cartesian_result_series)
-
+            if isinstance(ddg_cartesian_result_df,pd.DataFrame):
+                ddg_cartesian_result_df['structure_id'] = self._ddg_repo.structure_id
+                ddg_cartesian_result_df['chain'] = self._ddg_repo.chain_id
+                ddg_cartesian_result_df['variant'] = self._mutationtext
         else:
             LOGGER.info("ddg results file %s not found"%(final_results_fullpath))
-            ddg_cartesian_result_series = None
+            ddg_cartesian_result_df = None
 
         os.chdir(save_current_directory)
 
-        return ddg_cartesian_result_series
-
-        _, _, exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
-        save_current_directory = os.getcwd()
-        try:
-            os.chdir(self._ddg_repo.variant_dir)
-        except FileNotFoundError:
-            LOGGER.info("No results directory %s", self._ddg_repo.variant_dir)
-            return None
-
-        previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
-
-        final_results_fullpath = os.path.join(self._ddg_repo.variant_dir, self.final_results_filename())
-
-        if previous_exit_int == 0:
-            final_results_df = pd.read_csv(final_results_fullpath, sep='\t',
-                                           dtype={'ddG': float, 'WT_Res_Score': float})
-            final_results_df['RefAA'] = final_results_df['Mutation'].str[0]
-            final_results_df['AltAA'] = final_results_df['Mutation'].str[-1]
-            LOGGER.debug("ddg of %f read from %s" % (final_results_df['ddG'], final_results_fullpath))
-        else:
-            LOGGER.info("ddg results file %s not found" % (final_results_fullpath))
-            final_results_df = None
-
-        os.chdir(save_current_directory)
-        return final_results_df
+        return ddg_cartesian_result_df.iloc[0] if ddg_cartesian_result_df is not None else None
