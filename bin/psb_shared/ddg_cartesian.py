@@ -23,6 +23,7 @@ Frontiers in Bioengineering and Biotechnology 8 (October): 558247.
 :return: (True if success,  dataframe of final results)
 """
 import os
+import sys
 import datetime
 import lzma
 import pprint
@@ -70,8 +71,10 @@ class DDG_cartesian(DDG_base):
 
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
-        self._relax_application_filename = 'relax.default.linuxgccrelease'
+        # self._relax_application_filename = 'relax.default.linuxgccrelease'
+        self._relax_application_filename = 'rosetta_scripts.default.linuxgccrelease'
         self._ddg_cartesian_application_filename = 'cartesian_ddg.default.linuxgccrelease'
+        # self._ddg_cartesian_application_filename = 'rosetta_scripts.default.linuxgccrelease'
 
         self._to_pdb = []
 
@@ -183,8 +186,9 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
                     LOGGER.critial(message)
                     sys.exit(message)
 
+
                 wt_or_mut_energy_dictionaries = None
-                if energy_words[0] == 'WT':  # Add to the wild type (starting) energies dataframe
+                if energy_words[0].startswith('WT_'):  # Add to the wild type (starting) energies dataframe
                     wt_or_mut_energy_dictionaries = wt_energy_dictionaries
                 elif energy_words[0].startswith('MUT_'):  # Add to the variant (end point) energies dataframe
                     wt_or_mut_energy_dictionaries = mut_energy_dictionaries
@@ -192,7 +196,7 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
                     message = "ddg_cartesian output file %s:%s has neither WT nor MUT_ energies" % (
                         self._ddg_predictions_filename,
                         line)
-                    LOGGER.critial(message)
+                    LOGGER.critical(message)
                     sys.exit(message)
 
                 if len(energy_words) != len(energy_values):
@@ -309,10 +313,12 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
                 os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
-
-                relax_script_filename = 'cartesian_relax.script'
-                with open(relax_script_filename, mode='w') as relax_script_fp:
-                    relax_script_fp.write("""\
+ 
+                
+                # relax_script_filename = 'cartesian_relax.script'
+                # with open(relax_script_filename, mode='w') as relax_script_fp:
+                #    relax_script_fp.write(
+                """\
 switch:cartesian
 repeat 2
 ramp_repack_min 0.02  0.01     1.0  50
@@ -320,32 +326,35 @@ ramp_repack_min 0.250 0.01     0.5  50
 ramp_repack_min 0.550 0.01     0.0 100
 ramp_repack_min 1     0.00001  0.0 200
 accept_to_best
-endrepeat""")
+endrepeat"""
+                #)
 
-                    with open("cart2.xml", mode='w') as relax_script_fp:
-                        relax_script_fp.write("""\
+                # Taken directly from 2020 Frenz et all supplement information
+                with open("cartesianrelaxprep.xml", mode='w') as relax_script_fp:
+                    relax_script_fp.write("""\
 <ROSETTASCRIPTS>
   <SCOREFXNS>
     <ScoreFunction name="fullatom" weights="ref2015_cart" symmetric="0" />
   </SCOREFXNS>
   <MOVERS>
-    <FastRelax name="fastrelax" scorefxn="fullatom" cartesian="1" repeats="4"/>
+    <FastRelax name="fastrelax" scorefxn="fullatom" cartesian="1" repeats="4" />
   </MOVERS>
   <PROTOCOLS>
     <Add mover="fastrelax"/>
   </PROTOCOLS>
+<OUTPUT scorefxn="fullatom"/>
 </ROSETTASCRIPTS>
 """)
 
-                relax_command = [
+                not_used_old_idea_relax_command = [
                     os.path.join(self._ddg_repo.rosetta_bin_dir, self._relax_application_filename),
                     "-in:file:s %s"%format(self._ddg_repo.cleaned_structure_filename),
-                    "-in:file:native %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    # Not sure about this one: "-in:file:native %s"%format(self._ddg_repo.cleaned_structure_filename),
                     "-in:file:fullatom",
                     "-nstruct 20",
                     "-ignore_unrecognized_res",
                     "-ignore_zero_occupancy false",
-                    "-parser:protocol cart2.xml",
+                    "-parser:protocol cartesianrelaxprep.xml",
                     "-out:file:scorefile target.score",
                     "-score:set_weights cart_bonded 0.5 pro_close 0",
                     "-relax:cartesian true",
@@ -360,6 +369,24 @@ endrepeat""")
                     # This flag needs to match what is used in the cartesian ddg options below.
                     # "-fa_max_dis 9.0"
                     #]
+
+                # Try the new approach using Mover as described in 2020 paper
+                relax_command = [
+                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._relax_application_filename),
+                    "-in:file:s %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    # Not sure about this one: "-in:file:native %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    "-in:file:fullatom",
+                    "-default_max_cycles 200",
+                    "-ignore_unrecognized_res",
+                    "-ignore_zero_occupancy false",
+                    "-parser:protocol cartesianrelaxprep.xml",
+                    "-out:file:scorefile target.score",
+                    "-missing_density_to_jump",
+                    "-nstruct 20",
+                    "-fa_max_dis 9",
+                    "-relax:cartesian true",
+                    "-multiple_processes_writing_to_one_directory"]
+
 
                 returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
                     relax_command)
@@ -451,9 +478,11 @@ endrepeat""")
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
+               
                 # Create a list of mutations to be analyzed by ddg_monomer, .
                 # Documented https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
                 # Cartesian uses same format as monomer for th e".mut" file
+                optimize_proline_flag = 'false'
                 with open(self._mutation_list_filename, 'w') as mutation_list_f:
                     mutation_list_f.write("total %d\n" % len(self._mutation_resids))
                     for rosetta_mutation in self._rosetta_mutations:
@@ -465,21 +494,54 @@ endrepeat""")
                             rosetta_resno,
                             rosetta_mutation[-1]))
 
+                        if rosetta_mutation[0] == 'P' or rosetta_mutation[-1] == 'P':
+                            optimize_proline_flag = 'true'
+
+
+                # ddg_cartesian_command = [
+                #     os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename),
+                #     "-database %s"%self._ddg_repo.rosetta_database_dir,
+                #     "-in:file:s %s"%min_scoring_relaxed_pdb,       # The lowest scoring pdb produced by relax
+                #     '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
+                #     "-score:weights ref2015_cart",
+                #     "-ddg:iterations 10",
+                #     "-fa_max_dis 9.0",
+                #     "-ddg:dump_pdbs true",
+                #     "-ddg:cartesian",
+                #     "-ddg:bbnbrs 1",
+                #     "-detect_disulf false",
+                #     "-fa_max_dis 9.0"
+                #     ]
 
                 ddg_cartesian_command = [
                     os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename),
                     "-database %s"%self._ddg_repo.rosetta_database_dir,
-                    "-in:file:s %s"%min_scoring_relaxed_pdb,       # The lowest scoring pdb produced by relax
-                    '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
-                    "-score:weights ref2015_cart",
-                    "-ddg:iterations 10",
-                    "-fa_max_dis 9.0",
+                    "-s %s"%min_scoring_relaxed_pdb,       # The lowest scoring pdb produced by relax
+                    "-ddg::iterations 3",
+                    "-ddg::score_cutoff 1",
                     "-ddg:dump_pdbs true",
-                    "-ddg:cartesian",
-                    "-ddg:bbnbrs 1",
-                    "-detect_disulf false",
-                    "-fa_max_dis 9.0"
+                    "-ddg::bbnbrs 1",
+                    "-score:weights ref2015_cart",
+                    '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
+                    "-ddg:frag_nbrs 2",
+                    "-ignore_zero_occupancy false",
+                    "-missing_density_to_jump",
+                    "-ddg:flex_bb false",
+                    "-ddg::force_iterations false",
+                    "-fa_max_dis 9.0",
+                    # "-ddg::json true",
+                    "-ddg:optimize_wt true",
+                    "-ddg:optimize_proline %s"%optimize_proline_flag, # Set above if WT or MUT res is Pro
+                    "-ddg:legacy false"
+                    # "-ddg:cartesian",
+                    # "-detect_disulf false",
                     ]
+
+
+
+
+
+
 
                 # stdout, stderr, runtime
                 returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
@@ -559,11 +621,15 @@ endrepeat""")
             LOGGER.info("No results directory %s",self._ddg_repo.variant_dir)
             return None
 
-        _,_,exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
-        previous_exit,previous_exit_int = self._get_previous_exit(os.path.join(self._ddg_cartesian_final_directory,
-                                                                               exitcd_filename))
+        ddg_cartesian_result_df = None
 
-        if previous_exit_int == 0:
+        _,_,exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
+        exitcd_fullpath = os.path.join(self._ddg_cartesian_final_directory,exitcd_filename)
+        previous_exit,previous_exit_int = self._get_previous_exit(exitcd_fullpath)
+
+        if previous_exit is None:
+            LOGGER.info("ddg Results exit status file %s not found" % exitcd_fullpath)
+        elif previous_exit_int == 0:
             ddg_cartesian_result_df = self.analyze_cartesian_ddg
             # Above returns None if results could not be loaded.  Put variant at front of series
             if isinstance(ddg_cartesian_result_df,pd.DataFrame):
@@ -571,8 +637,7 @@ endrepeat""")
                 ddg_cartesian_result_df['chain'] = self._ddg_repo.chain_id
                 ddg_cartesian_result_df['variant'] = self._mutationtext
         else:
-            LOGGER.info("ddg results file %s not found"%(final_results_fullpath))
-            ddg_cartesian_result_df = None
+            LOGGER.info("ddg Results exit status file %s contains non-zero exit failure: %s" % (exitcd_fullpath,previous_exit))
 
         os.chdir(save_current_directory)
 
