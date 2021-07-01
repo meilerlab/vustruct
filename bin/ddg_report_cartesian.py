@@ -87,6 +87,8 @@ cmdline_parser.add_argument("--chain", type=str,
                             help="Limit the ddG processing to one particular chain")
 cmdline_parser.add_argument("--outfile", type=str, metavar='FILE', default='stdout',
                             help="Set the output filename and format through extension .xlsx, .tsv, .csv")
+cmdline_parser.add_argument("--append", default=False, action='store_true', 
+                            help="Will append to outfile, not overright")
 
 cmdline_parser.add_argument(
             "--variant", type=str,
@@ -202,7 +204,7 @@ for variant in variant_list:
         LOGGER.info("Retrieving variant(s) for %s",last_output)
 
     # Get None or a dataframe with results
-    ddg_result = ddg_cartesian.retrieve_result
+    ddg_result = ddg_cartesian.retrieve_result()
 
     if ddg_result is not None:
         ddg_result = ddg_result.to_frame().T
@@ -217,8 +219,16 @@ if ddg_all_results is None:
     sys.exit(message)
 
 if outfile_extension in ['tsv', 'csv']: 
-    LOGGER.info("Writing %d rows to %s via ddg_all_Results.to_csv()",len(ddg_all_results),args.outfile)
-    ddg_all_results.to_csv(args.outfile,sep='\t' if outfile_extension=='tsv' else ',')
+    mode='a' if args.append and os.path.exists(args.outfile) else 'w'
+
+    LOGGER.info("%sing %d rows to %s via ddg_all_Results.to_csv()",
+        'Writ' if mode == 'w' else 'Append',
+        len(ddg_all_results),args.outfile)
+    ddg_all_results.to_csv(
+        args.outfile,
+        sep='\t' if outfile_extension=='tsv' else ',',
+        mode=mode,
+        header=(mode == 'w'))
 elif outfile_extension == 'txt':
     LOGGER.info("Writing %d rows to %s as table of text",len(ddg_all_results),args.outfile)
     if args.outfile == 'stdout':
