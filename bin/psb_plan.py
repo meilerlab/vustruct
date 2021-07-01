@@ -480,17 +480,27 @@ def makejob_udn_sequence(params):
           ("--config %(config)s --userconfig %(userconfig)s " +
            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
 
-def makejob_ddg_monomer(params):
-    return makejob("ddG_monomer","ddg_run.py",params,   #command
+def _makejob_either_ddg(ddG_monomer_or_cartesian,ddg_run_command,params):
+    # User models are odd in that the argument to ddg_run*.py is --usermodel full_filename
+    if params['label'] == 'usermodel':
+        structure_id_argument = params['struct_filename']
+    else:
+        structure_id_argument = params['structure_id']
+
+    # Just catch in case some nut tries to have crazy model name
+    assert '%' not in structure_id_argument
+
+    return makejob(ddG_monomer_or_cartesian,ddg_run_command,params,   #command
           ("--config %(config)s --userconfig %(userconfig)s " +
-           "--%(label)s %(structure_id)s " + 
+           "--%(label)s " + structure_id_argument + ' ' + 
            "--chain %(chain)s --variant %(pdb_mutation)s")%params) # options
+    
+
+def makejob_ddg_monomer(params):
+    return _makejob_either_ddg('ddG_monomer','ddg_run.py',params)
 
 def makejob_ddg_cartesian(params):
-    return makejob("ddG_cartesian","ddg_run_cartesian.py",params,   #command
-          ("--config %(config)s --userconfig %(userconfig)s " +
-           "--%(label)s %(structure_id)s " +
-           "--chain %(chain)s --variant %(pdb_mutation)s")%params) # options
+    return _makejob_either_ddg('ddG_cartesian','ddg_run_cartesian.py',params)
 
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
@@ -1022,7 +1032,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         else:
             ci.chain_id = modbase_chainid
        
-        ci.ddg_quality = DDG_base.evaluate_modbase(StringIO(modbase_structure_buffer))
+        ci.ddg_quality = DDG_base.evaluate_modbase(StringIO(modbase_structure_buffer),ci.struct_filename)
         if ci.ddg_quality:
             LOGGER.info("DDG monomer and DDG base will be attempted for modbase %s"%modbase_summary['database_id'])
 
@@ -1626,6 +1636,11 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
 
         ci.method = 'usermodel'
         ci.set_alignment_profile(alignment,structure)
+
+        ci.ddg_quality = True
+        if ci.ddg_quality:
+            LOGGER.info("DDG monomer and DDG cartesian will be attempted for usermodel %s"%ci.structure_id)
+
 
         ci_usermodel_df = ci_usermodel_df.append(vars(ci),ignore_index=True)
       
