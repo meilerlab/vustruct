@@ -208,7 +208,7 @@ except LoadStructureError as exception:
 #    LOGGER.info("ddg xref dictionary read from prior run")
 # else:
 ddg_cleaner = ddg_clean.DDG_Cleaner(structure, mmcif_dict, True, species_filter=args.species_filter)
-cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg(False, [args.chain])
+cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg([args.chain])
 
 # Not sure we need to save the cleaned file at this point.
 # I suppose it's good to know if we're going to have a problem before we launch all the slurm scripts
