@@ -765,8 +765,6 @@ class DDG_Cleaner(object):
         self._ignorechain = True  # Not sure what this variable is there for.  Have to think...
         self.outfile = ""
         self.outfile_rev = ""
-        # self._pdbfile = ""
-        # self._pdbfile_rev = ""
         # self.nmr = nmr
         self._keepdna = False
         self._non_species_residues = {}
@@ -882,13 +880,10 @@ class DDG_Cleaner(object):
 
         return new_residue
 
-    def check_residue(self, residue: Residue, bbcheck: bool) -> bool:
+    def check_residue(self, residue: Residue) -> bool:
         """Check that the residue has reasonable backbone atoms and other characteristics
            required for processing in Rosetta.
            Taken from old check_and_print_pdb... routine """
-
-        if not bbcheck:  # This is ancient and has to go <-
-            return True
 
         has_sufficient_atoms = False
 
@@ -908,7 +903,7 @@ class DDG_Cleaner(object):
                     and residue.has_id('C')
             )
 
-        if is_hetatm_residue and bbcheck:
+        if is_hetatm_residue:
             has_sufficient_atoms = self.check_ligand_has_needed_atoms(residue)
 
         # If cleaning for use in Rosetta, each residue must have 3 bb atoms present
@@ -921,12 +916,10 @@ class DDG_Cleaner(object):
         return has_sufficient_atoms
 
     def clean_structure_for_ddg(self,
-                                bbcheck: bool = False,
                                 chain_to_retain: Union[str, List] = None,
                                 keepligands: bool = False,
                                 keepdna: object = False) -> Tuple[Structure, Dict[Tuple, Tuple]]:
         """
-:param bbcheck: Legacy parameter
            :param chain_to_retain: None='All Chains', else the chain ID to keep
            :param keepligands
            :param keepdna
@@ -948,10 +941,6 @@ class DDG_Cleaner(object):
         self._skipped_alts = 0
         self._skipped_non_species = 0
         self._keepdna = keepdna
-        if bbcheck:
-            self._pdbfile = ""
-        else:
-            self._pdbfile_rev = ""
 
         residue_to_clean_xref = {}
         cleaned_structure = Structure(self._structure.id)
@@ -1065,7 +1054,7 @@ class DDG_Cleaner(object):
                         self._skipped_non_species += 1
 
                 if residue and not residue_invalid:
-                    if (self.check_residue(residue, bbcheck)):
+                    if (self.check_residue(residue)):
                         cleaned_chain.add(residue)
                         if self._renumber_residues:
                             self._next_residue_sequence += 1
@@ -1088,7 +1077,7 @@ class DDG_Cleaner(object):
             [res for res in cleaned_structure.get_residues() if not res.id[0].strip()]
         )
 
-        if bbcheck and ATOM_residue_count == 0:
+        if ATOM_residue_count == 0:
             raise Exception("No residues remain in pdb structure during processing")
 
         if len(chains_to_retain) == 1:  # Then return the dictionary without chain info
@@ -1153,7 +1142,7 @@ if __name__ == "__main__":
     LOGGER.info("%s: %s" % (species, sorted(list(ddg_cleaner._human_residues['A']))))
     LOGGER.info("Non-%s: %s" % (species, ddg_cleaner._non_human_residues))
 
-    cleaned_structure, residue_xref = ddg_cleaner.clean_structure_for_ddg(False, ['A'])
+    cleaned_structure, residue_xref = ddg_cleaner.clean_structure_for_ddg(['A'])
 
     from Bio.PDB import PDBIO
     from Bio.PDB.PDBIO import Select
