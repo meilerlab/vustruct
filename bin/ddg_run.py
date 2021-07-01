@@ -224,7 +224,7 @@ else:
 
 
     ddg_cleaner = ddg_clean.DDG_Cleaner(structure,mmcif_dict,True,species_filter=args.species_filter)
-    cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg(False, [args.chain])
+    cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg([args.chain])
 
 
     from Bio.PDB import PDBIO

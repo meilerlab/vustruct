@@ -419,16 +419,28 @@
 						{%endif %}
 					</td>
 					<td>
-						{% if isoform_summary['ddG Min'] is not none %}
-						    {{ isoform_summary['ddG Min']|round(2) }}
+						{% if isoform_summary['ddG Monomer Min'] is not none %}
+						    {{ isoform_summary['ddG Monomer Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Monomer Max'] is not none %}
+						    {{ isoform_summary['ddG Monomer Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Cartesian Min'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Cartesian Max'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Max']|round(2) }}
 						{%endif %}
 					</td>
 
-					<td>
-						{% if isoform_summary['ddG Max'] is not none %}
-						    {{ isoform_summary['ddG Max']|round(2) }}
-						{%endif %}
-					</td>
 
 					<td /> <!-- skip 2 gene interaction columns -->
 					<td />

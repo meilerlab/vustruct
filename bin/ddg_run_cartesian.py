@@ -193,7 +193,7 @@ else:
                                         True,
                                         species_filter=args.species_filter,
                                         renumber_residues=True)
-    cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg(False, [args.chain])
+    cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg([args.chain])
 
 
     from Bio.PDB import PDBIO

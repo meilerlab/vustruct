@@ -142,7 +142,7 @@ class DDG_base(object):
         return False
 
     @staticmethod
-    def evaluate_modbase(modbase_fullpath_or_fin):
+    def evaluate_modbase(modbase_fullpath_or_fin, modbase_filename = None):
         """Modbase models are evaluated for whether or not they are of high enough quality
         To run in ddg monomer.
         Comuted quality metrics must all be sufficient, including
@@ -162,7 +162,18 @@ class DDG_base(object):
         rmsd_threshold = 4.0
         qual_threshold = 1.1
 
-        LOGGER.info('Checking quality of %s', modbase_fullpath_or_fin)
+
+        if not modbase_filename:
+            if type(modbase_fullpath_or_fin) == StringIO:
+                modbase_filename = "[loaded memory buffer]"
+            else:
+                try:
+                    modbase_filename = modbase_fullpath_or_fin
+                except:
+                    pass
+        
+
+        LOGGER.info('Checking quality of modbase file %s', modbase_filename)
         with modbase_fullpath_or_fin if type(modbase_fullpath_or_fin) == StringIO else \
                 lzma.open(modbase_fullpath_or_fin, 'rt') as infile:
             for line in infile:
