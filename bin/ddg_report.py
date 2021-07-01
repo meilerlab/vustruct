@@ -136,7 +136,7 @@ if not args.ddg_config:  # Usually ddg_config will come from a config file - but
     args.ddg_config = config_dict['ddg_config']
 
 ddg_repo = DDG_repo(args.ddg_config,
-                    calculation_flavor='ddg_monomer')
+                    calculation_flavor='ddG_monomer')
 # ddg_repo_dir must be extended below
 if args.pdb:
     ddg_structure_dir = ddg_repo.set_pdb(args.pdb.lower(),args.chain)
