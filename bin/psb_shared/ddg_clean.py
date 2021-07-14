@@ -976,24 +976,25 @@ class DDG_Cleaner(object):
                 # Start with the bizarre logic from udn_prepare.py
                 is_hetatm_residue = len(residue_iterator.id[0].strip()) > 0
                 residue = None
-                if self._ignorechain:
+                # Is the current residue 'simply' a well-understood substitute of a normal amino acid
+                # IF so, it will be found in the MODRES list - and so we just change the name
 
-                    # Fix modified residues which are stored as HETATMs
-                    if is_hetatm_residue and residue_iterator.get_resname() in BAD_LIGANDS:
+                if is_hetatm_residue:
+                    ok = False
+                    if residue_iterator.get_resname() in BAD_LIGANDS:
                         ok = False
-                        if keepligands and residue_iterator.get_resname() not in BAD_LIGANDS:
-                            ok = True
-                        # Is it a modified residue ?
-                        if residue_iterator.get_resname() in MODRES:
-                            # if so replace it with its canonical equivalent !
-                            residue = self.my_new_residue(
-                                residue_iterator,
-                                override_resname=MODRES[residue_iterator.get_resname()])
-                            modifiedres = modifiedres + residue_iterator.get_resname() + ',  '
-                            ok = True
-
-                        if not ok:
-                            continue  # skip this atom if we havnt found a conversion
+                    elif residue_iterator.get_resname() in MODRES:
+                        # if so replace it with its canonical equivalent !
+                        residue = self.my_new_residue(
+                            residue_iterator,
+                            override_resname=MODRES[residue_iterator.get_resname()])
+                        modifiedres = modifiedres + residue_iterator.get_resname() + ',  '
+                        ok = True
+                    # There is still a last chance to retain a rosetta-understood hetatm
+                    elif keepligands and residue_iterator.get_resname() not in BAD_LIGANDS:
+                        ok = True
+                    if not ok:
+                        continue  # skip this residue if we havnt found a conversion
 
                 if not residue:
                     # If we did not replace anything unusual... then
