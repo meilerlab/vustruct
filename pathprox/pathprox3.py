@@ -807,9 +807,9 @@ class PDBMapVariantSet():
             query_str += "INNER JOIN clinvar on GC.chrom = clinvar.chrom and GC.pos = clinvar.pos"
             query_str  += " AND clinvar.clnsig like '%drug%'\n"
             label = 'clinvar' # <- careful.  This is a clinvar query in the end: clinvar drug variants...
-        elif label == 'cosmic': 
-            query_str += "INNER JOIN cosmic on GC.chrom = cosmic.chrom and GC.pos = cosmic.pos"
-            query_str  += " AND cosmic.cnt > 1\n"  # COSMIC queries only include count > 1
+        elif label == 'cosmic' or label == 'cosmicV94': 
+            query_str += "INNER JOIN cosmicV94 on GC.chrom = cosmicV94.chrom and GC.pos = cosmicV94.pos"
+            query_str  += " AND cosmicV94.cnt > 1\n"  # COSMIC queries only include count > 1
         elif label == 'cosmic38': 
             query_str += "INNER JOIN cosmic38 on GC.chrom = cosmic38.chrom and GC.pos = cosmic38.pos"
             query_str  += " AND cosmic38.cnt > 1\n"  # COSMIC38 queries only include count > 1
@@ -1944,7 +1944,7 @@ if __name__ == "__main__":
     cmdline_parser.add_argument("--add_drug",action="store_true",default=False,
                       help="Supplement pathogenic variant set with ClinVar drug response")
     cmdline_parser.add_argument("--add_cosmic",action="store_true",default=False,
-                      help="Supplement pathogenic variant set with COSMIC somatic missense variants")
+                      help="Supplement pathogenic variant set with COSMICv94 somatic missense variants")
     cmdline_parser.add_argument("--add_cosmic38",action="store_true",default=False,
                       help="Supplement pathogenic variant set with COSMIC38 somatic missense variants")
     cmdline_parser.add_argument("--add_tcga",action="store_true",default=False,
@@ -2316,7 +2316,7 @@ if __name__ == "__main__":
     if args.add_pathogenic38:
       args.label += "_clinvar38"
     if args.add_cosmic:
-      args.label += "_cosmic"
+      args.label += "_cosmicV94"
     if args.add_cosmic38:
       args.label += "_cosmic38"
     if args.add_tcga:
@@ -2565,7 +2565,7 @@ if __name__ == "__main__":
         if args.add_drug:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'drug')
         if args.add_cosmic:
-            PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmic')
+            PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmicV94')
         if args.add_cosmic38:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmic38')
         if args.add_tcga:
