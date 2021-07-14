@@ -245,7 +245,7 @@ def pathprox_config_to_argument(disease1_or_2_or_neutral,default):
       return "--add_pathogenic"
     if config_str == "tcga":
       return "--add_tcga"
-    if config_str == "cosmic":
+    if config_str == "cosmic" or config_str == "cosmicV94":
       return "--add_cosmic"
     if config_str == "cosmic38":
       return "--add_cosmic38"
