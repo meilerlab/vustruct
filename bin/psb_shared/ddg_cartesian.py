@@ -513,6 +513,9 @@ endrepeat"""
                 #     "-fa_max_dis 9.0"
                 #     ]
 
+                # min_scoring_relaxed_pdb = "/dors/capra_lab/users/mothcw/ddg_cartesian/FrenzReconstruction/pdbs/%s_%s.pdb"%(
+                #    self._ddg_repo.structure_id.upper(),self._ddg_repo.chain_id)
+                # LOGGER.warning("DO NOT CHECK THIS ABOVE IN OVERRIDE OF STRUCT TO %s",min_scoring_relaxed_pdb)
                 ddg_cartesian_command = [
                     os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename),
                     "-database %s"%self._ddg_repo.rosetta_database_dir,
