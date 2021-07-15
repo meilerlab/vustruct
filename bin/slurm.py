@@ -118,7 +118,7 @@ This module requires the subprocess.run() function, which is only available in P
 
         # Extract the job ID
         if run_result.returncode == 0 and run_result.stdout.startswith(b"Submitted batch job "):  # Case of clear success
-            logging.getLogger(__name__).info('sbatch successfully launched: %s', run_result.stdout.decode('latin')
+            logging.getLogger(__name__).info('sbatch successfully launched: %s', run_result.stdout.decode('latin'))
             sbmt_fail = False
             break
         else:  # Non-zero return code

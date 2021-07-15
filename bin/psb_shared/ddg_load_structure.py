@@ -84,7 +84,7 @@ def ddg_load_structure(args, config_dict):
         resolution = None  # Not applicable is correct for NMR structures
         if method == 'X-RAY DIFFRACTION':
             resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
-            ethod = 'X-RAY'
+            method = 'X-RAY'
         elif method == 'ELECTRON MICROSCOPY':
             method = 'EM'
             resolution_keys = ['_em_3d_reconstruction.resolution']

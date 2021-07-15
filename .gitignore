@@ -2,6 +2,7 @@
 pdbmap/
 anaconda2/
 anaconda3/
+*.simg
 
 ## File types ##
 *.bak

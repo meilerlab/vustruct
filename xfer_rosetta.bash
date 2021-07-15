@@ -3,14 +3,14 @@
 # ddg_monomer calculations.  Rosetta 3.7 required
 ROSETTA_MAIN_SOURCE=/TB4/mothcw/rosetta3.7/rosetta_src_2016.32.58837_bundle/main
 # ROSETTA_MAIN_SOURCE=/TB4/mothcw/rosetta3.7.was/rosetta_src_2016.32.58837_bundle/main
-ROSETTA_MAIN_DEST=./rosetta3.7/main
+ROSETTA_MAIN_DEST=~/psbadmin/rosetta3.7/main
 
-cmd=rm -rf $ROSETTA_MAIN_DEST
+cmd="rm -rfv $ROSETTA_MAIN_DEST"
 echo $cmd
 eval $cmd
 
 # Create a new area to house the transferred final binary set, libraries, symlinks
-mkdir -vp $ROSETTA_MAIN_DEST/bin
+mkdir -vp $ROSETTA_MAIN_DEST/source/bin
 
 # Copy over needed weights  and scoring files
 mkdir -vp $ROSETTA_MAIN_DEST/database/scoring/weights
@@ -34,6 +34,7 @@ declare -a full_directories=(
   'database/scoring/score_functions/rama'
   'database/scoring/score_functions/P_AA_pp'
   'database/input_output'
+  'database/rotamer/ExtendedOpt1-5'
 )
 
 cd $ROSETTA_MAIN_DEST

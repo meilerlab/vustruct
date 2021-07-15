@@ -22,6 +22,7 @@ from logging import handlers
 capra_group = grp.getgrnam('capra_lab').gr_gid
 
 def set_capra_group_sticky(dirname):
+  return
   try:
     os.chown(dirname, -1, capra_group)
   except:

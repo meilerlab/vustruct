@@ -21,7 +21,7 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 
-class DDG_monomer(DDG_base):
+class DDG_cartesian(DDG_base):
 
     # DDG_base defines
     # def refresh_ddg_repo_and_mutations(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):

@@ -9,17 +9,23 @@
 # Date           : 2020-May
 # =============================================================================#
 
-"""ddg_run
-   - organizes command line execution of ddg_monomer, ddg_complex
-   - Strips (preps) mmCIF or PDB input structures for Rosetta format, leaving
-     behind a translation dictionary
+"""ddg_relax
+   - relax structure in preparation for ddg_cartesian.
+   - Strips (preps) mmCIF or PDB input structures for Rosetta format,
    - maintains a repository (repo) of past ddg results
 
-   References: Prediction of protein mutational free energy: benchmark and
-               sampling improvements increase classification accuracy
-               Brandon Frenz, Steven Lewis, Indigo King, Hahnbeom Park, Frank DiMaio, Yifan Song
+   References:
+   J. Chem. Theory Comput. 2016, 12, 6201−6212
+   Park et al.
+     Simultaneous Optimization of Biomolecular Energy Functions on
+      Features from Small Molecules and Macromolecules
 
-   """
+   Frontiers in Bioengineering and Biotechnology   October 2020 | Volume 8 | Article 558247
+   Frenz et al.
+     Prediction of Protein Mutational Free Energy: Benchmark and Sampling
+     Improvements Increase Classification Accuracy
+
+"""
 
 import os
 import time
@@ -48,7 +54,7 @@ from psb_shared.ddg_load_structure import ddg_load_structure,LoadStructureError
 from psb_shared.ddg_repo import DDG_repo
 from psb_shared import ddg_clean
 from psb_shared.ddg_commandline_parser import ddg_commandline_parser
-from psb_shared.ddg_monomer import DDG_monomer
+from psb_shared.ddg_cartesian import DDG_cartesian
 from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
@@ -56,7 +62,6 @@ from lib import PDBMapModbase2020
 # from lib import PDBMapModbase2016
 # from lib import PDBMapModbase2013
 
-RESOLUTION_QUALITY_MAX=2.5  # Only structures with resolution < 2.5 are routed to the more rigid rosetta "high quality" algorithm
 
 #=============================================================================#
 ## Function Definitions ##
@@ -103,10 +108,6 @@ required_config_items = [
     "pdb_dir",
     "modbase2020_dir",
     "modbase2020_summary",
-    # "modbase2013_dir",
-    # "modbase2013_summary",
-    # "modbase2016_dir",
-    # "modbase2016_summary",
     "swiss_dir",
     "swiss_summary"]
 
@@ -123,7 +124,7 @@ if not args.ddg_config:  # Usually ddg_config will come from a config file - but
     args.ddg_config = config_dict['ddg_config']
 
 ddg_repo = DDG_repo(args.ddg_config,
-                    calculation_flavor='ddg_monomer')
+                    calculation_flavor='ddg_cartesian')
 # ddg_repo_dir must be extended below
 if args.pdb:
     ddg_structure_dir = ddg_repo.set_pdb(args.pdb.lower(),args.chain)
@@ -141,6 +142,7 @@ else:
 ddg_repo.set_variant(args.variant)
 
 ddg_repo.make_calculation_directory_heirarchy()
+
 
 # Add a rotating file handler log in the calculation directory
 need_roll = os.path.isfile(ddg_repo.log_filename)
@@ -168,13 +170,12 @@ def test_completed_earlier():
 
 test_completed_earlier()
 
-
-
 ddg_repo.psb_status_manager.clear_status_dir()
 ddg_repo.psb_status_manager.write_info('Begun')
 
 # If the repository has the cleaned structure and the xref files, then just use them.
-
+# Unlike DDG Monomer, residues are not renumbered for DDG_Cartesian. However this file
+# is still used to answer whether a structure has been cleaned, for purposes
 residue_to_clean_xref = ddg_repo.residue_to_clean_xref
 
 structure_info_dict = {}
@@ -186,8 +187,11 @@ else:
     except LoadStructureError as exception:
         ddg_repo.psb_status_manager.sys_exit_failure(exception.message)
 
-
-    ddg_cleaner = ddg_clean.DDG_Cleaner(structure, mmcif_dict,True,species_filter=args.species_filter)
+    ddg_cleaner = ddg_clean.DDG_Cleaner(structure,
+                                        mmcif_dict,
+                                        True,
+                                        species_filter=args.species_filter,
+                                        renumber_residues=False)
     cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg(False, [args.chain])
 
 
@@ -209,6 +213,11 @@ else:
 # Resume by figuring out that we should keep everything or whatever
 # this case of a SHEEP protein...
 cleaned_structure_filename = ddg_repo.cleaned_structure_filename
+ddg_cartesian = DDG_cartesian(ddg_repo, mutations=args.variant)
+
+sys.exit(0)
+
+
 ddg_monomer = DDG_monomer(ddg_repo, mutations=args.variant)
 ddg_outcome,ddg_results_df = ddg_monomer.run(
     high_resolution=('resolution' in structure_info_dict) and (float(structure_info_dict['resolution']) < 2.5))

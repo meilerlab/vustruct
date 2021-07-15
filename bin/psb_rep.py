@@ -182,7 +182,10 @@ def copy_html_css_javascript():
     sys.exit(1)
   
   # Now give read access to everyone, read-write to group, execute on directories
-  capra_group = grp.getgrnam('capra_lab').gr_gid
+  try:
+      capra_group = grp.getgrnam('capra_lab').gr_gid
+  except KeyError:
+      capra_group = os.getegid()
 
   os.chmod(dest,0o775) 
   os.chown(dest, -1, capra_group)
@@ -285,7 +288,7 @@ def report_one_mutation(structure_report,workstatus_filename):
     msg = "%d rows read from work status file %s"%(len(df_all_jobs_status),workstatus_filename)
     if len(df_all_jobs_status) < 1:
       LOGGER.critical(msg)
-      return None;
+      return None
     else:
       if not infoLogging:
         print (msg)
@@ -512,7 +515,7 @@ def report_one_mutation(structure_report,workstatus_filename):
     
       df_row = thestruct[disease1_or_disease2] # was Clinvar_or_COSMIC]
     
-      save_cwd = os.getcwd();
+      save_cwd = os.getcwd()
       os.chdir(os.path.dirname(df_row['outdir']))
 
 
@@ -770,7 +773,7 @@ def report_one_mutation(structure_report,workstatus_filename):
       elif row['flavor'].endswith(config_pathprox_dict['disease2_variant_sql_label']):
         thestruct['disease2'] = row.to_dict()
       elif 'SequenceAnnotation' == row['flavor']: 
-        centinue # UDN Sequence annotations are NOT a part of generated reports
+        continue # UDN Sequence annotations are NOT a part of generated reports
       elif 'ddG_monomer' == row['flavor']: 
         thestruct['ddG_monomer'] = row.to_dict()
       else:
@@ -917,7 +920,7 @@ def report_one_mutation(structure_report,workstatus_filename):
       if xmlHandle.isCanonical(gathered_info['unp']): # Then we need to manually create the xml ourselves
         # Go for the web link because this is a canonical UNP - however that _can_ fail.
         graphicsLegend = "Downloaded Pfam Domain Graphic for Canonical Isoform %s"%gathered_info['unp']
-        LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam"%gathered_info['unp']);
+        LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam"%gathered_info['unp'])
         domainGraphicsJSONstr = unp2PfamDomainGraphicString(gathered_info['unp'],30)
         if not domainGraphicsJSONstr:
           LOGGER.info("Download returned nothing")
@@ -928,7 +931,7 @@ def report_one_mutation(structure_report,workstatus_filename):
       # _Either_ communications failure OR non-canonical isoform
       # So we create our own graphic from our local xml database
       if not domainGraphicsJSONstr: # _Either_ communications failure OR non-canonical (no communication)
-        LOGGER.info("Creating Domain Graphic for %s from xml",gathered_info['unp']);
+        LOGGER.info("Creating Domain Graphic for %s from xml",gathered_info['unp'])
         nonCanonicalGraphicsJSON = xmlHandle.PFAMgraphicsJSONfromUnp(gathered_info['unp'])
         domainGraphicsJSONstr = json.dumps(nonCanonicalGraphicsJSON)
         # Not sure why - but graphics string from web is a list (inside outer [])
@@ -937,17 +940,17 @@ def report_one_mutation(structure_report,workstatus_filename):
       if domainGraphicsJSONstr:
         domainGraphicsDict = json.loads(domainGraphicsJSONstr)
         # Add our mutation point of interest to this
-        mutationSiteDict = {'colour': '#e469fe',\
-         'display': True,\
-         'headStyle': 'diamond',\
-         'lineColour': '#333333',\
-         'metadata': {'database': 'UDN Case',\
-                  'description': '%s'%mutation,\
-                  'start': mutation[1:-1],\
-                  'type': 'Mutation'} ,\
-         'residue': 'X',\
-         'start': mutation[1:-1],\
-         'type': 'UDN Mutation site',\
+        mutationSiteDict = {'colour': '#e469fe',
+         'display': True,
+         'headStyle': 'diamond',
+         'lineColour': '#333333',
+         'metadata': {'database': 'UDN Case',
+                  'description': '%s'%mutation,
+                  'start': mutation[1:-1],
+                  'type': 'Mutation'} ,
+         'residue': 'X',
+         'start': mutation[1:-1],
+         'type': 'UDN Mutation site',
          'v_align': 'top'}
         markupDictList = domainGraphicsDict.get('markups',None)
         if (markupDictList == None):
@@ -1098,8 +1101,8 @@ def report_one_mutation(structure_report,workstatus_filename):
     templatePfamGraphics = env.get_template("html/pfamGraphicsIframeTemplate.html")
     htmlPfamGraphics = templatePfamGraphics.render(template_vars)
 
-    save_cwd = os.getcwd();
-    os.chdir(variant_report_directory);
+    save_cwd = os.getcwd()
+    os.chdir(variant_report_directory)
     
     # WE ARE NOW OPERATING FROM ..../UDN/CaseName target directory
     LOGGER.info("Now working in %s",variant_report_directory)

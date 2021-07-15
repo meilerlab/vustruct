@@ -4,4 +4,4 @@ chimera*
 # NEVER include singularity images floating around
 *.simg
 # NEVER include the Rosetta source bundle components
-rosetta3.7/rosetta_src_*bundle*
+rosetta_src_*bundle*

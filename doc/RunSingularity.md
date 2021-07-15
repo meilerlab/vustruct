@@ -9,42 +9,83 @@ The final outputs are per-mutation structural analysis reports.
 
 
 ## Quick Rampup
-### Prep, Parse, Plan, Launch, Monitor, Report  
+### .config files connect the container to downloaded external filesets.  
 
 1) Obtain the singularity image file from Chris Moth.
 
 2) Download structure, genomic, and variant files as documented in DownloadData.md
 
-3) Create an empty parent work directory on your file system.  Each variant set, or UDN 'case' will occupy a child directory under this parent.  It is convenient to point an environment variable to this directory in your .bashrc file.  We tend to 'export UDN=/our/case_caseparent'
+3) Create a ddg Repository directory on your file system. 
+   DDG calculation results will be archived under this directory, to avoid re-calculations.
+   Place ddg_repo.config in the top level of that directory, and edit one line in file, following the instructions in the template.  
 
-It may be convenient, though unnecessary, to place your .simg container file in this directory.
+4) Create an empty master (parent) parent work directory on your file system.  
+   - Each variant set, or UDN 'case' will occupy a child directory under this parent.  It is convenient to point an environment variable to this directory in your .bashrc file.  We tend to 'export UDN=/our/case_caseparent' in our .bashrc files to accomplish this
+   
+    - It may be convenient, though unnecessary, to place the .simg Singularity container file in this parent directory.
 
-Verify that you can access this directory from inside your container (singularity shell /your/location/image_phase9.simg)
+    - Verify that you can access this directory from inside your container 
+        - i.e. $ singularity shell /your/location/image_phase9.simg
+        - ls /wherever/parent
+    
+6) Create a config/ directory under the parent.  Copy the provided global.config file into the parent/config/, and customize it to the filesystem locations where you downloaded data.
+   - The provided global.config sample file is highly commented, and is not re-documented here.
+    - The directories in the .config files must be visible from _inside_ the singularity container.    
+    
+  
+6) In the parent work directory (I will move to parent/config/ in future version), 
+   create a your_username.config file.  In a typical multi-user pipeline installation, this file
+   allows each user to override global settings.  Minimally, each user will place their email 
+   address, and slurm (or LSF) cluster job notification preferences in this file.  These are
+   copied into the headers of the pipeline-generated .slurm files.
+   
+    - See mothcw.config as an example
+    
+### Running case a case (analyzing a set of variants) in brief: 
 
-Create a config/ directory under the parent.  Copy the provided global.config file into config/, and customize it to the filesystem locations where you downloaded data.  You will find the file to be highly commented.
+1) Under the parent work directory, create a new case directory, in which 
+   a set of variants will be analyzed together.  All pipeline outputs are written into this directory
+   and subdirectories created by the pipeline.
 
-4) In the parent work directory (will move to config/ later), create a your_username.config file.  This will specify minimally your email address, and preferences, to be included in the generated slurm files.
-See mothcw.config as an example
+   - mkdir $UDN/mycase
+    - cd $UDN/mycase
 
-5) Under the parent work directory, create a case directory, where a set of variants will be analyzed together.  
+2) Create a file specifically named mycase_missense.csv following the instructions below ("Preparation of Input")
+    
+    - A sample mycase_missense.csv is shown under **Preparation of Input**
 
-   Example: mkdir $UDN/mycase
-
-Create a mycase_missense.csv file following the instructions below ("Preparation of Input") 
 The section below shows what should happen when the container launches, and you run psb_plan.py.  Return to the instructions here, with step 6.
 
-5) Plan the work (jobs to be run for each mutation, based on available structures)
+### The four automation steps, in brief: Prep, Parse, Plan, Launch, Monitor, Report  
+
+0) Launch the container, so that $UDN/mycase is the current directory.
+
+In our experience, this is no more complex than
+
+    - cd $UDN/mycase
+    - singularity shell /your/location/image_phase9.simg
+
+Except for a sub-step to launch all the slurm jobs, the commands below are executed _inside_ the container. 
+
+1) Plan the work (jobs to be run for each mutation, based on available structures)
 ```
 psb_plan.py 
 ```
-6) Launch the jobs
+2) Launch the jobs
 ```
 psb_plan.py --nolaunch
 ```
 
-The --nolaunch option is important, because .slurm files cannot be launched (sbatch) inside the container.  Follow the on-screen instructions to run the created launch.py program.  Then, return to the container to monitor jobs.
+The --nolaunch option is used because .slurm files cannot be launched (sbatch) inside the container.  
+Follow the on-screen instructions to run the created launch.py program.  Then, return to the container to monitor jobs.
 
-7) Monitor progress at intervals
+3) Monitor progress at intervals.
+
+You can "watch" the progress of your jobs with cluster commands like 'squeue'  HOWEVER, all
+pipeline jobs update a status file system that is cluster-indepednent.
+
+From the pipeline's perspective the status of jobs is given by this command: 
+
 ```
 psb_monitor.py
 ```
@@ -52,6 +93,9 @@ psb_monitor.py
 ```
 psb_rep.py
 ```
+
+**Important**: Always re-run psb_monitor.py before psb_rep.py if you believe more jobs may have finished. 
+
 
 You may move the final .zip or .tar.gz files to extract to a laptop, or public website.
 
@@ -75,9 +119,23 @@ Each row contains an index value (ignored), a gene name, a refseq identifier, a 
 6,ALG11,NM_001004127,Q213P,Q2TAA5
 ```
 
+- There are several supplemental programs available to automatically create the mycase_missense.csv file 
+      from sources such as genomic coordinates, gene names, UDN medical case spreadsheets.  Please
+      ask if any of those would be helpful.  For testing, please create a file with a couple of variants.
+      
+
+# The four automation steps, in Detail: Prep, Parse, Plan, Launch, Monitor, Report
+**Configuration files:**
+In 99% of cases, configuration files are not re-specified on command lines, but are located from default locations 
+described under the config notes above.  In addition to global.config, and username.config, a third .config override 
+file may be placed in the case directory.  Name it mycase.config and it will be picked up automatically
+by all pipeline tools.  A typical use for a mycase.config is to override PathProx input variant sets, or
+for testing of new codes or options without perturbing the global configuration.
+
 ## Pipeline step 1: Create a work plan from the csv file
 
 **(Don't stress over remembering command line arguments.  Use the standard '-h' option for a helpful reminder of the default inputs)**
+
 
 Be sure to specify the global and local config files, as well as your job name.  Your command sequence will look like:  
 
@@ -91,7 +149,7 @@ $ psb_plan.py
 Here is what I see on my system with the above command:
 
 ```
-140 ~/psbwork % psb_plan.py Test123456 -u mothcw.config 
+140 ~/psbwork % psb_plan.py Test123456  
 psb_plan.py: Pipeline execution plan generator.  -h for detailed help
 Collaboration-wide  psb_plan log file is /dors/capra_lab/projects/psb_collab/UDN/Test123456/Test123456_psb_plan.log
 Loading swiss model JSON metadata from /dors/capra_lab/data/swissmodel/SWISS-MODEL_Repository/INDEX_JSON
@@ -206,7 +264,7 @@ Here is an example of a psb_monitor.py run on my system
 
 ```
 $ cd ~/psbwork
-~/psbwork $ psb_monitor.py TestJED -u mothcw.config 
+~/psbwork $ psb_monitor.py TestJED
 ./psb_monitor.py: Pipeline monitor for launched jobs.  -h for detailed help.
 Retrieving project mutations from /dors/capra_lab/projects/psb_collab/UDN/TestJED/TestJED.csv
 Monitoring all jobs for 2 mutations

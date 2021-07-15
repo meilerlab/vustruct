@@ -10,7 +10,7 @@ RUN \
   yum -y install libX11 && \
   yum -y install libXext && \
   echo -e "/chimera_headless\n" | ./chimera-1.15-linux_x86_64_osmesa.bin && \
-  rm -f --verbose './chimera-1.15-linux_x86_64_osmesa.bin'
+  rm -f --verbose 'chimera-1.15-linux_x86_64_osmesa.bin'
   
 
   

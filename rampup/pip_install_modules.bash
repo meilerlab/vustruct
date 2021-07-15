@@ -30,3 +30,6 @@ pip install python-Levenshtein
 # Seems jinja2 also now installed already - no worries
 pip install jinja2
 pip install tabulate
+
+# Digenic analysis code requires plotly
+pip install plotly
