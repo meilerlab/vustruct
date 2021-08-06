@@ -2493,7 +2493,7 @@ if __name__ == "__main__":
                     LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
                 elif differences == 1: # Let's not kill pathprox if only one variant between uniprot and ENST
                     LOGGER.warning("Transcripts vary in one position: %s"%PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
-                elif pct_diffent < 0.01: # Similarly let Pathprox continue if we have a few variants off - but less than 1% of the sequence
+                elif pct_different < 0.01: # Similarly let Pathprox continue if we have a few variants off - but less than 1% of the sequence
                     LOGGER.warning("Transcripts vary in multiple positions: %s"%PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
                 else:
                     termination_info = "%s and %s AA sequences differ markedly:\n%s"%(transcript.id,ensembl_transcript.id,PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))

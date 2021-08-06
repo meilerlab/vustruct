@@ -108,7 +108,7 @@ HeadersList = []
 i = 0
 csv_rows = []
 
-genome = 'hg19'
+genome = 'GRCh38'
 while i < dfRows:
     row = df.iloc[i]
     # print i, row[0]
@@ -290,12 +290,12 @@ while i < dfRows:
                 change = df.iloc[i][2].strip()  # Example A->G to right of chr1 (not using c.809A>G to right of pos in column C)
                 change = change[0] + '/' + change[-1] # Change format to A/G
               
-            except (TypeError, IndexError):
+            except (TypeError, IndexError, AttributeError, ValueError):
                 LOGGER.warning("Row %3d: Failed to parse Chr/Position/Change from columns B and C"%i)
                 if not mut:
                     LOGGER.warning("Row %3d: %-8s  Skipping because neither AA variant nor genomic change found" % (i, gene))
-                    i += 2
-                    continue
+                i += 2
+                continue
        
 
             if genome != 'hg19':
@@ -324,7 +324,15 @@ with open(genes_txt_filename, 'w') as fp:
         fp.write(gene + '\n')
 LOGGER.info("%d genes written to %s" % (len(genes), genes_txt_filename))
 
-if csv_rows:
+if csv_rows: # This needs to be argument controlled
+    original_df = pd.DataFrame(csv_rows,columns=["gene","genome","chrom","pos","change","refseq","mutation","unp"])
+    # 2021 August hack to use original locations as GRCh37
+    original_df.insert(3,'original_lineno',original_df.index)
+    # 2021 August hack Get rid of columsn that would not be present after liftover
+    df_lifted_grch38 = original_df.copy().drop(['gene','mutation','refseq','unp','change'],axis='columns')
+
+# Brute force disable grch37->38 liftover
+if csv_rows and None:
     # Create a bed file of all our grch37 positions
     # And lift that over to GRCh38
     original_df = pd.DataFrame(csv_rows,columns=["gene","genome","chrom","pos","change","refseq","mutation","unp"])
@@ -363,6 +371,7 @@ if csv_rows:
     except pd.errors.EmptyDataError:
         LOGGER.info("All positions lifted to GRCh38 successfully")
 
+if csv_rows:
     df_missense_grch38 = pd.DataFrame(columns=['gene','chrom','pos','change','transcript','unp','refseq','mutation'])
     if len(df_lifted_grch38): # Create a hg38 .vcf file that we can run vcf2missense.py on to create a new case
         df_vcf_hg38 = pd.DataFrame(
@@ -432,6 +441,7 @@ if csv_rows:
     df_without_duplicates = df_without_duplicates.set_index(['chrom','pos'],drop=False)
     df_lifted_grch38_index = df_lifted_grch38.set_index(['chrom','pos'],drop=True)
     # Add original lineno back to final dataframe
+    import pdb; pdb.set_trace()
     df_with_original_lineno = df_without_duplicates.join(df_lifted_grch38_index).set_index(['original_lineno'],drop=False) # ,rsuffix='_r')
 
     # Now we iterate through the original dataframe from the spreadsheet and where there are rows that were lost in the vep process, add them back
