@@ -284,8 +284,9 @@ while i < dfRows:
                 # liftover requires lower case chr
                 # liftover requires capital X and Y if those are the chromosomes
                 chrom = chrom[0:3].lower() + chrom[3:].upper()
-                # if chrom == 'chrM': # Sometimes UDN leaves off the T
-                #     chrom = 'chrMT'
+                # 2021 August 17.  Sometimes UDN gives us chrM - but vep requires chrMT
+                if chrom == 'chrM': # Sometimes UDN leaves off the T
+                    chrom = 'chrMT'
                 pos = int(df.iloc[i+1][1]) # Example 150915463 below chr1 in column B
                 change = df.iloc[i][2].strip()  # Example A->G to right of chr1 (not using c.809A>G to right of pos in column C)
                 change = change[0] + '/' + change[-1] # Change format to A/G
@@ -441,12 +442,15 @@ if csv_rows:
     df_without_duplicates = df_without_duplicates.set_index(['chrom','pos'],drop=False)
     df_lifted_grch38_index = df_lifted_grch38.set_index(['chrom','pos'],drop=True)
     # Add original lineno back to final dataframe
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     df_with_original_lineno = df_without_duplicates.join(df_lifted_grch38_index).set_index(['original_lineno'],drop=False) # ,rsuffix='_r')
 
     # Now we iterate through the original dataframe from the spreadsheet and where there are rows that were lost in the vep process, add them back
 
     for original_lineno,row in original_df.iterrows():
+        # LOGGER.info("Original: %d %s"%(original_lineno,row))
+        # import pdb; pdb.set_trace()
+        # This below DEFINITELY broken
         if original_lineno not in df_with_original_lineno.index: # Then we have lost this element and need to add it back
             df_with_original_lineno = df_with_original_lineno.append(row.drop(['genome','change']).append(pd.Series([original_lineno],index=['original_lineno'])),ignore_index = True)
 
