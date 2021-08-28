@@ -509,6 +509,8 @@ class CalculationResultsLoader:
             ddg_structure_dir = ddg_repo.set_swiss(structure_id, chain_id)
         elif workplan_df_row['method'] == 'modbase':
             ddg_structure_dir = ddg_repo.set_modbase(structure_id, chain_id)
+        elif workplan_df_row['method'] == 'alphafold':
+            ddg_structure_dir = ddg_repo.set_alphafold(structure_id, chain_id)
         elif workplan_df_row['method'] == 'usermodel':
             ddg_structure_dir = ddg_repo.set_usermodel(structure_id, chain_id)
         else:  # Has to be a pdb
