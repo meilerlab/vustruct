@@ -20,9 +20,11 @@ def ddg_commandline_parser(commandline_parser: SafeConfigParser) -> SafeConfigPa
     group.add_argument('--biounit', type=str,
                        help="4 character PDB ID with optional .chain suffix")
     group.add_argument('--modbase', type=str,
-                       help="Modbase 13 or Modbase 16 model ID with optional .chain suffix")
+                       help="Modbase 20 model ID with optional .chain suffix")
     group.add_argument('--swiss', type=str,
                        help="Swissmodel ID with optional .chain suffix")
+    group.add_argument('--alphafold', type=str,
+                       help="AlphaFold model ID with optional .chain suffix")
     group.add_argument('--usermodel', type=str, metavar='FILE',
                        help="Filename of a user model.  Requires explicit transcript specifications")
     # cmdline_parser.add_argument("entity",type=str,

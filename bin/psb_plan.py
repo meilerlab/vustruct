@@ -87,6 +87,7 @@ from lib import PDBMapProtein
 from lib import PDBMapSwiss
 # from lib import PDBMapModbase2016
 # from lib import PDBMapModbase2013
+from lib import PDBMapAlphaFold
 from lib import PDBMapModbase2020
 from lib import PDB36Parser
 from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
@@ -138,6 +139,8 @@ required_config_items = ["dbhost","dbname","dbuser","dbpass",
   # "modbase2013_summary",
   # "modbase2016_dir",
   # "modbase2016_summary",
+  "alphafold_dir",
+  "modbase2020_summary",
   "modbase2020_dir",
   "modbase2020_summary",
   "output_rootdir",
@@ -455,6 +458,8 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             if ci_row['label'] == 'usermodel':
                 # Pathprox will append args.label to include lots of other things, including the chain
                 structure_designation = "--usermodel=%s --label=%s "%(ci_row['struct_filename'],ci_row['structure_id']) # ,params['chain'])
+            if ci_row['label'] == 'alphafold':
+                structure_designation = "--alphafold=%s "%ci_row['structure_id'] # <- Pathprox will make label from this and --chain
             elif ci_row['label'] == 'swiss':
                 structure_designation = "--swiss=%s "%ci_row['structure_id'] # <- Pathprox will make label from this and --chain
             elif ci_row['label'] == 'modbase':
@@ -864,6 +869,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     ci_pdbs_df = pd.DataFrame(columns=df_columns).astype({'biounit':bool})
     ci_modbase_swiss_df = ci_pdbs_df.copy(deep = True)
     ci_usermodel_df = ci_pdbs_df.copy(deep = True)
+    ci_alphafold_df = ci_pdbs_df.copy(deep = True) # Alphafold models demand different treatment from modbase/swiss
 
     ################################################
     # Load relevant swiss models for consideration # 
@@ -947,6 +953,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
             continue
         ci.method = 'swiss'
         ci.set_alignment_profile(alignment,swiss_structure)
+
 
         ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
         if chain_count > 1:
@@ -1034,7 +1041,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
        
         ci.ddg_quality = DDG_base.evaluate_modbase(StringIO(modbase_structure_buffer),ci.struct_filename)
         if ci.ddg_quality:
-            LOGGER.info("DDG monomer and DDG base will be attempted for modbase %s"%modbase_summary['database_id'])
+            LOGGER.info("DDG monomer and DDG cartesian will be attempted for modbase %s"%modbase_summary['database_id'])
 
         modbase_structure_buffer = None
         # Modbase super-annoying because the chain_id is often missing
@@ -1078,6 +1085,106 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         ci = chain_info_from_modbase_summary(modbase_2020,modbase_summary)
         if ci is not None:
             ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
+
+    #
+    # Look for an F1 alphafold model in the filesystem.  Integrate it if we can.
+    #
+    def chain_info_from_alphafold(unp) -> ChainInfo:
+        alphafold = PDBMapAlphaFold(config_dict)
+        ci = ChainInfo('alphafold')
+
+        if mutation:
+            ci.trans_mut_pos = int(mutation[1:-1])
+        else:
+            ci.trans_mut_pos = None
+        if ci.trans_mut_pos:
+            model_seq_start,model_seq_end,alphafold_modelid = alphafold.best_covering_model(unp,len(transcript.aa_seq),ci.trans_mut_pos)
+        else:
+            alphafold_modelid = alphafold.transcript_first_modelid(unp)
+            model_seq_start = 1
+
+        ci.struct_filename= alphafold.get_coord_filename(alphafold_modelid)
+
+        if not os.path.exists(ci.struct_filename):
+            LOGGER.critical("Alphafold model %s does not exist",ci.struct_filename)
+            return None
+
+        ci.structure_id = alphafold_modelid
+
+        ci.structure_url = "https://alphafold.ebi.ac.uk/entry/%s"%unp
+
+        ci.template_identity = 0.0 # Come back LATER and do something
+
+        ci.biounit = False
+        ci.pdb_template = "N/A" # Machine learning models don't have a specific template
+
+
+        ci.method = 'alphafold'
+
+        LOGGER.info("Opening AlphaFold Model File %s"%ci.struct_filename)
+        if ci.struct_filename.endswith(".gz"):
+            alphafold_structure_fin = gzip.open(ci.struct_filename,'rt')
+        elif ci.struct_filename.endswith(".cif"):
+            alphafold_structure_fin = open(ci.struct_filename,'rt')
+        else:
+            sys.exit("Alphafold model has unrecognized file extension %s"%ci.struct_filename)
+
+        alphafold_structure_buffer = alphafold_structure_fin.read()
+        alphafold_structure_fin.close()
+
+        alphafold_structure_fin = StringIO(alphafold_structure_buffer)
+
+        alphafold_MMCIFParser = MMCIFParser()
+        alphafold_structure = alphafold_MMCIFParser.get_structure(ci.structure_id,alphafold_structure_fin)
+        alphafold_mmCIF_dict = alphafold_MMCIFParser._mmcif_dict
+
+        alphafold_structure_fin.close()
+        alphafold_structure_fin = None
+
+	# Make sure we have one structure and one chain
+        assert len(list(alphafold_structure.get_models())) == 1
+        assert len(list(alphafold_structure[0].get_chains())) == 1
+
+        # Let's make sure that all alphafold models have a chain ID
+        # I.e. get_chains() is an iterator, and we want to first element that comes back
+        # without setting up a for loop - so next() is perfect
+        ci.chain_id = next(alphafold_structure[0].get_chains()).get_id()
+        assert ci.chain_id not in [' ','']
+       
+        ci.ddg_quality = True # LATER DDG_base.evaluate_alphafold(StringIO(alphafold_structure_buffer),ci.struct_filename)
+        if ci.ddg_quality:
+            LOGGER.info("DDG monomer and DDG Cartesian will be attempted for alphafold model %s"%ci.structure_id)
+
+        alphafold_structure_buffer = None
+        ci.nresidues = len(list(alphafold_structure[0][ci.chain_id].get_residues()))
+        ci.biounit_chains = 1 # This _could_ hopefully change - but not for now
+        ci.mers = ci.mers_string(ci.biounit_chains)
+        if model_seq_start > 1:
+            # It is necessary to renumber the residues on alphafold models in cases where 
+            # The model is NOT an -F1- file
+           alphafold_structure = alphafold.renumber_windowed_model(alphafold_structure,alphafold_mmCIF_dict)
+
+        alignment = PDBMapAlignment(alphafold_structure,ci.chain_id,None,'trivial')
+        success,errormsg = alignment.align_trivial(transcript,alphafold_structure,ci.chain_id)
+        if not success:
+            LOGGER.critical("Alphafold Model %s fails to align to transcript - skipping.  Error:\n%s",
+                ci.structure_id,errormsg)
+            return None
+        ci.method = 'alphafold'
+        ci.set_alignment_profile(alignment,alphafold_structure)
+        # The very weird thing is that for alpha fold models, the residue ID
+        # residue that is in the disk file... and that _could_ be different
+        # if we are, for example running a ddG deep inside a -F8- named partial window model
+        if model_seq_start > 1:
+            ci.mut_pdb_res -= (model_seq_start -1)
+        return ci
+
+    if unp_is_canonical:
+        LOGGER.info("*** Attempting to add alphafold model for canonical unp %s ***", unp)
+        ci = chain_info_from_alphafold(unp)
+        if ci is not None:
+            ci_alphafold_df = ci_alphafold_df.append(vars(ci),ignore_index=True)
+
         
     ################################################################
     # Load relevant Modbase2016  AND Modbase2013 for consideration # 
@@ -1104,7 +1211,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     #                if ci is not None:
     #                    ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci),ignore_index=True)
         
-    LOGGER.info("%d modbase swiss identified."%len(ci_modbase_swiss_df))
+    LOGGER.info("%d modbase swiss alphafold identified."%len(ci_modbase_swiss_df))
 
     ###########################################################################################################################
 
@@ -1234,8 +1341,6 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     #LOGGER.info("%d pdbs identified."%len(ci_pdbs_df))
 
    
-
-
     # Funny bug - but if ci_pdbs_df is empty, the pd.concat turns all the second dF_modbase_swiss columns from ints to floats
     if len(ci_pdbs_df) == 0:
         ci_df = ci_modbase_swiss_df.copy()
@@ -1243,6 +1348,10 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
         ci_df = ci_pdbs_df.copy()
     else:
         ci_df = pd.concat([ci_pdbs_df,ci_modbase_swiss_df],ignore_index = True)
+
+    # Add alphafold model to the structure report, if exists
+    if len(ci_alphafold_df) > 0:
+        ci_df = pd.concat([ci_df,ci_alphafold_df],ignore_index = True)
 
     # df = get_structures(io,unp,ci.trans_mut_pos,maybe_threshold = args.maybe)
     # LOGGER.info("%d structures identified."%len(df))
@@ -1650,7 +1759,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
  
     # df could be empty or not....
     structure_report_filename = "%s/%s_%s_%s_structure_report.csv"%(mutation_dir,gene,refseq,mutation)
-    LOGGER.info("Output the %d retained PDB, ModBase and Swiss structures to: %s"%(len(ci_df),structure_report_filename))
+    LOGGER.info("Output the %d retained PDB and model structures to: %s"%(len(ci_df),structure_report_filename))
     ci_df.to_csv(structure_report_filename,sep='\t',index=True,na_rep='nan')
     if mutation and len(ci_df) > 0:
         LOGGER.info("Total with coverage of %s: %d"%(mutation,(~ci_df["mut_pdb_res"].isnull()).sum()))
@@ -1954,7 +2063,7 @@ else:
         ui_final = {}
         for f in ['gene','refseq','mutation','unp']:
             ui_final[f] = row[f]
-    
+
         df_all_jobs,workplan_filename,df_structures,df_dropped,log_filename = plan_one_mutation(index,row['gene'],row['refseq'],row['mutation'],row['user_model'] if 'user_model' in row and row['user_model'] else None,unp = row['unp'] if 'unp' in row else None)
 
         fulldir, filename = os.path.split(log_filename)
