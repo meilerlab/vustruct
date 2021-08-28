@@ -162,6 +162,8 @@ def monitor_one_mutation(workstatus):
                 ddg_repo.set_swiss(row['pdbid'],row['chain'])
             elif row['method'] == 'modbase':
                 ddg_repo.set_modbase(row['pdbid'],row['chain'])
+            elif row['method'] == 'alphafold':
+                ddg_repo.set_alphafold(row['pdbid'],row['chain'])
             elif row['method'] == 'usermodel':
                 ddg_repo.set_usermodel(row['pdbid'],row['chain'])
             else:

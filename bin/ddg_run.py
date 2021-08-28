@@ -53,8 +53,7 @@ from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
 from lib import PDBMapModbase2020
-# from lib import PDBMapModbase2016
-# from lib import PDBMapModbase2013
+from lib import PDBMapAlphaFold
 
 RESOLUTION_QUALITY_MAX=2.5  # Only structures with resolution < 2.5 are routed to the more rigid rosetta "high quality" algorithm
 
@@ -91,7 +90,9 @@ group.add_argument('--pdb', type=str,
 group.add_argument('--biounit', type=str,
                    help="4 character PDB ID with optional .chain suffix")
 group.add_argument('--modbase', type=str,
-                   help="Modbase 13 or Modbase 16 model ID with optional .chain suffix")
+                   help="Modbase 20 model ID with optional .chain suffix")
+group.add_argument('--alphafold', type=str,
+                   help="Alpha fold model ID with optional .chain suffix")
 group.add_argument('--swiss', type=str,
                    help="Swissmodel ID with optional .chain suffix")
 group.add_argument('--usermodel', type=str, metavar='FILE',
@@ -140,10 +141,7 @@ required_config_items = [
     "pdb_dir",
     "modbase2020_dir",
     "modbase2020_summary",
-    # "modbase2013_dir",
-    # "modbase2013_summary",
-    # "modbase2016_dir",
-    # "modbase2016_summary",
+    "alphafold_dir",
     "swiss_dir",
     "swiss_summary"]
 
@@ -168,10 +166,12 @@ elif args.swiss:
     ddg_structure_dir = ddg_repo.set_swiss(args.swiss,args.chain)
 elif args.modbase:
     ddg_structure_dir = ddg_repo.set_modbase(args.modbase,args.chain)
+elif args.alphafold:
+    ddg_structure_dir = ddg_repo.set_alphafold(args.alphafold,args.chain)
 elif args.usermodel:
     ddg_structure_dir = ddg_repo.set_usermodel(args.usermodel,args.chain)
 else:
-    message="One of --pdb or --swiss or --modbase or --usermodel required on command line"
+    message="One of --pdb, --swiss, --modbase, --alphafold, or --usermodel required on command line"
     LOGGER.critical(message)
     sys.exit(message)
 
@@ -296,7 +296,7 @@ for chain in list(structure.get_chains()):
 
 
 assert structure, statusdir_info(
-    "A structure file must be specified via --pdb, --biounit, --swiss, --modbase, or --usermodel")
+    "A structure file must be specified via --pdb, --biounit, --swiss, --modbase, --alphafold, or --usermodel")
 
 print("AWESOME - %s"%structure)
 

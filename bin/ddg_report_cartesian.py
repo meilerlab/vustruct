@@ -78,6 +78,8 @@ group.add_argument('--modbase', type=str,
                    help="Modbase 13 or Modbase 16 model ID with optional .chain suffix")
 group.add_argument('--swiss', type=str,
                    help="Swissmodel ID with optional .chain suffix")
+group.add_argument('--alphafold', type=str,
+                   help="Alphafold model ID")
 group.add_argument('--usermodel', type=str, metavar='FILE',
                    help="Filename of a user model.  Requires explicit transcript specifications")
 # cmdline_parser.add_argument("entity",type=str,
@@ -146,10 +148,12 @@ elif args.swiss:
     ddg_structure_dir = ddg_repo.set_swiss(args.swiss,args.chain)
 elif args.modbase:
     ddg_structure_dir = ddg_repo.set_modbase(args.modbase,args.chain)
+elif args.alphafold:
+    ddg_structure_dir = ddg_repo.set_alphafold(args.alphafold,args.chain)
 elif args.usermodel:
     ddg_structure_dir = ddg_repo.set_usermodel(args.usermodel,args.chain)
 else:
-    message="One of --pdb or --swiss or --modbase or --usermodel required on command line"
+    message="One of --pdb, --swiss, --modbase, --alphafold or --usermodel required on command line"
     LOGGER.critical(message)
     sys.exit(message)
 
@@ -188,7 +192,7 @@ if not args.variant:
 elif args.variant[-1] == '*':
     variant_list = [args.variant[0:-1] + amino_acid for amino_acid in "ACDEFGHIKLMNPQRSTVWY" if amino_acid != args.variant[0] ]
 else:
-    variant_list = [args.variant]
+    variant_list = args.variant.split(',')
 
 
 

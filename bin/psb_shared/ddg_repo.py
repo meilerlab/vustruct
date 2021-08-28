@@ -22,6 +22,7 @@ import json
 import tempfile
 import datetime
 import configparser
+import shutil
 from psb_shared.psb_progress import PsbStatusManager
 LOGGER = logging.getLogger(__name__)
 
@@ -155,6 +156,27 @@ class DDG_repo():
         self._set_structure_filenames()
         return self._structure_dir
 
+    def set_alphafold(self, alphafold_id: str, chain_id: str) -> str:
+        """
+        Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
+        """
+        self._structure_source = 'alphafold'
+        self._structure_id = alphafold_id
+        self._chain_id = chain_id
+
+        # Format is AF-UNPUNP...
+        uniprot_id = alphafold_id[3:9]
+        self._structure_dir = os.path.join(
+            self._ddg_root,
+            'alphafold',
+            uniprot_id[0:2],
+            uniprot_id[2:4],
+            uniprot_id[4:6],
+            self._structure_id,
+            self._chain_id)
+
+        self._set_structure_filenames()
+
     def set_swiss(self, swiss_id: str, chain_id: str) -> str:
         """
         Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
@@ -195,19 +217,6 @@ class DDG_repo():
         ensp_id_match = ensp_id_regex.match(modbase_id)
 
         assert ensp_id_match,"The modbase_id of %s seems entirely invalid.  Should be ENSP0000123456 and so forth"%modbase_id
-
-        # modbase_underscore_split = modbase_id.split('_')
-        # assert len(modbase_underscore_split) < 3
-        # modbase_last_6 = modbase_underscore_split[0][:-6:]
-
-        # modbase_last_6 = modbase_id[-6:]
-        # self._structure_dir = os.path.join(
-            # self._ddg_root,
-            # 'modbase',
-            # modbase_last_6[0:3],
-            # modbase_last_6[3:6],
-            # self._structure_id,
-            # self._chain_id)
 
         ENSP_last_3 = ensp_id_match.group(1)[-3:]
         ENSP_suffix = ensp_id_match.group(2)
@@ -445,7 +454,7 @@ class DDG_repo():
         """Import (simply mv) a cleaned structure filename into the repository"""
         assert self._cleaned_structure_pdb_filename
         try:
-            os.rename(cleaned_structure_filename, self._cleaned_structure_pdb_filename)
+            shutil.move(cleaned_structure_filename, self._cleaned_structure_pdb_filename)
         except OSError:
             # IF another process beat us to the punch, then all is well
             # IF not, then something is quite wrong with our attempt at rename
