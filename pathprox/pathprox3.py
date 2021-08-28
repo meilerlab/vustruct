@@ -40,7 +40,13 @@ from collections import OrderedDict
 import pprint
 from subprocess import Popen, PIPE
 
+from Bio.PDB.Structure import Structure
+from Bio.PDB.Model import Model
+from Bio.PDB.Chain import Chain
+from Bio.PDB.Residue import Residue
+
 from typing import Dict
+from typing import Tuple
 
 ## cache_dir = '/tmp/sqlcache'  # Must be overridden early
 
@@ -117,6 +123,8 @@ if __name__ == "__main__":
          help="Modbase 20 model ID with optional .chain suffix")
     group.add_argument('--swiss',type=str,
          help="Swissmodel ID with optional .chain suffix")
+    group.add_argument('--alphafold',type=str,metavar='FILE',
+         help="ID of an alphafold model with optional .chain suffix")
     group.add_argument('--usermodel',type=str,metavar='FILE',
          help="Filename of a user model.  Requires explicit transcript specifications")
     #cmdline_parser.add_argument("entity",type=str,
@@ -208,8 +216,7 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 # PDBMap
 from lib import PDBMapSwiss
 from lib import PDBMapModbase2020
-# from lib import PDBMapModbase2013
-# from lib import PDBMapModbase2016
+from lib import PDBMapAlphaFold
 from lib import PDBMapProtein
 # from lib.amino_acids import longer_names
 
@@ -239,17 +246,25 @@ def makedirs_capra_lab(DEST_PATH, module_name):
        sys_exit_failure("Fatal: Function %s failed to create destination path %s" % (module_name,DEST_PATH))
     set_capra_group_sticky(DEST_PATH)
 
-def load_structure(id,coord_filename):
+def load_structure(id: str,coord_filename: str) -> Tuple[Structure,Dict]:
     tryParser36 = False
+    structure = None
+    mmcif_dict = {}
     with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else \
          lzma.open(coord_filename,'rt') if coord_filename.split('.')[-1]=='xz' else \
              open(coord_filename,'r') as fin:
         filterwarnings('ignore',category=PDBConstructionWarning)
-        try:
-            structure = PDBParser().get_structure(id,fin)
-        except ValueError:
-            tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
-            structure = None
+        coord_filename_pieces = coord_filename.split('.')
+        is_cif_format = (coord_filename_pieces[-1].lower() == 'cif') or (coord_filename_pieces[-2].lower() == 'cif')
+        if is_cif_format:
+            _mmcif_parser = MMCIFParser(QUIET=True)
+            structure =  _mmcif_parser.get_structure(id,fin)
+            mmcif_dict = _mmcif_parser._mmcif_dict
+        else: 
+            try:
+                structure = PDBParser().get_structure(id,fin)
+            except ValueError:
+                tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
 
         resetwarnings()
 
@@ -262,7 +277,7 @@ def load_structure(id,coord_filename):
             structure = PDB36Parser().get_structure(id,fin)
             resetwarnings()
 
-    return structure
+    return structure,mmcif_dict
 
 
 def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transcript):
@@ -285,7 +300,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
         else:  # Typically, we load a biounit from PDB file - but good to have tried CIF first
             coord_filename = os.path.join(config_dict['pdb_dir'],"biounit","PDB","divided",pdb_id.lower()[1:3],"%s.pdb1.gz"%pdb_id.lower())
             try:
-                structure = load_structure(pdb_id,coord_filename)
+                structure,_ = load_structure(pdb_id,coord_filename)
                 is_biounit = 1
             except:
                 LOGGER.info("The biounit file %s was not found.  Attempting normal pdb"%os.path.basename(coord_filename))
@@ -303,7 +318,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
     if not structure:
         coord_filename = os.path.join(config_dict['pdb_dir'],"structures","divided","pdb",pdb_id.lower()[1:3],"pdb%s.ent.gz"%pdb_id.lower())
         LOGGER.warning("Reverting to .pdb format: %s",coord_Filename)
-        structure = load_structure(pdb_id,coord_filename)
+        structure,_ = load_structure(pdb_id,coord_filename)
         LOGGER.info("Success loading %s",coord_filename)
 
     sifts_chain_to_best_unp = sifts_best_unps(structure)
@@ -400,25 +415,6 @@ def structure_lookup(io,sid,bio=True,chain=None):
       raise Exception(msg)
     return [(sid,0,f)]
 
-#def model_lookup(io,mid):
-#  """ Returns coordinate files for a ModBase ID """
-#  PDBMapModel.load_modbase(config_dict['modbase2016_dir'],config_dict['modbase2016_summary'])
-#  PDBMapModel.load_modbase(config_dict['modbase2013_dir'],config_dict['modbase2013_summary'])
-#  f = PDBMapModel.get_coord_file(mid.upper())
-#  LOGGER.info("File location for %s: %s"%(mid.upper(),f))
-#  #f = "%s/Homo_sapiens_2016/model/%s.pdb.gz"%(args.modbase_dir,mid.upper())
-#  if not os.path.exists(f):
-#    try:
-#      cmd = ["xz","-d",'.'.join(f.split('.')[:-1])+'.xz']
-#      sp.check_call(cmd)
-#    except:
-#      msg  = "Coordinate file missing for %s\n"%mid
-#      msg += "Expected: %s\n"%f
-#      raise Exception(msg)
-#    cmd = ["gzip",'.'.join(f.split('.')[:-1])]
-#    sp.check_call(cmd)
-#  return [(mid,0,f)]
-
 def swiss_lookup(io,model_id):
   """ Returns coordinate files for a Swiss ID """
   PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
@@ -449,10 +445,6 @@ def swiss_lookup(io,model_id):
 #  return flist
 
 def structure_renumber_per_alignments(structure):
-    from Bio.PDB.Structure import Structure
-    from Bio.PDB.Model import Model
-    from Bio.PDB.Chain import Chain
-    from Bio.PDB.Residue import Residue
     renumbered_structure = Structure(structure.id)
     for model in structure:
         renumbered_model = Model(model.id)
@@ -2050,10 +2042,7 @@ if __name__ == "__main__":
       "interpro_dir",
       "modbase2020_dir",
       "modbase2020_summary",
-      # "modbase2013_dir",
-      # "modbase2013_summary",
-      # "modbase2016_dir",
-      # "modbase2016_summary",
+      "alphafold_dir",
       "gnomad_dir",
       "gnomad_filename_template",
       "output_rootdir",
@@ -2186,10 +2175,10 @@ if __name__ == "__main__":
             exitmsg = "--label is required on the command line when loading a --usermodel"
             LOGGER.critical(exitmsg)
             sys_exit_failure(exitmsg)
-        structure = load_structure(args.label,args.usermodel)
+        structure,_ = load_structure(args.label,args.usermodel)
     elif args.swiss: # This is a lenghty-ish swiss model ID, NOT the file location
         PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
-        structure = load_structure(args.swiss,PDBMapSwiss.get_coord_file(args.swiss))
+        structure,_ = load_structure(args.swiss,PDBMapSwiss.get_coord_file(args.swiss))
 
         assigned_chain_id = next(iter(chain_to_transcript))
 
@@ -2206,22 +2195,25 @@ if __name__ == "__main__":
         modbase20 = PDBMapModbase2020(config_dict)
         modbase20_structure_filename = modbase20.get_coord_file(args.modbase)
         if os.path.exists(modbase20_structure_filename):
-           structure = load_structure(args.modbase,modbase20_structure_filename)
+           structure,_ = load_structure(args.modbase,modbase20_structure_filename)
         else:
            msg = "Modbase model %s not found in %s"%(args.modbase,modbase20_structure_Filename)
            LOGGER.critical(msg)
            sys.exit(msg)
-        # modbase20 = PDBMapModbase2020(config_dict)
-        # modbase16_structure_filename = modbase16.get_coord_file(args.modbase)
-        # if os.path.exists(modbase16_structure_filename):
-        #    structure = load_structure(args.modbase,modbase16_structure_filename)
-        # else:
-        #    modbase13 = PDBMapModbase2013(config_dict)
-        #    modbase13_structure_filename = modbase13.get_coord_file(args.modbase)
-        #    if os.path.exists(modbase13_structure_filename):
-        #        structure = load_structure(args.modbase,modbase13_structure_filename)
-        #    else:
-        #        LOGGER.critical("Modbase model id %s not found in either modbase2013/2016 config directories");
+
+    elif args.alphafold:
+        alpha_fold  = PDBMapAlphaFold(config_dict)
+        alpha_fold_structure_filename = alpha_fold.get_coord_filename(args.alphafold)
+        if os.path.exists(alpha_fold_structure_filename):
+           structure,alphafold_mmCIF_dict = load_structure(args.alphafold,alpha_fold_structure_filename)
+           # If we are dealing with not a -F1-... but a -F2- or higher, then we need to renumber the 1..N by the window*200
+           structure = alpha_fold.renumber_windowed_model(structure,alphafold_mmCIF_dict)
+        else:
+           msg = "Alpha fold model %s not found in %s"%(args.alpha_fold,alpha_fold_structure_Filename)
+           LOGGER.critical(msg)
+           sys.exit(msg)
+
+    assert structure is not None,"The structure was not loaded.  Likely due to software bug.  See logs"
 
     # Finally - if the chain left has no id, set the id to A for sanity
     for chain in list(structure.get_chains()):
@@ -2229,7 +2221,7 @@ if __name__ == "__main__":
             LOGGER.info('Renaming blank/missing chain ID to A')
             chain.id = 'A'
 
-    if args.usermodel or args.swiss or args.modbase:
+    if args.usermodel or args.swiss or args.modbase or args.alphafold:
         alignment = PDBMapAlignment()
         for chain_letter in chain_to_transcript:
             alignment = PDBMapAlignment()
@@ -2245,7 +2237,7 @@ if __name__ == "__main__":
             chain_to_alignment[chain_letter] = alignment
 
 
-    assert structure,statusdir_info("A structure file must be specified via --pdb, --biounit, --swiss, --modbase, or --usermodel")
+    assert structure,statusdir_info("A structure file must be specified via --pdb, --biounit, --swiss, --modbase, --alphafold, or --usermodel")
     # Preprocess structural properties
     # Pathprox cannot use models beyond the 0th one - so drop those right away
     models = list(structure.get_models())
