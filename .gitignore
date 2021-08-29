@@ -1,5 +1,6 @@
 # Ignore directories provided by other means
 pdbmap/
+pipeline_download_scripts/
 anaconda2/
 anaconda3/
 

@@ -1,30 +1,108 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-us">
+<html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
-	<title>jQuery plugin: Tablesorter 2.0 - Enabling debug mode</title>
-	<link rel="stylesheet" href="html/javascript/tablesorter/docs/css/jq.css" type="text/css" media="print, projection, screen" />
-	<link rel="stylesheet" href="html/javascript/tablesorter/themes/blue/style.css" type="text/css" id="" media="print, projection, screen" />
-	<script type="text/javascript" src="html/javascript/jquery-2.2.4/jquery-2.2.4.js"></script>
-	<script type="text/javascript" src="html/javascript/tablesorter/jquery.tablesorter.js"></script>
-	<script type="text/javascript" src="html/javascript/tablesorter/addons/pager/jquery.tablesorter.pager.js"></script>
-<!--
-	<script type="text/javascript" src="html/javascript/chili-1.8b/chili-1.8b.js"></script>
-	<script type="text/javascript" src="html/javascript/tablesorter/docs/js/docs.js"></script>
-	<script type="text/javascript" src="html/javascript/tablesorter/docs/js/examples.js"></script>
--->
-<script type="text/javascript" id="js">$(document).ready(function() {
+	<meta charset="utf-8">
+	<title>Personal Structural Biology case {{case}}</title>
+
+	<!-- jQuery -->
+	<script type="text/javascript" src="html/javascript/jquery-3.5.1/jquery-3.5.1.min.js"></script>
+
+	<!-- Demo stuff from mottie.github.io -->
+	<link rel="stylesheet" href="html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
+    <script src="html/javascript/tablesorter_docs/js/prettify.js"></script>
+	<script src="html/javascript/tablesorter_docs/js/docs.js"></script>
+
+	<!-- Tablesorter required -->
+	<link rel="stylesheet" href="html/javascript/tablesorter/css/theme.blue.min.css">
+	<script type="text/javascript" src="html/javascript/tablesorter/js/jquery.tablesorter.js"></script>
+
+	<!-- Tablesorter: optional -->
+	<script type="text/javascript" src="html/javascript/tablesorter/js/extras/jquery.tablesorter.pager.min.js"></script>
+
+    <!-- right and down chevrons for open and close icons in tablesorter -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+    <symbol style="color: black; vertical-align:top; display: block;" width="1em" height="1em" fill="currentColor" stroke="#000000" class="bi bi-chevron-right" id="bi-chevron-right" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+    </symbol>
+    <symbol style="color: black; vertical-align: top; display: block;"  width="1em" height="1em" fill="currentColor" stroke="#000000" class="bi bi-chevron-down" id="bi-chevron-down" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+    </symbol>
+    </svg>
+
+
+    <link rel="stylesheet" href="html/css/psb_styles.css" />
+
+	<!-- later
+    <link rel="stylesheet" href="html/css/typography.css" />
+    -->
+
+<script type="text/javascript" id="js">
+	$(document).ready(function() {
 	// call the tablesorter plugin
-	$("table").tablesorter();
-}); </script>
+		// $("table").tablesorter();
 
-<div class="row">
-  <div class="span2">
-<img src="html/PSBgraphicHeader.png" />
-  </div>
+		// hide child rows
+		$('.tablesorter-childRow').hide().css("background-color","Azure");
 
-  <div class="span2">
-<table class="w3-table" style="width:50%">
+		// Show the chevron for opened rows.
+        $('tr:not(.tablesorter-childRow) td svg.bi-chevron-right').show()
+        $('tr:not(.tablesorter-childRow) td svg.bi-chevron-down').hide()
+        $('.appearWithTranscriptsOnly').hide()
+
+
+
+		// $('.tablesorter-childRow td').;
+
+	  $(".tablesorter")
+		.tablesorter({
+		  theme : 'blue',
+		  // this is the default setting
+		  // cssChildRow: "tablesorter-childRow"
+		})
+
+	  $('.tablesorter').delegate('.toggle', 'click' ,function() {
+
+		  // use "nextUntil" to toggle multiple child rows
+		  // toggle table cells instead of the row
+		  $(this).closest('tr').nextUntil('tr:not(.tablesorter-childRow)').toggle();
+          $(this).closest('tr').find("svg.bi-chevron-right").toggle();
+          $(this).closest('tr').find("svg.bi-chevron-down").toggle();
+
+          // Hide or show the child rows under the chevron containing gene-level row
+          // var childrows_toggled = $(this).closest('tr').nextUntil('tr.tablesorter-hasChildRow').find('td, th').css('line-height','normal').css("visibility","visible"); // toggleClass("collapsed");
+          // var hidden_transcript_rows = $(this).closest('tr').parent().find('tr.tablesorter-hasChildRow').filter(":hidden").length
+          var visible_transcript_trs_length = $(this).parent().parent().parent().find('tr.tablesorter-childRow').filter(":visible").length // closest('tr').nextUntil('tr:not(.tablesorter-childRow)').filter(":visible").length
+          if (visible_transcript_trs_length == 0) // Get rid of top level headings
+                {
+                // If no transcript open, get rid of the special headers showing protein level info via hide
+                // and return of background colors to table sorter.
+                $('thead tr th div.appearWithTranscriptsOnly').hide().parent().parent().css("background-color","#99bfe6");
+                }
+          else
+                {
+                // $('thead tr th div.appearWithTranscriptsOnly').css("background-color","azure").show().parent();
+                $('thead tr th div.appearWithTranscriptsOnly').show().parent().parent().css("background-color","azure");
+                }
+
+
+
+		  return false;
+	  });
+});
+</script>
+
+</head>
+
+<body>
+
+<div>
+  <span class="span2">
+<img src="html/PSBgraphicHeader.png" alt="PSB Graphic"/>
+  </span>
+
+<table class="w3-table span2" style="width:50%">
 	<tr>
 		<th >Date</th>
 		<td>{{ date }}</td>
@@ -34,12 +112,8 @@
 		<td>{{ case }}</td>
 	</tr>
 </table>
-</div>
-</div>
-</head>
 
-<body>
-
+	</div>
 
 
 
@@ -48,70 +122,341 @@
 	<h1>{{ case }}</h1>
 		
 		<table cellspacing="1" class="tablesorter">
-		<thead>
-			{% if mutation_summaries %}
+			{% if genome_headers %}
+				<thead>
 				<tr>
 					<th>#</th>
-					<th>Gene Mutation</th>
-					<th>Error</th>
-					<th>PP {{ disease1_variant_short_description }}</th>
-					<th>PP {{ disease2_variant_short_description }}</th>
-					<th>ddg Max</th>
-					<th>ddg Min</th>
-					<th>Gene Intrctns Generic</th>
-					<th>Gene Intrctns Familial</th>
-<!-- Great to get everything for debugging
-					{% for colname in mutation_summaries[0] %}
+					<th>Gene</th>
+					<th>Chrom</th>
+					<th>Pos</th>
+					<th class="sorter-false">Variant</th> <!-- Above Change -->
+					<th class="sorter-false"></th> <!-- Above AA len -->
+					<th colspan="2" class="sorter-false">PP {{ disease1_variant_short_description }}</th>
+					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
+					<th colspan="2" class="sorter-false">ddg Monomer</th>
+					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th colspan="2" class="sorter-false">Gene Interactions</th>
+					<th class="sorter-false"></th> <!-- Above Notes -->
+<!-- Sometimes for debugging - dump everything -
+					{% for colname in variant_isoform_summaries[0] %}
 					<th>{{ colname }}</th>
 					{% endfor %}
 -->
 				</tr>
-			{% endif %}
+
+
+				<tr>
+					<th class="sorter-false"></th>
+                    <th class="sorter-false"><div class="appearWithTranscriptsOnly">Protein Unp ID</div></th>
+                    <th class="sorter-false"><div class="appearWithTranscriptsOnly">Transcript Refseq</div></th>
+                    <th class="sorter-false"><div class="appearWithTranscriptsOnly">Transcript ENSEMBL</div></th>
+                    <th class="sorter-false"><div class="appearWithTranscriptsOnly">Prot Change</div></th>
+                    <th class="sorter-false"><div>Amino Acid Length</div></th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th class="sorter-false">Generic</th>
+					<th class="sorter-false">Familial</th>
+					<th class="sorter-false">Notes</th>
+				</tr>
+
+
 			</thead>
 			<tbody>
-				{% for mutation in mutation_summaries %}
+				{% for genome_header in genome_headers %}
+				<tr class="tablesorter-hasChildRow">
+                    <td class="toggle">
+                        <svg height="1em" width="1em" class="bi-chevron-right toggle">
+                            <use xlink:href="#bi-chevron-right"></use>
+                        </svg>
+                        <svg height="1em" width="1em" class="bi-chevron-down toggle">
+                          <use xlink:href="#bi-chevron-down"></use>
+                        </svg>
+                            <a href="#" class="toggle"> {{ genome_header.variant_isoform_summaries[0]['#'] }}</a>
+                    </td>
+					<td><A href="https://www.ncbi.nlm.nih.gov/gene/{{ genome_header['gene_id'] }}">{{ genome_header['Gene'] }}</A></td>
+					<td><A href="http://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={{ genome_header['Chrom']}}:{{ genome_header['Pos'] -1 }}">{{ genome_header['Chrom'] }}</A></td>
+					<td><A href="http://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={{ genome_header['Chrom']}}:{{ genome_header['Pos'] -1 }}" > {{ genome_header['Pos'] }}</A></td>
+					<td>  {{ genome_header['Change'] }}</td>
+					<td>
+						{% if genome_header['AA_Len Min'] is not none %}
+							{% if genome_header['AA_Len Min'] == genome_header['AA_Len Max'] %}
+						    	{{ genome_header['AA_Len Min'] }}
+							{% else %}
+						    	{{ genome_header['AA_Len Min'] }}-{{ genome_header['AA_Len Max'] }}
+							{%endif %}
+						{%endif %}
+					</td>
+					<td>
+						{% if genome_header['disease1_pp Min'] is not none %}
+						    {{ genome_header['disease1_pp Min'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['disease1_pp Max'] is not none %}
+						    {{ genome_header['disease1_pp Max'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['disease2_pp Min'] is not none %}
+						    {{ genome_header['disease2_pp Min'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['disease2_pp Max'] is not none %}
+						    {{ genome_header['disease2_pp Max'].round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if genome_header['ddG Monomer Min'] is not none %}
+						    {{ genome_header['ddG Monomer Min'].round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if genome_header['ddG Monomer Max'] is not none %}
+						    {{ genome_header['ddG Monomer Max'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['ddG Cartesian Min'] is not none %}
+						    {{ genome_header['ddG Cartesian Min'].round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if genome_header['ddG Cartesian Max'] is not none %}
+						    {{ genome_header['ddG Cartesian Max'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td> {{ genome_header['Gene Interactions Generic'] }}
+					</td>
+
+					<td> {{ genome_header['Gene Interactions Familial'] }}
+					</td>
+					<td> {{ genome_header['Error'] }}</td>
+
+					<!--
+					<td>  variant_isoform['Error'] </td>
+					<td>
+						 if variant_isoform['disease1_pp'] is not none
+						     variant_isoform['disease1_pp']|round(2)
+						endif
+					</td>
+					-->
+				</tr>
+				{% for isoform_summary in genome_header.variant_isoform_summaries %}
+				<tr class="tablesorter-childRow">
+					<td><A href={{ isoform_summary['html_filename'] }}>Report</A></td>
+					<td><A href="https://www.uniprot.org/uniprot/{{ isoform_summary.Unp }}">{{ isoform_summary.Unp }}</A></td>
+					<td>
+						{# If we have a refseq ID that could be of interest, output it with hyperlink to ncbi #}
+						{% if isoform_summary.Refseq is not none and isoform_summary.Refseq != "NA" %}
+						<A href="https://www.ncbi.nlm.nih.gov/nuccore/{{ isoform_summary.Refseq.split('.')[0] }}">{{ isoform_summary.Refseq }}</A>
+						{% else %}
+						{{ isoform_summary.Refseq }}
+						{% endif %}
+					<td>
+						{% if isoform_summary.Transcript is not none %}
+						  <A href="https://uswest.ensembl.org/Homo_sapiens/Transcript/Summary?t={{ isoform_summary.Transcript .split('.')[0] }}">
+							  {{ isoform_summary.Transcript }}
+						  </A>
+						{% endif %}
+					</td>
+					<td>{{ isoform_summary.Mutation }}</td>
+					<td> {{ isoform_summary.AA_len }} </td>
+					<td>
+						{% if isoform_summary['disease1_pp Min'] is not none %}
+						    {{ isoform_summary['disease1_pp Min']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if isoform_summary['disease1_pp Max'] is not none %}
+						    {{ isoform_summary['disease1_pp Max']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if isoform_summary['disease2_pp Min'] is not none %}
+						    {{ isoform_summary['disease2_pp Min']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if isoform_summary['disease2_pp Max'] is not none %}
+						    {{ isoform_summary['disease2_pp Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Monomer Min'] is not none %}
+						    {{ isoform_summary['ddG Monomer Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Monomer Max'] is not none %}
+						    {{ isoform_summary['ddG Monomer Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Cartesian Min'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Cartesian Max'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Max']|round(2) }}
+						{%endif %}
+					</td>
+
+
+
+					<td /> <!-- skip 2 gene interaction columns -->
+					<td />
+					<td> {{ isoform_summary['Error'] }} </td>
+				</tr>
+				{% endfor %}
+
+			{% endfor %}
+			</tbody>
+			{% elif variant_isoform_summaries %}
+			{# This is the second major case report structure.  Here, there are no genomic headers
+			becauase there were no genomic coordinates on initial input #}
+			<thead>
 				<tr>
-					<td> {{ mutation['#'] }} </td>
-					<td><A href={{ mutation['html_fname'] }}>{{ mutation['Gene Mutation'] }}</A></td>
-					<td> {{ mutation['Error'] }} </td>
+					<th class="sorter-false"></th> {#  Above Above #}
+					<th class="sorter-false"></th> {#  Above Gene #}
+					<th class="sorter-false"></th> {# Above Unp #}
+					<th class="sorter-false"></th> {# Above Refseq #}
+					<th class="sorter-false"></th> <!-- Above Variant -->
+					<th class="sorter-false"></th> <!-- Above AA len -->
+					<th colspan="2" class="sorter-false">PP {{ disease1_variant_short_description }}</th>
+					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
+					<th colspan="2" class="sorter-false">ddg Monomer</th>
+					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th colspan="2" class="sorter-false">Gene Interactions</th>
+					<th class="sorter-false"></th> <!-- Above Notes -->
+<!-- Sometimes for debugging - dump everything -
+					{% for colname in variant_isoform_summaries[0] %}
+					<th>{{ colname }}</th>
+					{% endfor %}
+-->
+				</tr>
+
+
+				<tr>
+					<th>#</th>
+                    <th class="sorter-false">Gene</th>
+                    <th class="sorter-false">Unp</th>
+                    <th class="sorter-false">Refseq</th>
+                    <th class="sorter-false">Variant</th>
+                    <th class="sorter-false">AA len</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th>Min</th>
+					<th>Max</th>
+					<th class="sorter-false">Generic</th>
+					<th class="sorter-false">Familial</th>
+					<th class="sorter-false">Notes</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for isoform_summary in variant_isoform_summaries %}
+				<tr>
+					<td><A href={{ isoform_summary['html_filename'] }}>{{ isoform_summary['#'] }}</A></td>
+
+					<td><A href="https://www.ncbi.nlm.nih.gov/gene/{{ isoform_summary['gene_id'] }}">{{ isoform_summary['Gene'] }}</A></td>
+
+					<td><A href="https://www.uniprot.org/uniprot/{{ isoform_summary.Unp }}">{{ isoform_summary.Unp }}</A></td>
+
 					<td>
-						{% if mutation['disease1_pp'] is not none %}   
-						    {{ mutation['disease1_pp']|round(2) }}
+						{# If we have a refseq ID that could be of interest, output it with hyperlink to ncbi #}
+						{% if isoform_summary.Refseq is not none and isoform_summary.Refseq != "NA" %}
+						<A href="https://www.ncbi.nlm.nih.gov/nuccore/{{ isoform_summary.Refseq.split('.')[0] }}">{{ isoform_summary.Refseq }}</A>
+						{% else %}
+						{{ isoform_summary.Refseq }}
+						{% endif %}
+					<td>{{ isoform_summary.Mutation }}</td>
+					<td> {{ isoform_summary.AA_len }} </td>
+
+					<td>
+						{% if isoform_summary['disease1_pp Min'] is not none %}
+						    {{ isoform_summary['disease1_pp Min']|round(2) }}
 						{%endif %}
 					</td>
 
 					<td>
-						{% if mutation['disease2_pp'] is not none %}   
-						    {{ mutation['disease2_pp']|round(2) }}
+						{% if isoform_summary['disease1_pp Max'] is not none %}
+						    {{ isoform_summary['disease1_pp Max']|round(2) }}
 						{%endif %}
 					</td>
 
 					<td>
-						{% if mutation['ddG Max'] is not none %}   
-						    {{ mutation['ddG Max']|round(2) }}
+						{% if isoform_summary['disease2_pp Min'] is not none %}
+						    {{ isoform_summary['disease2_pp Min']|round(2) }}
 						{%endif %}
 					</td>
 
 					<td>
-						{% if mutation['ddG Min'] is not none %}   
-						    {{ mutation['ddG Min']|round(2) }}
+						{% if isoform_summary['disease2_pp Max'] is not none %}
+						    {{ isoform_summary['disease2_pp Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Monomer Min'] is not none %}
+						    {{ isoform_summary['ddG Monomer Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Monomer Max'] is not none %}
+						    {{ isoform_summary['ddG Monomer Max']|round(2) }}
+						{%endif %}
+					</td>
+					<td>
+						{% if isoform_summary['ddG Cartesian Min'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Min']|round(2) }}
+						{%endif %}
+					</td>
+					
+					<td>
+						{% if isoform_summary['ddG Cartesian Max'] is not none %}
+						    {{ isoform_summary['ddG Cartesian Max']|round(2) }}
 						{%endif %}
 					</td>
 
-					<td> {{ mutation['Gene Interactions Generic'] }}
-					</td>
 
-					<td> {{ mutation['Gene Interactions Familial'] }}
-					</td>
+					<td /> <!-- skip 2 gene interaction columns -->
+					<td />
+					<td> {{ isoform_summary['Error'] }} </td>
+
 
 <!-- Great to get everything for debugging
-					{% for colname in mutation %}
-					<td>{{ mutation[colname] }} </td>
+					{% for colname in variant_isoform %}
+					<td>{{ variant_isoform[colname] }} </td>
 					{% endfor %}
 -->
 				</tr>
 				{% endfor %}
 			</tbody>
+			{% endif %}
+
 		</table>
 
     <br>
@@ -128,15 +473,10 @@
     width="60%" />
     <br>
     <!-- Now insert the table of all the gene reports -->
-    <link rel="stylesheet" href="html/css/typography.css" />
 {% endif %}
 
 
-
-
-
     <!-- Now insert the table of all the gene reports -->
-    <link rel="stylesheet" href="html/css/typography.css" />
     <hr>
     <h3>Generic Gene Interactions Table</h3>
     <table class="w3-table">

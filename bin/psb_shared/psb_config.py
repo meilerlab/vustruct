@@ -9,6 +9,7 @@ import stat
 import getpass
 import sys
 import inspect
+from lib import PDBMapGlobals
 
 import logging
 
@@ -18,8 +19,8 @@ statusdir = None
 
 
 def create_default_argument_parser(callers_docstring: str,
-                                   global_config_dirname: str,
-                                   user_config_dirname: str = "..", add_help=True):
+                                   global_config_dirname: str = "../config",
+                                   user_config_dirname: str = "..", add_help: bool = True) -> argparse.ArgumentParser:
     """All psb_pipeline command lines share common features which are initialized
     in this function.  These include auto-setting of the default case name to the
     current last component of the path, setting of a global configuration file based on
@@ -28,13 +29,17 @@ def create_default_argument_parser(callers_docstring: str,
 
     script_realpath = os.path.realpath(__file__)
 
-    is_production = global_config_dirname.endswith("/capra_lab/users/psbadmin")
+    # As of April 2021, the global config file will always be searched first in $UDN/config (i.e. ../config)
+    if global_config_dirname != "../config":
+        if os.path.exists("../config/global.config"):
+            global_config_dirname = "../config/"
+
+    # is_production = global_config_dirname.endswith("/capra_lab/users/psbadmin")
 
     default_global_config = None
     default_global_config = os.path.join(
         global_config_dirname,
-        "config",
-        "global.config" if is_production else "dev_global.config")
+        "global.config") # if is_production else "dev_global.config")
     cmdline_parser = argparse.ArgumentParser(
         description=callers_docstring,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=add_help)
@@ -94,5 +99,8 @@ def read_config_files(args, required_config_items=None):
         if len(missing_keys):
             LOGGER.error("Can't proceed without configuration file options set for: %s", str(missing_keys))
             sys.exit(1)
+
+    # Init the configuration for any PDBMap library calls.
+    PDBMapGlobals.config = config_dict
 
     return config, config_dict

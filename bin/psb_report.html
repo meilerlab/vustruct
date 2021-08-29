@@ -1,9 +1,28 @@
-<!DOCTYPE html>
-<html>
-<head lang="en">
-		<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
-		<title>{{ title }}</title>
-      <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
+<head>
+	<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
+	<title>{{ "%s %s %s"%(calculation_results.gene,calculation_results.unp,calculation_results.variant) }}</title>
+	<!-- <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css"> -->
+ <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+	<!-- jQuery -->
+	<script type="text/javascript" src="../html/javascript/jquery-3.5.1/jquery-3.5.1.min.js"></script>
+
+	<!-- Demo stuff from mottie.github.io -->
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
+    <script src="../html/javascript/tablesorter_docs/js/prettify.js"></script>
+	<script src="../html/javascript/tablesorter_docs/js/docs.js"></script>
+
+	<!-- Tablesorter required -->
+	<link rel="stylesheet" href="../html/javascript/tablesorter/css/theme.blue.css">
+	<script type="text/javascript" src="../html/javascript/tablesorter/js/jquery.tablesorter.js"></script>
+
+	<!-- Tablesorter: optional -->
+	<!-- <script type="text/javascript" src="../html/javascript/tablesorter/js/extras/jquery.tablesorter.pager.min.js"></script> -->
+
+
       <link rel="stylesheet" href="../html/css/typography.css" />
 		<style media="print" type="text/css">
 		h4{text-align:center;margin:0;padding:0.1in;}
@@ -14,17 +33,27 @@
 		</style>
 
 <script type="text/javascript">
+	// In current javascript, syntax below does what we need
+   $(function() {
+                                $(".tablesorter").tablesorter({
+                                        // sortReset: 'true',
+                                        theme: 'blue'
+                                });
+        });
+
   function resizeIframe(obj) {
     obj.style.height = (40 + obj.contentWindow.document.body.scrollHeight) + 'px';
   }
 
-   // http://colorbrewer2.org/#type=qualitative&scheme=Paired&n=9  -> 
-   // Commented colors from chir.ag/projects/name-that-color
+   /* http://colorbrewer2.org/#type=qualitative&amp;scheme=Paired&amp;n=9
+      Commented colors from chir.ag/projects/name-that-color
+    */
+
    var colorBrewer9Colors = [
-           "skyblue", // moth switched from '#a6cee3', // Regent St. Blue
-           '#fb9a99', //Sweet Pink
-           '#b2df8a', // Feijoa intriguing green
-           "tan",  // moth switched from '#fdbf6f', // Macaroni and Cheese
+           "skyblue", {# moth switched from '#a6cee3',  Regent St. Blue #}
+           '#fb9a99', {# Sweet Pink #}
+           '#b2df8a', {# Feijoa intriguing green #}
+           "tan",     {# moth switched from '#fdbf6f', Macaroni and Cheese #}
            '#cab2d6', // Lavender Grey
            '#1f78b4', // Matisse - Darker blue
            '#33a02c', //Apple (green)
@@ -44,12 +73,15 @@
 
        })
    }
+
 </script>
 
 
-    <!-- load the prototype library from google -->
+
+    <!-- load the prototype library from google
     <script type="text/javascript" src="https://www.google.com/jsapi"></script>
     <script type="text/javascript">google.load("prototype", "1.7");</script>
+    -->
 
     <!-- styles applicable to all browsers 
     <link rel='stylesheet' href='https://pfam.xfam.org/static/css/tab_layout.css' type='text/css' />
@@ -182,21 +214,20 @@ img {
 }
 </style>
 
-
-
-    </style>
-
-
-
-
 </head>
+
+
 <body>
+<!-- Navigation panel of all structures on top left of window -->
 <div class="w3-sidebar w3-bar-block w3-light-grey w3-card" style="width:14%">
   <a href="#" class="w3-bar-item w3-button">Home</a> 
   <a href="#StructureReport" class="w3-bar-item w3-button">Structure Report</a> 
-{% for structure in Structure_Detail %}
-  <a href="#{{ structure['html_div_id'] }}" class="w3-bar-item w3-button">{{structure['structid']}}.{{structure['chain']}} {{structure['mers']}}</a> 
+{% for structure in calculation_results.structure_graphics_dicts%} {#  structure_report_df_appended.iterrows() %} #}
+  <a href="#{{ structure.html_div_id }}" class="w3-bar-item w3-button">
+	  {{ structure.structure_id}} {{structure.mers}}</a>
 {% endfor %}
+
+<!-- show a doman graphic at top of main section -->
 
 </div>
 <div style="margin-left:15%">
@@ -204,67 +235,225 @@ img {
 <table class="w3-table" style="width:50%">
 	<tr>
 		<th style="text-align:right">Date</th>
-		<td>{{ date }}</td>
+		<td>{{ today_date }}</td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Case</th>
-		<td><a href="../index.html">{{ project }}</a></td>
+		<td><a href="../index.html">{{ calculation_results.project }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Gene</th>
-		<td><a href="https://ghr.nlm.nih.gov/gene/{{ gene }}">{{ gene }}</a></td>
+		<td><a href="https://ghr.nlm.nih.gov/gene/{{ calculation_results.gene }}">{{ calculation_results.gene }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Protein</th>
-		<td><a href="https://www.uniprot.org/uniprot/{{ unp }}">{{ unp }}</a></td>
+		<td><a href="https://www.uniprot.org/uniprot/{{ calculation_results.unp }}">{{ calculation_results.unp }}</a></td>
 	</tr>
 	<tr>
-		<th style="text-align:right">Mutation</th>
-		<td>{{ mutation }}</td>
+		<th style="text-align:right">Variant</th>
+		<td>{{ calculation_results.variant }}</td>
 	</tr>
 </table>
+<iframe  height="100%" width="100%" style="width:100%; height:100%; border: none; overflow:hidden; " src="{{ pfamGraphicsIframe_fname }}" onload="resizeIframe(this)" scrolling="no">
+</iframe>
+<!-- End Domain Graphic area -->
 
-      <iframe  height="100%" width="100%" style="width:100%; height:100%; border: none; overflow:hidden; " src="{{ pfamGraphicsIframe_fname }}" onload="resizeIframe(this)" scrolling="no" >
-      </iframe> 
 
+<!-- Present a table of all structures analyzed for the transcript -->
 <hr id="StructureReport">
 <div class="container">
-      <div class="header">
-		<h3> Structure Summary </h3> 
-		</div>
-		<h3>{{ config_pathprox_dict['disease1_variant_short_description'] }} Summary - {{ gene }} {{ mutation }}</h3>
-		{{ disease1_summary }}
-		<h3>{{ config_pathprox_dict['disease2_variant_short_description'] }} Summary - {{ gene }} {{ mutation }}</h3>
-		{{ disease2_summary }}
-		<p><i>All results are summarized by the median over all valid structures.</i></p>
-		<h3>ddG Summary - {{ gene }} {{ mutation }}</h3>
-		{{ ddG_summary }}
-		<h3>Structure Report - {{ gene }} {{mutation}}</h3>
-		{{ psb_structure_results }}
-</div>
+    <h3>Structure Summary</h3>
+<table cellspacing="1" class="tablesorter">
+    <thead>
+        <tr>
+            <th>Method</th>
+            <th>Structure Id</th>
+            <th>Chain</th>
+            <th>PDB<br />Template</th>
+            <th>PDB<br />Resolution</th>
+            <th>Template<br>Identity</th>
+            <th>Transcript<br>Identity</th>
+            <th>Seq<br />Start</th>
+            <th>Seq<br />End</th>
+            <th>ddG<br />Monomer</th>
+            <th>ddG<br />Cartesian</th>
+            <th>Pathprox<br>{{ config_pathprox_dict['disease1_variant_short_description'] }}</th>
+            <th>Pathprox<br />{{ config_pathprox_dict['disease1_variant_short_description'] }} AOC</th>
+            <th>Pathprox<br />{{ config_pathprox_dict['disease2_variant_short_description'] }}</th>
+            <th>Pathprox<br />{{ config_pathprox_dict['disease2_variant_short_description'] }} AOC</th>
+            <th>PDB<br />Pos</th>
+        </tr>
+    </thead>
+    <tbody>
+            {% for structure in calculation_results.structure_graphics_dicts%} {#  structure_report_df_appended.iterrows() %} #}
+    <tr>
+        <td>{{ structure.method }}</td>
+        <td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A></td>
+        <td>{{ structure.chain_id }}</td>
+        <td>{{ structure.pdb_template }}</td>
+        <td>{{ structure.resolution }}</td>
+        <td>{{ structure.template_identity }}</td>
+        <td>{{ structure.perc_identity }}</td>
+        <td>{{ structure.trans_first_aligned }}</td>
+        <td>{{ structure.trans_last_aligned }}</td>
+        <td>{{ structure.ddG_monomer }}</td>
+        <td>{{ structure.ddG_cartesian }}</td>
+        <td>{{ structure.disease1_pathprox }}</td>
+        <td>{{ structure.disease1_pr_auc }}</td>
+        <td>{{ structure.disease2_pathprox }}</td>
+        <td>{{ structure.disease2_pr_auc }}</td>
+        <td>{{ structure.pdbmut }}</td>
 
-{% for structure in Structure_Detail %}
-	<p style="page-break-before: always"></p>
+        {#
+        structure_id 	structure_url 	struct_filename 	mers 	pdb_template 	template_identity 	template_chain 	chain_id 	biounit 	method
+        #}
+    </tr>
+            {% endfor %}
+    </tbody>
+</table>
+</div>  <!-- End table of all structures at top of report -->
 
-	<hr id="{{ structure['html_div_id'] }}">
-	<div class="container">
-      <div class="header">
-		<h3 >{{ structure['structid'] }}.{{ structure['chain'] }} - Structure Detail</h3>
-      </div>
-		{{ structure['details'] }}
-		<h4>PSB {{ config_pathprox_dict['disease1_variant_short_description'] }} Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
-		{{ structure['disease1_results'] }}
-		<h4>PSB {{ config_pathprox_dict['disease2_variant_short_description'] }} Results - {{ structure['structid'] }}.{{ structure['chain'] }}</h3>
-		{{ structure['disease2_results'] }}
 
-		<!-- Structure Plots -->
-		<div class="container">
-			<h4>Location of {{ structure['mutation'] }} in {{ structure['structid'] }}.{{ structure['chain'] }}</h4>
-			<!-- <img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto"> -->
-         <h4>NGL Viewer: </h4>
 
-		   <script>
-		    document.addEventListener("DOMContentLoaded", function () {
+<!-- Out put structure graphics, and details now for Each structure. -->
+	{% for structure in calculation_results.structure_graphics_dicts %}
+    	<p style="page-break-before: always"></p>
+
+        <hr id="{{ structure['html_div_id'] }}">
+        <div class="container">
+      	<div class="header">
+                <h3 >{{ structure['structure_id'] }}.{{ structure['chain_id'] }} {{ structure['mers'] }}  - Structure Detail</h3>
+      	</div>
+
+    <!-- PFirst restate the line of structure details from the overall structure table -->
+	<table cellspacing="1" class="tablesorter">
+		<thead>
+			<tr>
+				<th class="sorter-false">Method</th>
+				<th class="sorter-false">Structure Id</th>
+				<th class="sorter-false">Chain</th>
+				<th class="sorter-false">PDB<br/>Template</th>
+				<th class="sorter-false">PDB<br /> Resolution</th>
+				<th class="sorter-false">Template<br>Identity</th>
+				<th class="sorter-false">Transcript<br>Identity</th>
+				<th class="sorter-false">Seq<br />Start</th>
+				<th class="sorter-false">Seq<br />End</th>
+				<th class="sorter-false">ddG<br />Monomer</th>
+				<th class="sorter-false">ddG<br />Cartesian</th>
+				<th class="sorter-false">Pathprox<br>{{ config_pathprox_dict['disease1_variant_short_description'] }}</th>
+				<th class="sorter-false">Pathprox<br />{{ config_pathprox_dict['disease1_variant_short_description'] }} AOC</th>
+				<th class="sorter-false">Pathprox<br />{{ config_pathprox_dict['disease2_variant_short_description'] }}</th>
+				<th class="sorter-false">Pathprox<br />{{ config_pathprox_dict['disease2_variant_short_description'] }} AOC</th>
+				<th class="sorter-false">PDB<br />Pos</th>
+			</tr>
+		</thead>
+		<tbody>
+		<tr>
+			<td>{{ structure.method }}</td>
+			<td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A></td>
+			<td>{{ structure.chain_id }}</td>
+			<td>{{ structure.pdb_template }}</td>
+			<td>{{ structure.resolution }}</td>
+			<td>{{ structure.template_identity }}</td>
+			<td>{{ structure.perc_identity }}</td>
+			<td>{{ structure.trans_first_aligned }}</td>
+			<td>{{ structure.trans_last_aligned }}</td>
+			<td>{{ structure.ddG_monomer }}</td>
+			<td>{{ structure.ddG_cartesian }}</td>
+			<td>{{ structure.disease1_pathprox }}</td>
+			<td>{{ structure.disease1_pr_auc }}</td>
+			<td>{{ structure.disease2_pathprox }}</td>
+			<td>{{ structure.disease2_pr_auc }}</td>
+			<td>{{ structure.pdbmut }}</td>
+
+			{#
+			structure_id 	structure_url 	struct_filename 	mers 	pdb_template 	template_identity 	template_chain 	chain_id 	biounit 	method
+			#}
+		</tr>
+		</tbody>
+	</table>
+
+        {%  if structure['pathprox_disease1_results'] %}
+			{# Now show the two pathprox results tables #}
+        <!-- Structure Pathprox disease 1 table -->
+        <h4>{{ config_pathprox_dict['disease1_variant_short_description'] }}
+			Results - {{ structure.structure_id }}.{{ structure.chain_id }}</h4>
+		<table cellspacing="1" class="tablesorter">
+		  <thead>
+			<tr>
+			  <th class="sorter-false">Neutral Kz</th>
+			  <th class="sorter-false">Neutral Kt</th>
+			  <th class="sorter-false">Pathogenic Kz</th>
+			  <th class="sorter-false">Pathogenic Kt</th>
+			  <th class="sorter-false">ROC AUC</th>
+			  <th class="sorter-false">PR AUC</th>
+			  {# <th class="sorter-false">Mutation</th> #}
+			  <th class="sorter-false">PathProx</th>
+			  <th class="sorter-false">Neutral Constraint</th>
+			  <th class="sorter-false">Pathogenic Constraint</th>
+			</tr>
+		  </thead>
+		  <tbody>
+			<tr>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kz_neut']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kt_neut']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kz_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['Kt_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['roc_auc']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['pr_auc']|float) }}</td>
+		      {# <td>{{ structure['mutation'] }}</td> #}
+		      <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['pathprox']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['neutcon']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease1_results']['pathcon']|float) }}</td>
+			</tr>
+		  </tbody>
+		</table>
+        {%  endif %}
+			
+        {%  if structure['pathprox_disease2_results'] %}
+		{# Pathprox result set #2 #}
+        <!-- Structure Pathprox disease 2 table -->
+
+        <h4>{{ config_pathprox_dict['disease2_variant_short_description'] }}
+            Results - {{ structure.structure_id }}.{{ structure.chain_id }}</h4>
+		<table cellspacing="1" class="tablesorter">
+		  <thead>
+			<tr>
+			  <th class="sorter-false">Neutral Kz</th>
+			  <th class="sorter-false">Neutral Kt</th>
+			  <th class="sorter-false">Pathogenic Kz</th>
+			  <th class="sorter-false">Pathogenic Kt</th>
+			  <th class="sorter-false">ROC AUC</th>
+			  <th class="sorter-false">PR AUC</th>
+			  <th class="sorter-false">PathProx</th>
+			  <th class="sorter-false">Neutral Constraint</th>
+			  <th class="sorter-false">Pathogenic Constraint</th>
+			</tr>
+		  </thead>
+		  <tbody>
+			<tr>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kz_neut']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kt_neut']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kz_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['Kt_path']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['roc_auc']|float) }}</td>
+			  <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['pr_auc']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['pathprox']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['neutcon']|float) }}</td>
+		      <td>{{ "%.2f"|format(structure['pathprox_disease2_results']['pathcon']|float) }}</td>
+			</tr>
+		  </tbody>
+		</table>
+        {%  endif %}
+
+        <!-- NGL Viewer and some static  Plots -->
+        <div class="container">
+                <h4>Location of {{ calculation_results.variant }} in {{ structure.structure_id }}.{{ structure.chain_id }} (NGL Viewer)</h4>
+                {# Used to have a static picture too.
+                 <img src="{{ structure['vus_var'] }}" class="img" style="width:5in;height:auto">
+                #}
+                   <script>
+                    document.addEventListener("DOMContentLoaded", function () {
             var variantResidues = "{{structure['ngl_variant_residues']}}";
             var neutralResidues = "{{structure['ngl_neutral_residues'] if structure['ngl_neutral_residues']}}";
             var disease1Residues = "{{structure['ngl_disease1_residues'] if structure['ngl_disease1_residues']}}";
@@ -275,9 +464,9 @@ img {
             var neutralRepresentation = null;
             var disease1Representation = null;
             var disease2Representation = null;
-		      var stage = new NGL.Stage("viewport_{{ structure['unique_div_name'] }}", { backgroundColor : "white" } );
-		      stage.loadFile("./{{ structure['pdbSSfilename'] }}").then(function (o) {
-		      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
+                      var stage = new NGL.Stage("viewport_{{ structure.unique_div_name }}", { backgroundColor : "white" } );
+                      stage.loadFile("./{{ structure['pdbSSfilename'] }}").then(function (o) {
+                      o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
             // Clearly color any HETATMs floating around
             o.addRepresentation("licorice", { sele: "hetero", color: "element", radius: "0.4" })
             chainColorIndex = 0;  color_chains_consecutively(o,chainColorIndex);
@@ -312,41 +501,41 @@ var centerButton = createElement("input", {
 addElement(centerButton)
 
 if (neutralResidues && neutralResidues.length > 0) {
-	var neutralButton = createElement("input", {
-	  textcolor: "Green",
-	  type: "button",
-	  value: neutralResidueCount + " {{ config_pathprox_dict['neutral_variant_short_description'] }}",
-	  onclick: function () {
-	    if (neutralRepresentation) {
-			 o.removeRepresentation(neutralRepresentation);
-			 neutralRepresentation = null;
-			 }
-	    else
-	        neutralRepresentation = o.addRepresentation("ball+stick", { sele: neutralResidues, color: "blue",radius: "0.6" })
-	  }
-	 }
-	, { top: "-40px", display:"inline-block" }
-	)
-	addElement(neutralButton);
+        var neutralButton = createElement("input", {
+          textcolor: "Green",
+          type: "button",
+          value: neutralResidueCount + " {{ config_pathprox_dict['neutral_variant_short_description'] }}",
+          onclick: function () {
+            if (neutralRepresentation) {
+                         o.removeRepresentation(neutralRepresentation);
+                         neutralRepresentation = null;
+                         }
+            else
+                neutralRepresentation = o.addRepresentation("ball+stick", { sele: neutralResidues, color: "blue",radius: "0.6" })
+          }
+         }
+        , { top: "-40px", display:"inline-block" }
+        )
+        addElement(neutralButton);
 }
 
 if (disease1Residues && disease1Residues.length > 0) {
-	var disease1Button = createElement("input", {
-	  textcolor: "Green",
-	  type: "button",
-	  value: disease1ResidueCount + " {{ config_pathprox_dict['disease1_variant_short_description'] }}",
-	  onclick: function () {
-	    if (disease1Representation) {
-			 o.removeRepresentation(disease1Representation);
-			 disease1Representation = null;
-			 }
-	    else
-	        disease1Representation = o.addRepresentation("ball+stick", { sele: disease1Residues, color: "red",radius: "0.6" })
-	  }
-	 }
-	, { top: "-40px", display:"inline-block" }
-	)
-	addElement(disease1Button);
+        var disease1Button = createElement("input", {
+          textcolor: "Green",
+          type: "button",
+          value: disease1ResidueCount + " {{ config_pathprox_dict['disease1_variant_short_description'] }}",
+          onclick: function () {
+            if (disease1Representation) {
+                         o.removeRepresentation(disease1Representation);
+                         disease1Representation = null;
+                         }
+            else
+                disease1Representation = o.addRepresentation("ball+stick", { sele: disease1Residues, color: "red",radius: "0.6" })
+          }
+         }
+        , { top: "-40px", display:"inline-block" }
+        )
+        addElement(disease1Button);
 }
 
 if (disease2Residues && disease2Residues.length > 0) {
@@ -356,9 +545,9 @@ var disease2Button = createElement("input", {
   value: disease2ResidueCount + " {{ config_pathprox_dict['disease2_variant_short_description'] }}",
   onclick: function () {
     if (disease2Representation) {
-		 o.removeRepresentation(disease2Representation);
-		 disease2Representation = null;
-		 }
+                 o.removeRepresentation(disease2Representation);
+                 disease2Representation = null;
+                 }
     else
         disease2Representation = o.addRepresentation("ball+stick", { sele: disease2Residues, color: "orange",radius: "0.6" })
   }
@@ -385,151 +574,162 @@ var screenshotButton = createElement("input", {
 
 addElement(screenshotButton);
 
-		       });
-		  //  var shape = new NGL.Shape( "shape", /*{ disableImpostor: true }*/ );
-		    });
-		  </script>
-		  <div style="width:802px; height:602px; margin:0px; border:1px solid black">
-		  <div id="viewport_{{ structure['unique_div_name'] }}" style="width:800px; height:600px; margin:0px"></div>
+                       });
+                  //  var shape = new NGL.Shape( "shape", /*{ disableImpostor: true }*/ );
+                    });
+                  </script>
+
+                <div style="width:802px; height:602px; margin:0px; border:1px solid black">
+                    <div id="viewport_{{ structure.unique_div_name }}" style="width:800px; height:600px; margin:0px"></div>
         </div>
-		</div>
+                </div>
 
-		<!-- {{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease1_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }} Variant Mapping Plots -->
-		<div class="wrapper main-box">
-			<h4>Variant Distributions</h4>
+                <!-- {{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease1_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }} Variant Mapping Plots -->
+                <div class="wrapper main-box">
+                        <h4>Variant Distributions</h4>
 
-			<div class="column3">
-				<h5>{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}} {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
-				<img src="{{ structure['neutral_var'] }}" class="img" style="width:100%;height:auto">
-			</div>
-			<div class="column3">
-				<h5>{{structure['ngl_disease1_residue_count'] if structure['ngl_disease1_residue_count']}} {{ config_pathprox_dict['disease1_variant_short_description'] }}</h5>
-				{% if structure['disease1_var'] %}
-					<img src="{{ structure['disease1_var'] }}"  class="img" style="width:100%;height:auto">
-				{% else %}
-					No {{ config_pathprox_dict['disease1_variant_short_description'] }} Variants map to this structure
-				{% endif %}
-			</div>
-			<div class="column3">
-				<h5>{{structure['ngl_disease2_residue_count'] if structure['ngl_disease2_residue_count']}} {{ config_pathprox_dict['disease2_variant_short_description'] }}</h5>
-				{% if structure['disease2_var'] %}
-					<img src="{{ structure['disease2_var'] }}"  class="img" style="width:300%;height:auto">
-				{% else %}
-					No {{ config_pathprox_dict['disease2_variant_short_description'] }} Variants map to this structure
-				{% endif %}
-			</div>
-		</div>
+                        <div class="column3">
+                                <h5>{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}} {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+                                <img src="{{ structure['pathprox_disease1_results']['neutral_variants_png'] }}" class="img" style="width:100%;height:auto">
+                        </div>
+                        <div class="column3">
+                                <h5>{{structure['ngl_disease1_residue_count'] if structure['ngl_disease1_residue_count']}} {{ config_pathprox_dict['disease1_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease1_results']['pathogenic_variants_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['pathogenic_variants_png'] }}"  class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        No {{ config_pathprox_dict['disease1_variant_short_description'] }} Variants map to this structure
+                                {% endif %}
+                        </div>
+                        <div class="column3">
+                                <h5>{{structure['ngl_disease2_residue_count'] if structure['ngl_disease2_residue_count']}} {{ config_pathprox_dict['disease2_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease2_results']['pathogenic_variants_png'] %}
+                                        <img src="{{ structure['pathprox_disease2_results']['pathogenic_variants_png'] }}"  class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        No {{ config_pathprox_dict['disease2_variant_short_description'] }} Variants map to this structure
+                                {% endif %}
+                        </div>
+                </div>
 
 
-		<div class="wrapper main-box">
-		<!-- {{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease1_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }} Univariate K Plots -->
-			<h4>Ripley's Univariate K</h4>
-			<div class="column3">
-				<h5>{{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
-				{% if structure['neutral_K'] %}
-					<img src="{{ structure['neutral_K'] }}" class="img" style="width:100%;height:auto"> 
-				{% else %}
-					Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['neutral_variant_short_description'] }} 
-				{% endif %}
-			</div>
-			<div class="column3">
-				<h5>{{ config_pathprox_dict['disease1_variant_short_description'] }}</h5>
-				{% if structure['disease1_K'] %}
-					<img src="{{ structure['disease1_K'] }}"  class="img" style="width:100%;height:auto"> 
-				{% else %}
-					Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['disease1_variant_short_description'] }} 
-				{% endif %}
-			</div>
-			<div class="column3">
-				<h5>{{ config_pathprox_dict['disease2_variant_short_description'] }}</h5>
-				{% if structure['disease2_K'] %}
-					<img src="{{ structure['disease2_K'] }}"  class="img" style="width:100%;height:auto"> 
-				{% else %}
-					Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['disease2_variant_short_description'] }} 
-				{% endif %}
-			</div>
-		</div>
-		
-		<!-- {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} Bivariate D Plots -->
-		<div class="wrapper main-box">
-			<h4>Ripley's Bivariate D</h4>
-			<div class="column3">
-				<h5>{{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
-				{% if structure['disease1_D'] %}
-					<img src="{{ structure['disease1_D'] }}" class="img" style="width:100%;height:auto"> <!-- class="img" style="width:100%;height:auto"> -->
-				{% else %}
-					{{ config_pathprox_dict['disease1_variant_short_description'] }}-Exac Bivariate D plot was not created
-				{% endif %}
-			</div>
-			<div class="column3">
-				<h5>{{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
-				{% if structure['disease2_D'] %}
-					<img src="{{ structure['disease2_D'] }}" class="img" style="width:100%;height:auto"> 
-				{% else %}
-					{{ config_pathprox_dict['disease2_variant_short_description'] }}-Exac Bivariate D plot was not created
-				{% endif %}
-			</div>
-		</div>
-	</div>
+                <div class="wrapper main-box">
+                        <h4>Ripley's Univariate K</h4>
+                        <div class="column3">
+                                <h5>{{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease1_results']['neutral_K_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['neutral_K_plot_png']}}" class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['neutral_variant_short_description'] }}
+                                {% endif %}
+                        </div>
+                        <div class="column3">
+                                <h5>{{ config_pathprox_dict['disease1_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease1_results']['pathogenic_K_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['pathogenic_K_plot_png']}}" class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['disease1_variant_short_description'] }}
+                                {% endif %}
+                        </div>
+                        <div class="column3">
+                                <h5>{{ config_pathprox_dict['disease2_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease2_results']['pathogenic_K_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease2_results']['pathogenic_K_plot_png']}}" class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        Ripley's Univariate K graphic was not created for {{ config_pathprox_dict['disease2_variant_short_description'] }}
+                                {% endif %}
+                        </div>
+                </div>
 
-	<div class="wrapper main-box">
-		<!-- {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} PathProx, ROC, PR -->
-		<h4>PathProx ({{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}) Results</h4>
-		<div class="column3">
-			<h5>PathProx</h5>
-			{% if structure['disease1_pp'] %}
-				<img src="{{ structure['disease1_pp'] }}"  class="img" style="width:100%;height:auto">
-			{% else %}
-				No graphic was created
-			{% endif %}
-		</div>
-		<div class="column3">
-			<h5>PathProx {{ config_pathprox_dict['disease1_variant_short_description'] }} ROC</h5>
-			{% if structure['disease1_roc'] %}
-				<img src="{{ structure['disease1_roc'] }}" class="img" style="width:100%;height:auto">
-			{% else %}
-				No graphic was created
-			{% endif %}
-		</div>
-		<div class="column3">
-				<h5>PathProx {{ config_pathprox_dict['disease1_variant_short_description'] }} PR</h5>
-			{% if structure['disease1_pr'] %}
-				<img src="{{ structure['disease1_pr'] }}"  class="img" style="width:100%;height:auto">
-			{% else %}
-				No graphic was created
-			{% endif %}
-		</div>
-  </div>
-				
-		<!-- {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} PathProx, ROC, PR -->
-	<div class="wrapper main-box">
-			<h4>PathProx ({{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}) Results</h4>
-			<div class="column3">
-				<h5>PathProx</h5>
-				{% if structure['disease2_pp'] %}
-					<img src="{{ structure['disease2_pp'] }}"  class="img" style="width:100%;height:auto">
-				{% else %}
-					No graphic was created
-				{% endif %}
-			</div>
-			<div class="column3">
-				<h5>PathProx {{ config_pathprox_dict['disease2_variant_short_description'] }} ROC</h5>
-				{% if structure['disease2_roc'] %}
-					<img src="{{ structure['disease2_roc'] }}" class="img" style="width:100%;height:auto">
-				{% else %}
-					No graphic was created
-				{% endif %}
-			</div>
-			<div class="column3">
-				<h5>PathProx {{ config_pathprox_dict['disease2_variant_short_description'] }} PR</h5>
-				{% if structure['disease2_pr'] %}
-					<img src="{{ structure['disease2_pr'] }}"  class="img" style="width:100%;height:auto">
-				{% else %}
-					No graphic was created
-				{% endif %}
-			</div>
-		</div>
-{% endfor %}
+
+                <!-- {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }}, {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} Bivariate D Plots -->
+                <div class="wrapper main-box">
+                        <h4>Ripley's Bivariate D</h4>
+                        <div class="column3">
+                                <h5>{{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease1_results']['D_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['D_plot_png']}}" class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} Bivariate D plot was not created
+                                {% endif %}
+                        </div>
+                        <div class="column3">
+                                <h5>{{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}</h5>
+                                {% if structure['pathprox_disease2_results']['D_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease2_results']['D_plot_png']}}" class="img" style="width:100%;height:auto">
+                                {% else %}
+                                        {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} Bivariate D plot was not created
+                                {% endif %}
+                        </div>
+                </div>
+
+       <div class="wrapper main-box">
+                <!-- {{ config_pathprox_dict['disease1_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} PathProx, ROC, PR -->
+                <h4>PathProx ({{ config_pathprox_dict['disease1_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}) Results</h4>
+                <div class="column3">
+                        <h5>PathProx</h5>
+                                {% if structure['pathprox_disease1_results']['pp_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['pp_plot_png']}}" class="img" style="width:100%;height:auto">
+                        {% else %}
+                                No graphic was created
+                        {% endif %}
+                </div>
+                <div class="column3">
+                        <h5>PathProx {{ config_pathprox_dict['disease1_variant_short_description'] }} ROC</h5>
+                                {% if structure['pathprox_disease1_results']['roc_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['roc_plot_png']}}" class="img" style="width:100%;height:auto">
+                        {% else %}
+                                No graphic was created
+                        {% endif %}
+                </div>
+                <div class="column3">
+                                <h5>PathProx {{ config_pathprox_dict['disease1_variant_short_description'] }} PR</h5>
+                                {% if structure['pathprox_disease1_results']['pr_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease1_results']['pr_plot_png']}}" class="img" style="width:100%;height:auto">
+                        {% else %}
+                                No graphic was created
+                        {% endif %}
+                </div>
+       </div>
+
+                <!-- {{ config_pathprox_dict['disease2_variant_short_description'] }}-{{ config_pathprox_dict['neutral_variant_short_description'] }} PathProx, ROC, PR -->
+        <div class="wrapper main-box">
+                        <h4>PathProx ({{ config_pathprox_dict['disease2_variant_short_description'] }} - {{ config_pathprox_dict['neutral_variant_short_description'] }}) Results</h4>
+                <div class="column3">
+                        <h5>PathProx</h5>
+                                {% if structure['pathprox_disease2_results']['pp_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease2_results']['pp_plot_png']}}" class="img" style="width:100%;height:auto">
+                        {% else %}
+                                No graphic was created
+                        {% endif %}
+                </div>
+                <div class="column3">
+                        <h5>PathProx {{ config_pathprox_dict['disease2_variant_short_description'] }} ROC</h5>
+                                {% if structure['pathprox_disease2_results']['roc_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease2_results']['roc_plot_png']}}" class="img" style="width:100%;height:auto">
+                        {% else %}
+                                No graphic was created
+                        {% endif %}
+                </div>
+                <div class="column3">
+                                <h5>PathProx {{ config_pathprox_dict['disease2_variant_short_description'] }} PR</h5>
+                                {% if structure['pathprox_disease2_results']['pr_plot_png'] %}
+                                        <img src="{{ structure['pathprox_disease2_results']['pr_plot_png']}}" class="img" style="width:100%;height:auto">
+                        {% else %}
+                                No graphic was created
+                        {% endif %}
+                </div>
+        </div>
+
+        </div>
+
+
+
+			{% endfor %}     {# for loop over all structures #}
+
+
+
+
+
+
 </div>
 </body>
 </html>

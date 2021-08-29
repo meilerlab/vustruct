@@ -29,6 +29,9 @@ fi
 # This .conf file must be updated when new versions of the genome, or the Ensembl PERL API are loaded
 if [[ $genome == 'GRCh37' ]]; then
 echo " **********   OBSOLETE GRCh37 DETECTED ********** "
+if [[ $- = *i* ]]
+then 
+# Interactive shell
 while true; do
     read -p "Are you SURE you want to continue Y/N?" yn
     case $yn in
@@ -37,6 +40,7 @@ while true; do
         * ) echo "Please answer yes or no.";;
     esac
 done
+fi # End interactive shell
 export ENSEMBL_REGISTRY=$PIPELINE_ROOT/pdbmap/EnsEMBL/ensembl_registry.conf
 else
 export ENSEMBL_REGISTRY=$PIPELINE_ROOT/pdbmap/EnsEMBL/ensembl_registry_GRCh38.conf
@@ -55,9 +59,10 @@ newPATH=$newPATH:$PSBADMIN_PERL_ROOT/localperl/bin
 newPATH=$newPATH:$PIPELINE_ROOT/bin
 newPATH=$newPATH:$PIPELINE_ROOT/pdbmap
 newPATH=$newPATH:$PIPELINE_ROOT/pathprox
-newPATH=$newPATH:$PIPELINE_ROOT/htslib-1.11/bin
+newPATH=$newPATH:$PIPELINE_ROOT/htslib/bin
 newPATH=$newPATH:/dors/capra_lab/bin/vcftools/bin
 newPATH=$newPATH:/dors/capra_lab/bin/vcftools/perl
+newPATH=$newPATH:/dors/capra_lab/users/psbadmin/psb_prep.bash
 newPATH=$newPATH:/dors/capra_lab/bin/wkhtmltox/bin
 echo -ne "Prepending to PATH:\n\t"
 echo $newPATH | sed 's/:/\n\t/g'

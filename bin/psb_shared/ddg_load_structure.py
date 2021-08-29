@@ -24,6 +24,7 @@ from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
 from lib import PDBMapModbase2020
+from lib import PDBMapAlphaFold
 from lib import PDB36Parser
 # from lib import PDBMapModbase2016
 # from lib import PDBMapModbase2013
@@ -67,7 +68,21 @@ def ddg_load_structure(args, config_dict):
         return structure
 
     def mine_structure_info_from_mmCIF(mmCIF_dict):
-        method = mmCIF_dict['_exptl.method'][0]
+        is_alpha_fold_model = False
+        try:
+            is_alpha_fold_model = mmCIF_dict['_ma_model_list.model_group_name'][0] == 'AlphaFold model'
+        except KeyError:
+            is_alpha_fold_model = False
+
+        
+        if is_alpha_fold_model:
+            try:
+                method = mmCIF_dict['_exptl.method'][0]
+            except KeyError:
+                method = '????'
+        else:
+            method = 'AlphaFold'
+
         pdb_id = method, mmcif_dict['_entry.id']
         deposition_date = None
 
@@ -82,22 +97,29 @@ def ddg_load_structure(args, config_dict):
                 LOGGER.warning("Deposition date %s apparently not YYYY-MM-DD", raw_deposition_date)
 
         resolution = None  # Not applicable is correct for NMR structures
+        resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
         if method == 'X-RAY DIFFRACTION':
-            resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
-            ethod = 'X-RAY'
+            method = 'X-RAY'
         elif method == 'ELECTRON MICROSCOPY':
             method = 'EM'
             resolution_keys = ['_em_3d_reconstruction.resolution']
         elif method.find('NMR') > -1:  # resolution is not applicable for nmr
             resolution_keys = []
+        elif method == 'AlphaFold':  # resolution is not applicable for AlphaFold models
+            resolution_keys = []
+        elif method.find('SOLUTION SCATTERING') > -1:
+            # SOLUTION SCATTERING does not have 'resolution' notion
+            # But the keys are often in the .cif file - and we'll try to fish something out.
+            # Generally, it will flow through like NMR
+            method = 'SCAT'
         else:
-            resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
             LOGGER.critical('%s Experimental method for %s is unknown' % (method, pdb_id))
 
         for resolution_key in resolution_keys:
             if resolution_key in mmCIF_dict:
                 # Congratulations.  You found the old REMARK 2 RESOLUTION entry.... or so we hope.
-                resolution = float(mmCIF_dict[resolution_key][0])
+                if len(mmCIF_dict[resolution_key]) > 0 and mmCIF_dict[resolution_key][0].strip() != '.':
+                    resolution = float(mmCIF_dict[resolution_key][0])
                 break
         if not resolution and method.find('X-RAY') > 0:
             LOGGER.warning("pdb %s is method=%s with no resolution entry" % (pdb_id, method))
@@ -153,23 +175,25 @@ def ddg_load_structure(args, config_dict):
             raise LoadStructureError(
                   "Modbase model id %s not found in modbase2020 directory" % \
                   args.modbase)
-        # modbase16 = PDBMapModbase2016(config_dict)
-        # original_structure_filename = modbase16.get_coord_file(args.modbase)
-        # if os.path.exists(original_structure_filename):
-        #    structure = _load_structure_file(args.modbase, original_structure_filename)
-        # else:
-        #     modbase13 = PDBMapModbase2013(config_dict)
-        #     original_structure_filename = modbase13.get_coord_file(args.modbase)
-        #     if os.path.exists(original_structure_filename):
-        #         structure = _load_structure_file(args.modbase, original_structure_filename)
-        #     else:
-        #         raise LoadStructureError(
-        #             "Modbase model id %s not found in modbase2013/2016 directories" % \
-        #            args.modbase)
 
         if not DDG_monomer.evaluate_modbase(original_structure_filename):
             raise LoadStructureError(
-                "Terminating as %s of insufficient quality for ddg monomer" % args.modbase)
+                  "Modbase %s not found" % original_structure_filename)
+    elif args.alphafold:  
+        structure_id = args.alphafold
+        original_structure_type = 'mmCIF'
+        alphafold = PDBMapAlphaFold(config_dict)
+        original_structure_filename = alphafold.get_coord_filename(args.alphafold)
+        if os.path.exists(original_structure_filename):
+            structure = _load_structure_file(args.alphafold, original_structure_filename)
+        else:
+            raise LoadStructureError(
+                  "Alphafold model id %s not found at %s" % \
+                  (args.alphafold,original_structure_filename))
+
+        # if not DDG_monomer.evaluate_modbase(original_structure_filename):
+        #     raise LoadStructureError(
+        #         "Terminating as %s of insufficient quality for ddg monomer" % args.modbase)
     else:
         assert args.usermodel is not None
         structure_id = args.usermodel.lower()
@@ -197,6 +221,7 @@ def ddg_load_structure(args, config_dict):
         structure_fin = open(original_structure_filename, 'rt')
 
     mmcif_dict = None
+    assert original_structure_type in ['mmCIF','pdb']
     if original_structure_type == 'mmCIF':
         mmCIF_parser = MMCIFParser()  # QUIET=True)
         structure = mmCIF_parser.get_structure(structure_id, structure_fin)
