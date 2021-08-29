@@ -98,6 +98,9 @@ https://www.cpan.org/src/README.html
 
 2020-Oct-31: Example of how I used the web info above
 I performed these commands to load ENSEMBL compatible PERL5 into the /dors/capra_lab/psbadmin/localperl directory
+
+>> This process does NOT work on an ACCRE node, because ACCRE lacks mysql development header files. <<
+
 Your commands will differ as perl versions shift around
 
 $ cd /dors/capra_lab/users/psbadmin/
