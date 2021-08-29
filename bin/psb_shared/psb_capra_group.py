@@ -1,5 +1,6 @@
 import grp
 import os
+import stat
 
 ## Function Definitions ##
 # DO NOT CHECK THIS IN BELOW IT IS CRAP

@@ -9,6 +9,7 @@ import stat
 import getpass
 import sys
 import inspect
+from lib import PDBMapGlobals
 
 import logging
 
@@ -98,5 +99,8 @@ def read_config_files(args, required_config_items=None):
         if len(missing_keys):
             LOGGER.error("Can't proceed without configuration file options set for: %s", str(missing_keys))
             sys.exit(1)
+
+    # Init the configuration for any PDBMap library calls.
+    PDBMapGlobals.config = config_dict
 
     return config, config_dict

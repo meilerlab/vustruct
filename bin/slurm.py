@@ -17,8 +17,6 @@ from time import sleep
 # from copy import deepcopy
 
 import logging
-# from logging.handlers import RotatingFileHandler
-# from logging import handlers
 import numpy as np
 
 logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
@@ -97,7 +95,7 @@ def slurm_submit(job_submit_command_line):
             run_result = sp.run(
                 args=job_submit_command_line,
                 stdout=sp.PIPE, stderr=sp.PIPE,
-                timeout=120, check=True)
+                timeout=120, check=True) # If there is an exception, then e.stderr has stderr
 
         except AttributeError as e:
             msg = "Exception: %s\n\
@@ -110,8 +108,8 @@ This module requires the subprocess.run() function, which is only available in P
             sleep(30)
             continue
         except (sp.CalledProcessError, OSError) as e:
-            msg = "Failed to run '%s'\nException: %s\n--->>> You do not seem to be logged in to a slurm cluster.\n" % (
-            job_submit_command_line, str(e))
+            msg = "Failed to run '%s'\nException: %s\nstderr: %s--->>> You do not seem to be logged in to a slurm cluster.\n" % (
+            job_submit_command_line, str(e), e.stderr)
             logging.getLogger(__name__).critical(msg)
             sys.exit(1)
 
@@ -222,6 +220,7 @@ class SlurmJob:
 
     def get_submit_time(self):
         return self.get_info()["SubmitTime"]
+
 
     def get_start_time(self):
         return self.get_info()["StartTime"]

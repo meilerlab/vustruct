@@ -1,0 +1,435 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html>
+
+  <head>
+          <title>Pfam: Generate domain images</title>
+    
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="Description" content="Pfam is a large collection of protein families, represented by multiple sequence alignments and hidden Markov models (HMMs)" />
+
+
+<!-- ====================================================================== -->
+<!-- make the site RSS feed discoverable -->
+
+<link href="//xfam.wordpress.com/tag/pfam/feed/"
+      rel="alternate"
+      type="application/rss+xml"
+      title="Pfam News" />
+
+<!-- ====================================================================== -->
+<!-- third-party javascript libraries
+
+     we are now loading third-party libraries from remote sites. We get
+     prototype and scriptaculous from googleapis and the YUI components
+     for tree viewing directly from yahoo
+-->
+
+<!-- prototype / scriptaculous -->
+<!-- <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/prototype/1.7.1.0/prototype.js"></script> -->
+<!-- <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/prototype/1.7.0/prototype.js"></script> -->
+<!-- <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/scriptaculous/1.9.0/scriptaculous.js"></script> -->
+
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/static/javascripts/third-party/prototype.js"></script>
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/static/javascripts/third-party/scriptaculous.js"></script>
+
+<!-- YUI -->
+<!-- <script type="text/javascript" src="//yui-s.yahooapis.com/2.8.0r4/build/yahoo-dom-event/yahoo-dom-event.js"></script> -->
+<!-- <script type="text/javascript" src="//yui-s.yahooapis.com/2.8.0r4/build/element/element-min.js"></script> -->
+<!-- <script type="text/javascript" src="//yui-s.yahooapis.com/2.8.0r4/build/tabview/tabview-min.js"></script> -->
+<!-- <link rel="stylesheet" type="text/css" href="//yui-s.yahooapis.com/2.8.0r4/build/tabview/assets/skins/sam/tabview.css"/> -->
+<!-- <script type="text/javascript" src="//yui-s.yahooapis.com/2.8.0r4/build/treeview/treeview-min.js"></script> -->
+<!-- <link rel="stylesheet" type="text/css" href="//yui-s.yahooapis.com/2.8.0r4/build/treeview/assets/skins/sam/treeview.css" /> -->
+<!-- <script type="text/javascript" src="//yui-s.yahooapis.com/2.8.0r4/build/history/history-min.js"></script> -->
+<!-- <script type="text/javascript" src="//yui-s.yahooapis.com/2.8.0r4/build/utilities/utilities.js"></script> -->
+
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/yahoo-dom-event.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/element-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/tabview-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/treeview-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/history-min.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/third-party/utilities.js'></script>
+
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/prototip.css' type='text/css' />
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/tabview.css' type='text/css' />
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/treeview.css' type='text/css' />
+
+
+<!-- prototip -->
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/shared/javascripts/prototip.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/shared/javascripts/styles.js'></script>
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/shared/css/prototip.css' type='text/css' />
+
+<!-- ====================================================================== -->
+<!-- local javascript files -->
+
+<!-- local javascript -->
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/shared/javascripts/sharedFunctions.js"></script>
+<script type="text/javascript" src="../html/javascript/pfam.xfam.org/static/javascripts/pfFunctions.js"></script>
+
+<!-- ====================================================================== -->
+<!-- local stylesheets -->
+
+<!-- global stylesheet -->
+<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/static/css/pfam.css" type="text/css" />
+<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/shared/css/buttons.css" type="text/css" />
+
+<!-- site-specific stylesheet -->
+<link rel="stylesheet" href="../html/javascript/pfam.xfam.org/static/css/ebi.css" type="text/css" />
+
+<!-- ====================================================================== -->
+<!-- load dynamically required stylesheets and javascript files-->
+
+
+
+<!-- required javascripts -->
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/excanvas.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/domain_graphics.js'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/graphic_generator.js'></script>
+
+<!-- javascripts applicable to IE -->
+<!--[if IE]>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/canvas.text.js?reimplement=true&amp;dontUseMoz=true'></script>
+<script type='text/javascript' src='../html/javascript/pfam.xfam.org/static/javascripts/faces/optimer-bold-normal.js'></script>
+<![endif]-->
+
+<!-- styles applicable to all browsers -->
+<link rel='stylesheet' href='../html/javascript/pfam.xfam.org/static/css/graphicTools.css' type='text/css' />
+
+<!-- styles applicable to IE6 and below -->
+<!--[if lt IE 7 ]>
+  <link rel="stylesheet" href="../html/javascript/pfam.xfam.org/static/css/ie.css" type="text/css" />
+<![endif]-->
+
+<!-- styles applicable to all versions of IE -->
+<!--[if IE ]>
+  <link rel="stylesheet" href="../html/javascript/pfam.xfam.org/static/css/all_ie.css" type="text/css" / >
+<![endif]-->
+
+<!-- ====================================================================== -->
+<!-- set the favicon -->
+
+<link rel="shortcut icon"
+      type="image/png"
+      href="../html/javascript/pfam.xfam.org/static/images/favicon.png" />
+
+<!-- ====================================================================== -->
+
+<!-- google analytics -->
+<script type="text/javascript">
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-50480748-2', 'xfam.org');
+  ga('send', 'pageview');
+
+</script>
+
+
+
+<!-- ====================================================================== -->
+
+  </head>
+
+  <body>
+
+        <!--[if IE]>
+        <iframe id="yui-history-iframe" src="../html/javascript/pfam.xfam.org/shared/images/blank.gif"></iframe>
+    <![endif]-->
+    <div><input id="yui-history-field" type="hidden" /></div>
+
+    
+<!-- header starts here -->
+
+<div id="header">
+
+  <div id="navbar" class="column">
+    <ul>
+          <li>
+                  <a href="/">HOME</a>
+        &nbsp;|&nbsp;       </li>
+          <li>
+                  <a href="/search">SEARCH</a>
+        &nbsp;|&nbsp;       </li>
+          <li>
+                  <a href="/browse">BROWSE</a>
+        &nbsp;|&nbsp;       </li>
+          <li>
+                  <a href="http://ftp.ebi.ac.uk/pub/databases/Pfam">FTP</a>
+        &nbsp;|&nbsp;       </li>
+          <li>
+                  <a href="/help">HELP</a>
+        &nbsp;|&nbsp;       </li>
+          <li>
+                  <a href="/about">ABOUT</a>
+               </li>
+        </ul>
+  </div>
+  
+  <div class="siteLogoHolder column">
+    <a href="https://www.ebi.ac.uk/">
+      <img alt="EMBL-EBI" 
+           id="siteLogo" 
+           src="../html/javascript/pfam.xfam.org/shared/images/blank.gif" /></a>
+  </div>
+
+  <div class="pfamLogoHolder column">
+    <a href="/">
+      <img alt="Pfam" 
+           id="pfamLogo" 
+           src="../html/javascript/pfam.xfam.org/shared/images/blank.gif" /></a>
+    <form action="/search/keyword" 
+          id="siteSearchForm">
+      <div id="searchBox">
+        <input class="entryField"
+             type="text" 
+             onfocus="if(!ssCleared){this.value='';ssCleared=true;}" 
+             name="query" 
+             id="siteSearchField" />
+        <a class="btn go"
+           onclick="if($F('siteSearchField')){if(ssCleared){$('siteSearchForm').submit();}}">
+          <span class="btn-inner">Go</span></a>
+      </div>
+    </form>
+  </div>
+
+</div>
+
+<div class="cleaner"><!-- empty --></div>
+
+<!--
+    <div class="warningBox">
+        REPLACE THIS LINE WITH YOUR MESSAGE
+    </div>
+-->
+
+
+<div id="jsWarning" class="warningBox">
+  <strong>Please note:</strong> this site relies heavily on the use of javascript. 
+  Without a javascript-enabled browser, this site will not function correctly. 
+  Please enable javascript and reload the page, or switch to a different browser.
+</div>
+<script type="text/javascript">
+  // <![CDATA[
+  $("jsWarning").hide();
+
+  $("siteSearchField").value = "keyword search";
+  var ssCleared = false;
+  // ]]>
+</script>
+<!-- ves-pg-b6.ebi.ac.uk / 17304 -->
+
+<!-- header end -->
+
+
+    <!-- start of content -->
+    
+
+
+<h1>Generate domain images</h1>
+
+<p>
+  This tool allows you to generate custom Pfam-style domain graphics. The
+  input to the form is a <a class="ext" href="http://en.wikipedia.org/wiki/Json">
+    JSON</a> string that provides a description of the graphic. You can see the 
+  specification of the domain graphics on the 
+  <a href="/help#tabview=tab9">help pages</a>. You can 
+  also generate the domain graphic for a 
+  <a href="/generate_uniprot_graphic">Uniprot sequence</a>.
+</p>
+<p>
+  In some browsers you can right-click on the domain graphics image and save it
+  to your local disk. This is known to work with firefox. If you are using a
+  different browser, you may need to capture the image as a screenshot in order
+  to use it elsewhere.
+</p>
+
+<div id="graphic" class="panel">
+  <h2>Domain graphic</h2>
+  <div id="dg">
+    <span id="none">No graphic yet</span>
+  </div>
+</div>
+
+<div class="cleaner"><!-- empty --></div>
+
+<div id="form">
+
+  <div id="sequence" class="panel">
+    <h2>Description string</h2>
+
+    <p>
+      Enter your description of a Pfam domain graphic here.
+    </p>
+
+    <textarea cols="10" rows="20" id="seq">
+{
+  "length" : "534",
+  "regions" : [
+    {
+      "type" : "pfama",
+      "text" : "Peptidase_S8",
+      "colour" : "#2dcfff",
+      "display": "true",
+      "startStyle" : "curved",
+      "endStyle" : "curved",
+      "start" : "159",
+      "end" : "361",
+      "aliEnd" : "350",
+      "aliStart" : "163"
+    },
+    {
+      "type" : "pfama",
+      "text" : "PA",
+      "colour" : "#ff5353",
+      "display" : true,
+      "startStyle" : "jagged",
+      "endStyle" : "curved",
+      "start" : "388",
+      "end" : "469",
+      "aliEnd" : "469",
+      "aliStart" : "396"
+    }
+  ]
+}</textarea>
+  </div>
+
+  <div id="controls" class="panel">
+
+    <h2>Scale</h2>
+
+    <p>
+      These parameters affect the size of the image. Increase X- and Y-scale to make the 
+      generated graphic larger.
+    </p>
+    
+    <div class="row">
+      <span class="label">X-scale:</span><input id="xscale" value="1.0"></input>
+    </div>
+    <div class="row">
+      <span class="label">Y-scale:</span><input id="yscale" value="1.0"></input>
+    </div>
+
+    <h2>Example descriptions</h2>
+    
+    <p>
+      You can see two example sequence graphic descriptions. Click &quot;Simple&quot;
+      or &quot;Complex&quot; to load the description into the sequence field to the
+      left. <strong>Note</strong> that this will overwrite any description which is
+      already in that field.
+    </p>
+
+    <button id="small">Simple</button>
+    <button id="large">Complex</button>
+
+    <h2>Generate</h2>
+
+    <p>
+      Click &quot;Generate&quot; to build the domain graphic using the sequence 
+      description to the left. If there are any problems with your sequence description,
+      they will be shown in a box above. Click &quot;Clear&quot; to empty the 
+      sequence description field. <strong>Note</strong> that this will delete the
+      contents of the description field entirely.
+    </p>
+
+    <button id="submit">Generate graphic</button>
+    <button id="clear">Clear sequence</button>
+
+    <div id="errors"
+         style="display: none">
+      <h1>Problem with domain graphics description</h1>
+      <div id="error"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script type="text/javascript">
+  // <![CDATA[
+
+  var generator;
+  document.observe( "dom:loaded", function() {
+    generator = new GraphicGenerator();
+  } );
+
+  // ]]>
+</script>
+
+
+    <!-- end of content -->
+
+    
+    <!-- start of footer -->
+    <div id="footer"></div>
+
+    <div class="cleaner"><!-- wrap --></div>
+    <!-- end of footer -->
+
+    
+
+    <script type="text/javascript">
+      // <![CDATA[
+      Event.observe( window, 'load', addHoverListeners, false );
+      // ]]>
+    </script>
+
+    
+
+<!-- footer start -->
+
+<div id="siteFooter">
+
+  <div style="display:block">
+    <div style="margin:auto; width:60%">
+
+      <div style="display:inline-block">
+        <a href="https://www.elixir-europe.org/about-us/why-needed">
+          <img src="//ebi.emblstatic.net/web_guidelines/EBI-Framework/v1.2/images/logos/assorted/elixir_kitemark-60px.png">
+        </a>
+      </div>
+
+      <div style="width:29%; display:inline-block; vertical-align:top; text-align:left">
+        <h5 style="font-size:1.5em">
+          <a href="https://www.elixir-europe.org/about-us/why-needed">
+            <span>Pfam</span> is part of the ELIXIR infrastructure
+          </a>
+        </h5>
+        <small>
+          <span >Pfam is an Elixir service</span>
+          <span><a href="https://www.elixir-europe.org/about-us/why-needed">Read more</a></span>
+        </small>
+      </div>
+
+    </div>
+  </div>
+
+  <p>
+    Comments or questions on the site? Send a mail to <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#112;&#102;&#097;&#109;&#045;&#104;&#101;&#108;&#112;&#064;&#101;&#098;&#105;&#046;&#097;&#099;&#046;&#117;&#107;">&#112;&#102;&#097;&#109;&#045;&#104;&#101;&#108;&#112;&#064;&#101;&#098;&#105;&#046;&#097;&#099;&#046;&#117;&#107;</a>.&nbsp;
+  </p>
+  <p class="spaced"><a href="http://www.embl.org/">European Molecular Biology Laboratory</a></p>
+  <script>
+        var newDataProtectionNotificationBanner = document.createElement('script');
+        newDataProtectionNotificationBanner.src = '../html/javascript/pfam.xfam.org/static/javascripts/ebi-notification-banner.js';
+        document.head.appendChild(newDataProtectionNotificationBanner);
+        newDataProtectionNotificationBanner.onload = function() {
+            ebiFrameworkRunDataProtectionBanner('compliance'); // invoke the banner
+            var badElement = document.querySelector('div#data-protection-banner div.row');
+            if (badElement) {
+              badElement.style.marginLeft = "0px";
+              badElement.style.marginRight = "30px";
+            }
+        };
+    </script>
+</div>
+
+<!-- footer end -->
+
+  </body>
+
+</html>
+
+

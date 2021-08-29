@@ -4,6 +4,9 @@ class DDG_base underpins both DDG_monomer and DDG_cartesian with
 a variety of methods shared by bost.
 """
 import os
+import time
+import datetime
+import subprocess
 import lzma
 import pprint
 from io import StringIO
@@ -40,6 +43,8 @@ class DDG_base(object):
 
     def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
+        Initialize self._ddg_repo, self._mutations from caller's data.
+        
         Generally called from derived DDG_monomer or DDG_cartesian function to handle shared
         initializtion needs.
         :param ddg_repo:
@@ -54,6 +59,61 @@ class DDG_base(object):
         self._to_pdb = []
 
         LOGGER.info("ddg_base.__init__ completed after setting:\n%s" % pprint.pformat(self.__dict__))
+
+        # timestamp_suffix = datetime.datetime.now().strftime("%d%m%y%H%M%S")
+        # isoresult, isopdbname, to_pdb = isolate_chain(self._pdb, self._chain)
+        # if not isoresult:
+        #    return self.failure(None, to_pdb)
+        # else:
+        #    self._to_pdb = to_pdb
+
+    def mutations_to_rosetta_poses(self):
+        """
+        Give the list of self._mutations in A123{I}B form where I is optional insertion code,
+        convert these to their rosetta-numbered 1..N formats in 3 ways:
+            rosetta_mutations: ['A123X',...]  List of Rosetta-reNumbered AA res# AA entries
+            mutation_resids: [(' ',123,'I'),... ] biopython residue IDs not renumbered
+            rosetta_residue_number_to_residue_xref: A cross-reference of the rosetta renumberings to original residues
+        """
+        # Convert mutation to pose numbering for internal consistency
+        rosetta_mutations = []  # List of mutations input to ddg
+
+        mutation_resids = []
+        # Capture the inner bytes,123A of the S123AW format, as Biopython resid tuple
+        for mutation in self._mutations:
+            if mutation[-2].isalpha():  # Then Mutation is like ex: S123AF (Ser->Phe at res 123A)
+                mutation_resid = (' ', int(mutation[1:-2]), mutation[-2])
+            else:  # The much more common case of format S456T
+                mutation_resid = (' ', int(mutation[1:-1]), ' ')
+            assert mutation_resid in self._ddg_repo.residue_to_clean_xref, (
+                    "mutation %s is not in source structure" % str(mutation_resid))
+            mutation_resids.append(mutation_resid)
+
+        for mutation, mutation_resid in zip(self._mutations, mutation_resids):
+            rosetta_residue_number = self._ddg_repo.residue_to_clean_xref[mutation_resid][1]
+            LOGGER.info("Res %s converted to rosetta cleaned res # %d" % (mutation_resid, rosetta_residue_number))
+            # Add to list of rosetta mutations in form A123S
+            rosetta_mutations.append(mutation[0] + str(rosetta_residue_number) + mutation[-1])
+
+        if not rosetta_mutations:
+            self._ddg_repo.psb_status_manager.sys_exit_failure("No mutations found in parameter self._mutations %s" % self._mutations)
+
+        if len(rosetta_mutations) != 1:
+            self._ddg_repo.psb_status_manager.sys_exit_failure("Only 1 mutation can be setisfied in parameter self._mutations %s" % self._mutations)
+
+        # Create a reverse lookup dictionary, mapping the 1..N rosetta resdiue numbers
+        # back to source structure residue IDs (which might have insertion codes)
+        rosetta_residue_number_to_residue_xref = {}
+        for residue, clean in self._ddg_repo.residue_to_clean_xref.items():
+            try:
+                rosetta_residue_number = int(clean[1])
+                rosetta_residue_number_to_residue_xref[rosetta_residue_number] = residue
+                LOGGER.debug("%s %s"%(rosetta_residue_number,residue))
+            except:
+                self._ddg_repo.psb_status_manager.sys_exit_failure(
+                    "Creating rosetta->residue reverse xref Failure to deal with residue=%s clean=%s"%(residue,clean))
+
+        return mutation_resids,rosetta_mutations,rosetta_residue_number_to_residue_xref
 
     @staticmethod
     def evaluate_swiss(swiss_modelid, swiss_remark3_metrics):
@@ -81,7 +141,7 @@ class DDG_base(object):
         return False
 
     @staticmethod
-    def evaluate_modbase(modbase_fullpath_or_fin):
+    def evaluate_modbase(modbase_fullpath_or_fin, modbase_filename = None):
         """Modbase models are evaluated for whether or not they are of high enough quality
         To run in ddg monomer.
         Comuted quality metrics must all be sufficient, including
@@ -101,7 +161,18 @@ class DDG_base(object):
         rmsd_threshold = 4.0
         qual_threshold = 1.1
 
-        LOGGER.info('Checking quality of %s', modbase_fullpath_or_fin)
+        if not modbase_filename:
+            if type(modbase_fullpath_or_fin) == StringIO:
+                modbase_filename = "[loaded memory buffer]"
+            else:
+                try:
+                    modbase_filename = modbase_fullpath_or_fin
+                except:
+                    pass
+        
+
+        LOGGER.info('Checking quality of modbase file %s', modbase_filename)
+        
         with modbase_fullpath_or_fin if type(modbase_fullpath_or_fin) == StringIO else \
                 lzma.open(modbase_fullpath_or_fin, 'rt') as infile:
             for line in infile:
@@ -158,6 +229,155 @@ class DDG_base(object):
 
         return modbase_ok
 
+
+    @staticmethod
+    def _move_prior_file_if_exists(filename):
+        if os.path.exists(filename):
+            archive_dir = "./archive"
+            os.makedirs(archive_dir, exist_ok=True)
+            # append the modification time of the file to the name
+            # and archive in ./archive subdir
+            archive_filename = os.path.join(
+                archive_dir,
+                # precede the filename with time stamp of the file's last modification.
+                datetime.datetime.fromtimestamp(os.path.getmtime(filename)).strftime(
+                    "%Y%M%d%H%M%S") + "_%s" % filename
+            )
+            try:
+                os.replace(filename, archive_filename)
+                LOGGER.info("Saved prior run %s as %s" % (filename, archive_filename))
+            except OSError:
+                LOGGER.exception("Failed to save prior run %s as %s: " % (filename, archive_filename))
+
+    @staticmethod
+    def _command_ran_previously(binary_program_basename: str) -> Tuple[int, str, str]:
+        """
+        If this program ran earlier, don't re-run it.
+        Instead return the results of the last run
+
+        param: binary_program_basename:  The binary program file to check for previous completion
+        :return (
+            exit_code: integer exit code we can test for 0
+            str: stdout from command
+            str: stderr from command
+            )
+
+        """
+        stdout_filename, stderr_filename, exitcd_filename = DDG_base._command_result_filenames(binary_program_basename)
+        previous_exit, previous_exit_int = DDG_base._get_previous_exit(exitcd_filename)
+
+        previous_stdout = ""
+        if os.path.isfile(stdout_filename):
+            with open(stdout_filename, 'r') as stdout_record:
+                previous_stdout = stdout_record.read()  # This stdout from previous successful run
+
+        previous_stderr = ""
+        if os.path.isfile(stderr_filename):
+            with open(stderr_filename, 'r') as stderr_record:
+                previous_stderr = stderr_record.read()  # Read stderr from previous successful run
+
+        if previous_exit_int == 0:
+            LOGGER.info("Previous successful run found\n.  NOT re-running:\n%s" % (
+                binary_program_basename))
+        else:
+            LOGGER.warning("Previous run did not exit with code 0\n.  Re-running:\n%s" % (
+                binary_program_basename))
+
+        return (previous_exit_int,
+                previous_stdout,
+                previous_stderr)  # runtime 0 may or may not be quite right
+
+    def _run_command_line_terminate_on_nonzero_exit(self,
+                                                    command_line_list: List[str],
+                                                   additional_files_to_archive: List[str] = [],
+                                                   force_rerun=False) -> Tuple[int, str, str, float]:
+        """
+        Launch a shell to run the command line.
+
+        Definitely run if force_rerun==True (unusual)
+
+        Typically, we do not re-run if we find a .exit file with a zero exit value
+        In that case, we return the saved .stdout and .stderr files, and save
+        the cpu cycles
+
+        Terminates hard if non-zero return value from command line
+
+        :param command_line_list: list of command line components
+
+        :return (
+            int: return/exit code from command invocation
+            str: stdout from command
+            str: stderr from command
+            float: run time
+
+        """
+
+        # Example: minimzer.linuxgccrelease
+        binary_program_basename = os.path.basename(command_line_list[0])
+        stdout_filename, stderr_filename, exitcd_filename = DDG_base._command_result_filenames(binary_program_basename)
+
+        # We've been playing with letting the command list have embedded spaces which have to be
+        # split back apart...
+        # We may get bitten at some point because some of our arguments are actually 2 arguments
+        # separated by a space.  For now...
+        submitted_command_line_list = []
+        for arg_with_spaces in command_line_list:
+            submitted_command_line_list.extend(arg_with_spaces.split(' '))
+
+        # Archive any additional output files once we commit to re-launching
+        for additional_file in additional_files_to_archive:
+            DDG_base._move_prior_file_if_exists(additional_file)
+
+            # If there is already a file out there with exit code 0, then return the old status
+
+        # For sanity, capture precicsely a reproducible shell command at work for future analysis
+        commandline_record_filename = binary_program_basename + ".commandline_record.sh"
+        DDG_base._move_prior_file_if_exists(commandline_record_filename)
+        with open(commandline_record_filename, 'w') as commandline_record:
+            commandline_record.write("#!/bin/bash\n")
+            commandline_record.write("# Record of command invocation\n")
+            commandline_record.write("# %s\n" % time.ctime(time.time()))
+            commandline_record.write(" \\\n".join(command_line_list))
+            # End the command with redirects to the stderr/stdout files
+            commandline_record.write(" \\\n> %s 2> %s\n" % (stdout_filename, stderr_filename))
+            commandline_record.write("echo Command exited with $?\n")
+
+        command_start_time = time.perf_counter()
+        LOGGER.info("Running below command line from cwd=%s:\n%s" % (os.getcwd(),' '.join(submitted_command_line_list)))
+        # run using new API call,
+        completed_process = subprocess.run(submitted_command_line_list, shell=False, text=True, capture_output=True)
+        fail_message = None
+        if completed_process.returncode == 0:
+            LOGGER.info("%s completed successfully (exit 0)", binary_program_basename)
+        else:
+            fail_message = "%s failed with exit %d" % (binary_program_basename, completed_process.returncode)
+            LOGGER.critical(fail_message)
+
+        # Record all stdout and stderr and exit code
+        DDG_base._move_prior_file_if_exists(stdout_filename)
+        with open(stdout_filename, 'w') as stdout_record:
+            stdout_record.write(completed_process.stdout)  # This writes the 'str'
+
+        DDG_base._move_prior_file_if_exists(stderr_filename)
+        with open(stderr_filename, 'w') as stderr_record:
+            stderr_record.write(completed_process.stderr)
+
+        DDG_base._move_prior_file_if_exists(exitcd_filename)
+        with open(exitcd_filename, 'w') as exitcd_record:
+            exitcd_record.write(str(completed_process.returncode))
+        LOGGER.info(
+            "stdout/stderr/exit saved in files %s/%s/%s" % (stdout_filename, stderr_filename, exitcd_filename))
+
+        if fail_message:
+            self._ddg_repo.psb_status_manager.sys_exit_failure(fail_message)
+
+        # Convert output byte streams to manageable unicode strings.
+        # Return (stdout,stderr,elapsed_time)
+        return (completed_process.returncode,
+                completed_process.stdout,
+                completed_process.stderr,
+                time.perf_counter() - command_start_time)
+
     def final_results_filename(self) -> str:
         return "%s_%s_%s.csv" % (
             self._ddg_repo.structure_id,
@@ -165,13 +385,15 @@ class DDG_base(object):
             self._mutationtext
         )
 
-    def _command_result_filenames(self, binary_program_basename: str):
+    @staticmethod
+    def _command_result_filenames(binary_program_basename: str):
         return (
             binary_program_basename + ".stdout",
             binary_program_basename + ".stderr",
             binary_program_basename + ".exit")
 
-    def _get_previous_exit(self, exitcd_filename: str) -> Tuple[str, int]:
+    @staticmethod
+    def _get_previous_exit(exitcd_filename: str) -> Tuple[str, int]:
         previous_exit = None
         if os.path.isfile(exitcd_filename):
             with open(exitcd_filename, 'r') as exitcd_record:

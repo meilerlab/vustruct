@@ -22,6 +22,7 @@ import json
 import tempfile
 import datetime
 import configparser
+import shutil
 from psb_shared.psb_progress import PsbStatusManager
 LOGGER = logging.getLogger(__name__)
 
@@ -41,20 +42,24 @@ class DDG_repo():
             sys.exit(exit_str)
 
         LOGGER.info("Successfully read ddg_config from " + ddg_config_filename)
-        required_ddg_config_items = ['repo_root', 'rosetta_version', 'rosetta_bin_dir']
 
-        assert ddg_config.has_section('ddG'),'The ddg_config file %s lacks a [ddG] section'%ddg_config_filename
-        ddg_config_dict = dict(ddg_config.items("ddG"))
-        # print('rosetta_bin_dir=',ddg_config_dict['rosetta_bin_dir'])
+        for ddg_config_section in ['ddG', 'ddG_monomer', 'ddG_cartesian']:
+            assert ddg_config.has_section(ddg_config_section),\
+                'The ddg_config file %s lacks a %s section'%(ddg_config_filename,ddg_config_section)
 
-        for required_item in required_ddg_config_items:
-            if not required_item in ddg_config_dict:
-                exit_str = "TERMINATING: %s key must be specified in ddg_config file %s" % (
-                        required_item, ddg_config_filename)
-                LOGGER.critical(exit_str)
-                sys.exit(exit_str)
+        assert 'repo_root' in ddg_config['ddG'],\
+                'The ddG section of %s must contain a repo_root entry'%ddg_config_filename
 
-        return ddg_config_dict
+        # Make sure we have basic entries for monomer and cartesian
+        for ddg_type in ['ddG_monomer', 'ddG_cartesian']:
+            for required_item in [ 'rosetta_version', 'rosetta_bin_dir']:
+                if not required_item in ddg_config[ddg_type]:
+                    exit_str = "TERMINATING: %s key must be specified in %s section of ddg_config file %s" % (
+                            required_item, ddg_type, ddg_config_filename)
+                    LOGGER.critical(exit_str)
+                    sys.exit(exit_str)
+
+        return ddg_config
 
 
     _my_config_dicts = {} # Global dict of read-in ddg configuration files
@@ -74,15 +79,20 @@ class DDG_repo():
 
         if ddg_config_filename in DDG_repo._my_config_dicts:
             LOGGER.info("Re-using config from prior read of %s"%ddg_config_filename)
-            self._ddg_config_dict = DDG_repo._my_config_dicts[ddg_config_filename]
         else:
-            self._ddg_config_dict = DDG_repo.ddg_config_read(ddg_config_filename)
-            DDG_repo._my_config_dicts[ddg_config_filename] = self._ddg_config_dict
+            DDG_repo._my_config_dicts[ddg_config_filename] = \
+                DDG_repo.ddg_config_read(ddg_config_filename)
+            LOGGER.info("ddG Repo config file read: %s"%ddg_config_filename)
+
+        self._ddg_config_dict =  DDG_repo._my_config_dicts[ddg_config_filename][calculation_flavor]
+        self._ddg_config_dict['repo_root'] = DDG_repo._my_config_dicts[ddg_config_filename]['ddG']['repo_root']
 
         self._ddg_config_filename = ddg_config_filename
 
-        self._structure_dir = None  # parent directory for all calculations on a structure.  Contains cleaned PDB and xref
-        self._calculation_dir = None  # final directory where all calculucations are conducted
+        # repo/../structure_id/chain/Annn/  parent directory for all calculations on a structure.
+        # Contains cleaned PDB and cross reference file to the 1..N rosetta poses
+        self._structure_dir = None
+        self._variant_dir = None  # _structure_dir/
         self._residue_to_clean_xref_filename = None  # Json file to Map original structure residue IDs to the rosetta-ready residue ids
         self._cleaned_structure_pdb_filename = None
         self._structure_config_filename = None
@@ -99,6 +109,11 @@ class DDG_repo():
 
         self._ddg_root = os.path.join(self.repo_root_dir, self._calculation_flavor, self.rosetta_version)
         LOGGER.info('DDG calculations will be rooted in %s', self._ddg_root)
+
+    def __repr__(self):
+        return "DDG_repo: %s   repo_root=%s bin_dir=%s"%(
+            self._ddg_config_filename,self._ddg_root,self.rosetta_bin_dir
+        )
 
     @property
     def repo_root_dir(self):
@@ -141,6 +156,27 @@ class DDG_repo():
         self._set_structure_filenames()
         return self._structure_dir
 
+    def set_alphafold(self, alphafold_id: str, chain_id: str) -> str:
+        """
+        Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
+        """
+        self._structure_source = 'alphafold'
+        self._structure_id = alphafold_id
+        self._chain_id = chain_id
+
+        # Format is AF-UNPUNP...
+        uniprot_id = alphafold_id[3:9]
+        self._structure_dir = os.path.join(
+            self._ddg_root,
+            'alphafold',
+            uniprot_id[0:2],
+            uniprot_id[2:4],
+            uniprot_id[4:6],
+            self._structure_id,
+            self._chain_id)
+
+        self._set_structure_filenames()
+
     def set_swiss(self, swiss_id: str, chain_id: str) -> str:
         """
         Part 2 of DDG_repo construction.  Adds directory heirarchy from uniprot ID 2-position segments
@@ -181,19 +217,6 @@ class DDG_repo():
         ensp_id_match = ensp_id_regex.match(modbase_id)
 
         assert ensp_id_match,"The modbase_id of %s seems entirely invalid.  Should be ENSP0000123456 and so forth"%modbase_id
-
-        # modbase_underscore_split = modbase_id.split('_')
-        # assert len(modbase_underscore_split) < 3
-        # modbase_last_6 = modbase_underscore_split[0][:-6:]
-
-        # modbase_last_6 = modbase_id[-6:]
-        # self._structure_dir = os.path.join(
-            # self._ddg_root,
-            # 'modbase',
-            # modbase_last_6[0:3],
-            # modbase_last_6[3:6],
-            # self._structure_id,
-            # self._chain_id)
 
         ENSP_last_3 = ensp_id_match.group(1)[-3:]
         ENSP_suffix = ensp_id_match.group(2)
@@ -239,12 +262,12 @@ class DDG_repo():
         self._variant = variant
         # variant of S123AR (insert code A)
         # results in locating to structure_dir/S123A/R/ for all calculations
-        self._calculation_dir = os.path.join(self._structure_dir, self._variant[0:-1], self._variant[-1])
+        self._variant_dir = os.path.join(self._structure_dir, self._variant[0:-1], self._variant[-1])
 
-        self._psb_status_manager = PsbStatusManager(self._calculation_dir)
-        self._log_filename = os.path.join(self._calculation_dir, "%s_%s_%s.log" % (
+        self._psb_status_manager = PsbStatusManager(self._variant_dir)
+        self._log_filename = os.path.join(self._variant_dir, "%s_%s_%s.log" % (
             self._calculation_flavor, self._structure_id,self._variant))
-        return self._calculation_dir
+        return self._variant_dir
 
     @property
     def psb_status_manager(self):
@@ -313,7 +336,8 @@ class DDG_repo():
                 assert self._residue_to_clean_xref,\
                     ("Unable to load residue_to_clean_xref from %s" %
                      self._residue_to_clean_xref_filename)
-
+                LOGGER.info("Cross-reference dictionary to cleaned structure parsed from %s",
+                            self._residue_to_clean_xref_filename)
         return self._residue_to_clean_xref
 
     @residue_to_clean_xref.setter
@@ -349,6 +373,8 @@ class DDG_repo():
                         LOGGER.exception("Unable to rename %s to %s", tempfile_name,
                                          self._residue_to_clean_xref_filename)
                         sys.exit(1)
+            LOGGER.info("Cross-reference dictionary to cleaned structure saved to %s",
+                        self._residue_to_clean_xref_filename)
 
             self._residue_to_clean_xref = residue_to_clean_xref
 
@@ -430,7 +456,7 @@ class DDG_repo():
         """Import (simply mv) a cleaned structure filename into the repository"""
         assert self._cleaned_structure_pdb_filename
         try:
-            os.rename(cleaned_structure_filename, self._cleaned_structure_pdb_filename)
+            shutil.move(cleaned_structure_filename, self._cleaned_structure_pdb_filename)
         except OSError:
             # IF another process beat us to the punch, then all is well
             # IF not, then something is quite wrong with our attempt at rename
@@ -444,20 +470,20 @@ class DDG_repo():
 
 
     @property
-    def calculation_dir(self) -> str:
+    def variant_dir(self) -> str:
         """The calculation directory as set by __init__/set*structure/set_variant"""
-        return self._calculation_dir
+        return self._variant_dir
 
-    def make_calculation_directory_heirarchy(self):
+    def make_variant_directory_heirarchy(self):
         """
-        Call os.makedirs(self.calculation_dir) and set permissions for group access
+        Call os.makedirs(self.variant_dir) and set permissions for group access
         This will also create the parent variant directory, and grand-parent structure
         directories.
         """
         
-        LOGGER.info("Creating repo variant dir drwxrwx---: %s", self.calculation_dir)
+        LOGGER.info("Creating repo variant dir drwxrwx---: %s", self.variant_dir)
         save_umask = os.umask(0)
-        os.makedirs(self.calculation_dir, mode=0o770, exist_ok=True)
+        os.makedirs(self.variant_dir, mode=0o770, exist_ok=True)
         os.umask(save_umask)
 
     @property

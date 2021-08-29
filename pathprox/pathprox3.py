@@ -40,7 +40,13 @@ from collections import OrderedDict
 import pprint
 from subprocess import Popen, PIPE
 
+from Bio.PDB.Structure import Structure
+from Bio.PDB.Model import Model
+from Bio.PDB.Chain import Chain
+from Bio.PDB.Residue import Residue
+
 from typing import Dict
+from typing import Tuple
 
 ## cache_dir = '/tmp/sqlcache'  # Must be overridden early
 
@@ -117,6 +123,8 @@ if __name__ == "__main__":
          help="Modbase 20 model ID with optional .chain suffix")
     group.add_argument('--swiss',type=str,
          help="Swissmodel ID with optional .chain suffix")
+    group.add_argument('--alphafold',type=str,metavar='FILE',
+         help="ID of an alphafold model with optional .chain suffix")
     group.add_argument('--usermodel',type=str,metavar='FILE',
          help="Filename of a user model.  Requires explicit transcript specifications")
     #cmdline_parser.add_argument("entity",type=str,
@@ -208,8 +216,7 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 # PDBMap
 from lib import PDBMapSwiss
 from lib import PDBMapModbase2020
-# from lib import PDBMapModbase2013
-# from lib import PDBMapModbase2016
+from lib import PDBMapAlphaFold
 from lib import PDBMapProtein
 # from lib.amino_acids import longer_names
 
@@ -244,17 +251,25 @@ def makedirs_capra_lab(DEST_PATH, module_name):
        sys_exit_failure("Fatal: Function %s failed to create destination path %s" % (module_name,DEST_PATH))
     set_capra_group_sticky(DEST_PATH)
 
-def load_structure(id,coord_filename):
+def load_structure(id: str,coord_filename: str) -> Tuple[Structure,Dict]:
     tryParser36 = False
+    structure = None
+    mmcif_dict = {}
     with gzip.open(coord_filename,'rt') if coord_filename.split('.')[-1]=="gz" else \
          lzma.open(coord_filename,'rt') if coord_filename.split('.')[-1]=='xz' else \
              open(coord_filename,'r') as fin:
         filterwarnings('ignore',category=PDBConstructionWarning)
-        try:
-            structure = PDBParser().get_structure(id,fin)
-        except ValueError:
-            tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
-            structure = None
+        coord_filename_pieces = coord_filename.split('.')
+        is_cif_format = (coord_filename_pieces[-1].lower() == 'cif') or (coord_filename_pieces[-2].lower() == 'cif')
+        if is_cif_format:
+            _mmcif_parser = MMCIFParser(QUIET=True)
+            structure =  _mmcif_parser.get_structure(id,fin)
+            mmcif_dict = _mmcif_parser._mmcif_dict
+        else: 
+            try:
+                structure = PDBParser().get_structure(id,fin)
+            except ValueError:
+                tryParser36 = True # We will make a last ditch effort to read this because of alpha in int columns
 
         resetwarnings()
 
@@ -267,7 +282,7 @@ def load_structure(id,coord_filename):
             structure = PDB36Parser().get_structure(id,fin)
             resetwarnings()
 
-    return structure
+    return structure,mmcif_dict
 
 
 def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transcript):
@@ -290,7 +305,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
         else:  # Typically, we load a biounit from PDB file - but good to have tried CIF first
             coord_filename = os.path.join(config_dict['pdb_dir'],"biounit","PDB","divided",pdb_id.lower()[1:3],"%s.pdb1.gz"%pdb_id.lower())
             try:
-                structure = load_structure(pdb_id,coord_filename)
+                structure,_ = load_structure(pdb_id,coord_filename)
                 is_biounit = 1
             except:
                 LOGGER.info("The biounit file %s was not found.  Attempting normal pdb"%os.path.basename(coord_filename))
@@ -308,7 +323,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id,try_biounit_first,chain_to_transc
     if not structure:
         coord_filename = os.path.join(config_dict['pdb_dir'],"structures","divided","pdb",pdb_id.lower()[1:3],"pdb%s.ent.gz"%pdb_id.lower())
         LOGGER.warning("Reverting to .pdb format: %s",coord_Filename)
-        structure = load_structure(pdb_id,coord_filename)
+        structure,_ = load_structure(pdb_id,coord_filename)
         LOGGER.info("Success loading %s",coord_filename)
 
     sifts_chain_to_best_unp = sifts_best_unps(structure)
@@ -405,25 +420,6 @@ def structure_lookup(io,sid,bio=True,chain=None):
       raise Exception(msg)
     return [(sid,0,f)]
 
-#def model_lookup(io,mid):
-#  """ Returns coordinate files for a ModBase ID """
-#  PDBMapModel.load_modbase(config_dict['modbase2016_dir'],config_dict['modbase2016_summary'])
-#  PDBMapModel.load_modbase(config_dict['modbase2013_dir'],config_dict['modbase2013_summary'])
-#  f = PDBMapModel.get_coord_file(mid.upper())
-#  LOGGER.info("File location for %s: %s"%(mid.upper(),f))
-#  #f = "%s/Homo_sapiens_2016/model/%s.pdb.gz"%(args.modbase_dir,mid.upper())
-#  if not os.path.exists(f):
-#    try:
-#      cmd = ["xz","-d",'.'.join(f.split('.')[:-1])+'.xz']
-#      sp.check_call(cmd)
-#    except:
-#      msg  = "Coordinate file missing for %s\n"%mid
-#      msg += "Expected: %s\n"%f
-#      raise Exception(msg)
-#    cmd = ["gzip",'.'.join(f.split('.')[:-1])]
-#    sp.check_call(cmd)
-#  return [(mid,0,f)]
-
 def swiss_lookup(io,model_id):
   """ Returns coordinate files for a Swiss ID """
   PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
@@ -454,10 +450,6 @@ def swiss_lookup(io,model_id):
 #  return flist
 
 def structure_renumber_per_alignments(structure):
-    from Bio.PDB.Structure import Structure
-    from Bio.PDB.Model import Model
-    from Bio.PDB.Chain import Chain
-    from Bio.PDB.Residue import Residue
     renumbered_structure = Structure(structure.id)
     for model in structure:
         renumbered_model = Model(model.id)
@@ -791,19 +783,13 @@ class PDBMapVariantSet():
         # when we're done we'll have nice "in" string so that we get ALL the transcripts in one query
         transcript_in_str = 'transcript in ('
         first_one = True
-        ENST_transcripts_str = ''  # Build up a string that can be part of the dump'd query .tsv filename
         for transcript in ENST_transcripts:
             if not first_one:
                 transcript_in_str += ','
             transcript_in_str += "'%s'"%transcript.id
-            if len(ENST_transcripts_str) > 1:
-                ENST_transcripts_str += '_'
-            ENST_transcripts_str += transcript.id
             first_one = False
         transcript_in_str += ')'
 
-        # import pdb; pdb.set_trace()
-        
         query_str = ("SELECT distinct GC.protein_pos,GC.ref_amino_acid,GC.alt_amino_acid,\n"
                      "GC.chrom as chrom,GC.pos as pos,GC.end as end,GC.id as id,\n"
                      "GC.transcript,GC.allele,GC.ref_codon,GC.alt_codon\n"
@@ -818,9 +804,9 @@ class PDBMapVariantSet():
             query_str += "INNER JOIN clinvar on GC.chrom = clinvar.chrom and GC.pos = clinvar.pos"
             query_str  += " AND clinvar.clnsig like '%drug%'\n"
             label = 'clinvar' # <- careful.  This is a clinvar query in the end: clinvar drug variants...
-        elif label == 'cosmic': 
-            query_str += "INNER JOIN cosmic on GC.chrom = cosmic.chrom and GC.pos = cosmic.pos"
-            query_str  += " AND cosmic.cnt > 1\n"  # COSMIC queries only include count > 1
+        elif label == 'cosmic' or label == 'cosmicV94': 
+            query_str += "INNER JOIN cosmicV94 on GC.chrom = cosmicV94.chrom and GC.pos = cosmicV94.pos"
+            query_str  += " AND cosmicV94.cnt > 1\n"  # COSMIC queries only include count > 1
         elif label == 'cosmic38': 
             query_str += "INNER JOIN cosmic38 on GC.chrom = cosmic38.chrom and GC.pos = cosmic38.pos"
             query_str  += " AND cosmic38.cnt > 1\n"  # COSMIC38 queries only include count > 1
@@ -830,6 +816,9 @@ class PDBMapVariantSet():
             query_str += "INNER JOIN GenomicData ON GC.label = GenomicData.label AND GC.chrom = GenomicData.chrom"
             query_str += " AND GC.pos = GenomicData.pos AND GC.end = GenomicData.end"
             query_str += " AND GenomicData.maf >= 1E-5 \n"  # GNOMAD only include maf of 1 in 10,000 or more to be neutral
+
+
+
 
         query_str += ( " WHERE GC.label=%s and " + transcript_in_str +
                        " and consequence LIKE '%%missense_variant%%' and length(ref_amino_acid)=1 and length(alt_amino_acid)=1 ")
@@ -842,6 +831,20 @@ class PDBMapVariantSet():
                 query_str += "and %s = %d"%(kwarg,kwargs[kwarg])
             else:
                 query_str += "and %s = '%s'"%(kwarg,kwargs[kwarg])"""
+
+
+        ENST_transcripts_str = ''  # Build up a string that can be part of the dump'd query .tsv filename
+        if len(ENST_transcripts) > 3:
+            ENST_transcripts_str = "%s_%s_%d_more_%s"%(
+                ENST_transcripts[0].id,
+                ENST_transcripts[1].id,
+                4-len(ENST_transcripts),
+                ENST_transcripts[-1].id)
+        else: 
+            for transcript in ENST_transcripts:
+                if len(ENST_transcripts_str) > 1:
+                    ENST_transcripts_str += '_'
+                ENST_transcripts_str += transcript.id
 
         force_chain = None # <- For all these SQL queries there is no chain
         prior_variant_count = 0
@@ -1938,7 +1941,7 @@ if __name__ == "__main__":
     cmdline_parser.add_argument("--add_drug",action="store_true",default=False,
                       help="Supplement pathogenic variant set with ClinVar drug response")
     cmdline_parser.add_argument("--add_cosmic",action="store_true",default=False,
-                      help="Supplement pathogenic variant set with COSMIC somatic missense variants")
+                      help="Supplement pathogenic variant set with COSMICv94 somatic missense variants")
     cmdline_parser.add_argument("--add_cosmic38",action="store_true",default=False,
                       help="Supplement pathogenic variant set with COSMIC38 somatic missense variants")
     cmdline_parser.add_argument("--add_tcga",action="store_true",default=False,
@@ -2044,10 +2047,7 @@ if __name__ == "__main__":
       "interpro_dir",
       "modbase2020_dir",
       "modbase2020_summary",
-      # "modbase2013_dir",
-      # "modbase2013_summary",
-      # "modbase2016_dir",
-      # "modbase2016_summary",
+      "alphafold_dir",
       "gnomad_dir",
       "gnomad_filename_template",
       "output_rootdir",
@@ -2180,10 +2180,10 @@ if __name__ == "__main__":
             exitmsg = "--label is required on the command line when loading a --usermodel"
             LOGGER.critical(exitmsg)
             sys_exit_failure(exitmsg)
-        structure = load_structure(args.label,args.usermodel)
+        structure,_ = load_structure(args.label,args.usermodel)
     elif args.swiss: # This is a lenghty-ish swiss model ID, NOT the file location
         PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'],config_dict['swiss_summary']);
-        structure = load_structure(args.swiss,PDBMapSwiss.get_coord_file(args.swiss))
+        structure,_ = load_structure(args.swiss,PDBMapSwiss.get_coord_file(args.swiss))
 
         assigned_chain_id = next(iter(chain_to_transcript))
 
@@ -2200,22 +2200,25 @@ if __name__ == "__main__":
         modbase20 = PDBMapModbase2020(config_dict)
         modbase20_structure_filename = modbase20.get_coord_file(args.modbase)
         if os.path.exists(modbase20_structure_filename):
-           structure = load_structure(args.modbase,modbase20_structure_filename)
+           structure,_ = load_structure(args.modbase,modbase20_structure_filename)
         else:
            msg = "Modbase model %s not found in %s"%(args.modbase,modbase20_structure_Filename)
            LOGGER.critical(msg)
            sys.exit(msg)
-        # modbase20 = PDBMapModbase2020(config_dict)
-        # modbase16_structure_filename = modbase16.get_coord_file(args.modbase)
-        # if os.path.exists(modbase16_structure_filename):
-        #    structure = load_structure(args.modbase,modbase16_structure_filename)
-        # else:
-        #    modbase13 = PDBMapModbase2013(config_dict)
-        #    modbase13_structure_filename = modbase13.get_coord_file(args.modbase)
-        #    if os.path.exists(modbase13_structure_filename):
-        #        structure = load_structure(args.modbase,modbase13_structure_filename)
-        #    else:
-        #        LOGGER.critical("Modbase model id %s not found in either modbase2013/2016 config directories");
+
+    elif args.alphafold:
+        alpha_fold  = PDBMapAlphaFold(config_dict)
+        alpha_fold_structure_filename = alpha_fold.get_coord_filename(args.alphafold)
+        if os.path.exists(alpha_fold_structure_filename):
+           structure,alphafold_mmCIF_dict = load_structure(args.alphafold,alpha_fold_structure_filename)
+           # If we are dealing with not a -F1-... but a -F2- or higher, then we need to renumber the 1..N by the window*200
+           structure = alpha_fold.renumber_windowed_model(structure,alphafold_mmCIF_dict)
+        else:
+           msg = "Alpha fold model %s not found in %s"%(args.alpha_fold,alpha_fold_structure_Filename)
+           LOGGER.critical(msg)
+           sys.exit(msg)
+
+    assert structure is not None,"The structure was not loaded.  Likely due to software bug.  See logs"
 
     # Finally - if the chain left has no id, set the id to A for sanity
     for chain in list(structure.get_chains()):
@@ -2223,7 +2226,7 @@ if __name__ == "__main__":
             LOGGER.info('Renaming blank/missing chain ID to A')
             chain.id = 'A'
 
-    if args.usermodel or args.swiss or args.modbase:
+    if args.usermodel or args.swiss or args.modbase or args.alphafold:
         alignment = PDBMapAlignment()
         for chain_letter in chain_to_transcript:
             alignment = PDBMapAlignment()
@@ -2239,7 +2242,7 @@ if __name__ == "__main__":
             chain_to_alignment[chain_letter] = alignment
 
 
-    assert structure,statusdir_info("A structure file must be specified via --pdb, --biounit, --swiss, --modbase, or --usermodel")
+    assert structure,statusdir_info("A structure file must be specified via --pdb, --biounit, --swiss, --modbase, --alphafold, or --usermodel")
     # Preprocess structural properties
     # Pathprox cannot use models beyond the 0th one - so drop those right away
     models = list(structure.get_models())
@@ -2310,7 +2313,7 @@ if __name__ == "__main__":
     if args.add_pathogenic38:
       args.label += "_clinvar38"
     if args.add_cosmic:
-      args.label += "_cosmic"
+      args.label += "_cosmicV94"
     if args.add_cosmic38:
       args.label += "_cosmic38"
     if args.add_tcga:
@@ -2482,9 +2485,18 @@ if __name__ == "__main__":
                 if not ensembl_transcript.aa_seq:
                     LOGGER.warning("Ensembl transcript %s has no associated aa_seq.  Skipping"%ensembl_transcript_id)
                     continue
-                assert transcript.aa_seq == ensembl_transcript.aa_seq, statusdir_info("%s and %s AA sequences differ:\n%s"%(
-                    transcript.id,ensembl_transcript.id,PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript)))
-                LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
+                differences,pct_different = PDBMapTranscriptBase.analyze_transcript_differences(transcript,ensembl_transcript)
+                if differences == 0: # Awesome - the usual case where uniprot and ENST match
+                    LOGGER.info("Ensembl transcript %s has same aa_seq as transcript %s",ensembl_transcript.id,transcript.id)
+                elif differences == 1: # Let's not kill pathprox if only one variant between uniprot and ENST
+                    LOGGER.warning("Transcripts vary in one position: %s"%PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                elif pct_different < 0.01: # Similarly let Pathprox continue if we have a few variants off - but less than 1% of the sequence
+                    LOGGER.warning("Transcripts vary in multiple positions: %s"%PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                else:
+                    termination_info = "%s and %s AA sequences differ markedly:\n%s"%(transcript.id,ensembl_transcript.id,PDBMapTranscriptBase.describe_transcript_differences(transcript,ensembl_transcript))
+                    statusdir_info(termination_info)
+                    sys.exit(termination_info)
+
                 if ensembl_transcript not in ENST_transcripts:
                     ENST_transcripts.append(ensembl_transcript)
 
@@ -2493,7 +2505,6 @@ if __name__ == "__main__":
         return ENST_transcripts
 
     for chain in structure[0]:
-        # import pdb; pdb.set_trace()
         if chain.id not in chain_to_alignment:
             LOGGER.critical("Chain %s has not been aligned to a transcript.  Skipping SQL variant load",chain.id)
             continue
@@ -2551,7 +2562,7 @@ if __name__ == "__main__":
         if args.add_drug:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'drug')
         if args.add_cosmic:
-            PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmic')
+            PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmicV94')
         if args.add_cosmic38:
             PDBMapVariantSet.query_and_extend('Pathogenic',pathogenic_variant_sets,variant_set_id,ENST_transcripts,'cosmic38')
         if args.add_tcga:

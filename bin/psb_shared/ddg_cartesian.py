@@ -1,20 +1,43 @@
 #!/usr/bin/env python
 """
-class DDG_monomer manages all aspects of Rosetta ddg_monomer calculations 
+class DDG_cartesian manages all aspects of Rosetta ddg_cartesian calculations 
 inside the directory heirarchy supplied by a ddg_repo object
+
+Perform a rosetta ddg_cartesian calculation per the guidelines at
+https://new.rosettacommons.org/docs/latest/cartesian-ddG
+supplemented by 2 critically important papers.
+
+Paper 1 of 2: 2016
+https://doi.org/10.1021/acs.jctc.6b00819
+Hahnbeom Park, et al. David Baker, and Frank DiMaio
+Simultaneous optimization of biomolecular energy function on features from small molecules and macromolecules"
+JCTC.
+
+Paper 2 of 2: 2020 - Critical improvements:
+https://doi.org/10.3389/fbioe.2020.558247
+Frenz, Frank DiMaio, et al. Yifan Song. 2020.
+Prediction of Protein Mutational Free Energy:
+Benchmark and Sampling Improvements Increase Classification Accuracy.
+Frontiers in Bioengineering and Biotechnology 8 (October): 558247.
+
+:return: (True if success,  dataframe of final results)
 """
 import os
+import sys
 import datetime
 import lzma
 import pprint
+from collections import OrderedDict
 import subprocess
 import tempfile
 import time
 import pandas as pd
+import numpy as np
 from io import StringIO
 from psb_shared.ddg_repo import DDG_repo
 from psb_shared.ddg_base import DDG_base
 from typing import Dict, List, Tuple, Union
+from psb_shared.psb_os import pushdir
 
 import logging
 
@@ -28,13 +51,12 @@ class DDG_cartesian(DDG_base):
 
     def _verify_applications_available(self):
         for application in [
-            self._minimize_application_filename,
-            self._per_residues_application_filename,
-            self._ddg_monomer_application_filename]:
+            self._relax_application_filename,
+            self._ddg_cartesian_application_filename]:
             # self._score_jd2_application_filename]:
             application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
             assert os.path.exists(application_fullpath), (
-                    "%s is a required application for ddg_monomer, but not found" % application_fullpath)
+                    "%s is a required application for ddg_cartesian, but not found" % application_fullpath)
 
     def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
@@ -42,266 +64,223 @@ class DDG_cartesian(DDG_base):
         :param mutations: S123AF format (or list of these) that indicate AA, res#, insert code, new AA.
         """
 
-        self._mutations = None
-        self._ddg_repo = None
+        # Let the base class init the repository self._ddg_repo and self._mutations
+        super(DDG_cartesian, self).__init__(ddg_repo,mutations)
+
         self.refresh_ddg_repo_and_mutations(ddg_repo, mutations)
 
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
-        self._minimize_application_filename = 'minimize_with_cst.default.linuxgccrelease'
-        self._per_residues_application_filename = 'per_residue_energies.default.linuxgccrelease'
-        self._ddg_monomer_application_filename = 'ddg_monomer.default.linuxgccrelease'
-        # self._score_jd2_application_filename =   'score_jd2.linuxgccrelease'
 
-        self._application_timers = ['minimize', 'rescore', 'ddg_monomer']
+        # self._relax_application_filename = 'relax.default.linuxgccrelease'
+        self._relax_application_filename = 'rosetta_scripts.default.linuxgccrelease'
+        self._ddg_cartesian_application_filename = 'cartesian_ddg.default.linuxgccrelease'
+        # self._ddg_cartesian_application_filename = 'rosetta_scripts.default.linuxgccrelease'
+
         self._to_pdb = []
 
-        LOGGER.info("ddg_monomer.__init__ completed after setting:\n%s" % pprint.pformat(self.__dict__))
+        # Convert mutation to pose numbering for internal consistency
+        # rosetta_mutations = []  # List of mutations input to ddg
+        self._mutation_resids, self._rosetta_mutations, self._rosetta_residue_number_to_residue_xref = \
+            self.mutations_to_rosetta_poses()
+
+        if not self._rosetta_mutations:
+           self._ddg_repo.psb_status_manager.sys_exit_failure(
+               "No rosetta numbered mutations found to match your request of %s" % self._mutations)
+
+        if len(self._rosetta_mutations) != 1:
+            self._ddg_repo.psb_status_manager.sys_exit_failure(
+                "Only 1 mutation can be specified in __init__ parameter mutations.  You supplied: %s" % self._mutations)
 
 
-    def run(self,
-            iterations: int = 50,
-            standard_ddg: bool = True,
-            high_resolution: bool = True,
-            silent=True) -> Tuple[bool, pd.DataFrame]:
+        # Dump a LOT of stuff.
+        LOGGER.debug("ddg_cartesian.__init__ completed after setting:\n%s" % pprint.pformat(self.__dict__))
+
+    @property
+    def _ddg_predictions_filename(self):
+        filename_prefix = "%s_%s_%s" % (
+            self._ddg_repo.structure_id, self._ddg_repo.chain_id, self._mutationtext)
+        return filename_prefix + ".ddg"
+
+    @property
+    def _mutation_list_filename(self):
+        filename_prefix = "%s_%s_%s" % (
+            self._ddg_repo.structure_id, self._ddg_repo.chain_id, self._mutationtext)
+        return filename_prefix + ".mut"
+
+    @property
+    def _ddg_cartesian_final_directory(self):
         """
-        Perform a rosetta ddg_monomer calculation per the guidelines at
-        https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
+        return the ....variant/ddg_cartesian where final results should be found, if available
+        """
+        return os.path.join(self._ddg_repo.variant_dir,"ddg_cartesian")
 
-        :param iterations: 50 recommended by Rosetta.  Might reduce for quicker debugging
-        :param standard_ddg:  # Seems always true.
-        :param high_resolution: Boolean picks one of two ddg_monomer algoritms True->Row16; False->Row3
-        :param silent:
-        :return: (True if success,  dataframe of final results)
+    @property
+    def analyze_cartesian_ddg(self) -> pd.DataFrame:
+        """
+        Closely copied from Bian Li's analyse_cartesian.py script
+        This class function opens the weird Rosetta ddg_cartesian output file, parses the energy/value pairs
+        and returns the ddgs
         """
 
-        self._ddg_repo.make_calculation_directory_heirarchy()
+        # Frenz et al 2020:
+        # In the analysis step, we changed the number of mutant
+        # models generated using the following convergence criterion: the
+        # lowest energy 2 structures must converge to within 1 Rosetta
+        # Energy Unit, or take the best of 5 models, whichever comes first."""
+
+        # parse the cartesian_ddg results
+        # The format of this file is quite annoying.  It combines WT and MUT energy scores in one file.
+        """  Below is first 80 columns of a .ddg file output\
+COMPLEX:   Round1: WT:  -623.944  fa_atr: -1146.164 fa_rep:   147.805 fa_sol:.......   
+COMPLEX:   Round2: WT:  -623.951  fa_atr: -1146.164 fa_rep:   147.756 fa_sol:   
+COMPLEX:   Round3: WT:  -623.946  fa_atr: -1146.181 fa_rep:   147.800 fa_sol:   
+COMPLEX:   Round1: MUT_106VAL:  -616.753  fa_atr: -1141.595 fa_rep:   148.003 fa
+COMPLEX:   Round2: MUT_106VAL:  -616.754  fa_atr: -1141.586 fa_rep:   147.922 fa
+COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
+        """
+
+
+        wt_energy_dictionaries = []
+        mut_energy_dictionaries = []
+
+        LOGGER.info("analyze_cartesian_ddg occuring in directory %s", self._ddg_cartesian_final_directory)
+
+        ddg_predictions_filename_fullpath = os.path.join(
+            self._ddg_cartesian_final_directory,self._ddg_predictions_filename
+        )
+        if not os.path.exists(ddg_predictions_filename_fullpath):
+            LOGGER.critical("Unable to open %s - no results available",ddg_predictions_filename_fullpath)
+            return None
+
+        with open(ddg_predictions_filename_fullpath, 'rt') as ddg_pf:
+            for line in ddg_pf:
+                if not line.startswith("COMPLEX: "):
+                    message = "ddg_cartesian output file %s:%s lacks required COMPLEX: start" % (
+                        self._ddg_predictions_filename,
+                        line)
+                    LOGGER.critial(message)
+                    sys.exit(message)
+
+                # But we make sure that they are formatted properly
+                energy_fields = line.strip().split()
+                if len(energy_fields) < 4:
+                    if not line.startswith("COMPLEX: "):
+                        message = "ddg_cartesian output file %s:%s has insufficiennt columns" % (
+                            self._ddg_predictions_filename,
+                            line)
+
+                    LOGGER.critial(message)
+                    sys.exit(message)
+
+                # We now split the WT and MUT..
+                # split out the energy description words, and their associated energie floating point values
+                # We ignore the first two columns which are 0=COMPLEX: and 1=RoundN:
+                energy_words = [energy_description.strip(':') for energy_description in energy_fields[2::2]]
+                try:
+                    energy_values = [float(energy_value) for energy_value in energy_fields[3::2]]
+                except ValueError:
+                    message = "ddg_cartesian output file %s:%s has energy values that are not float" % (
+                        self._ddg_predictions_filename,
+                        line)
+
+                    LOGGER.critial(message)
+                    sys.exit(message)
+
+
+                wt_or_mut_energy_dictionaries = None
+                if energy_words[0].startswith('WT_'):  # Add to the wild type (starting) energies dataframe
+                    wt_or_mut_energy_dictionaries = wt_energy_dictionaries
+                elif energy_words[0].startswith('MUT_'):  # Add to the variant (end point) energies dataframe
+                    wt_or_mut_energy_dictionaries = mut_energy_dictionaries
+                else:
+                    message = "ddg_cartesian output file %s:%s has neither WT nor MUT_ energies" % (
+                        self._ddg_predictions_filename,
+                        line)
+                    LOGGER.critical(message)
+                    sys.exit(message)
+
+                if len(energy_words) != len(energy_values):
+                    message = "ddg_cartesian output file %s:%s lacks poairing of energy words and values" % (
+                        self._ddg_predictions_filename,
+                        line)
+                    LOGGER.critial(message)
+                    sys.exit(message)
+
+                # Replace the WT or MUT_..: with "total" in the new dataframes
+                energy_words[0] = 'total'
+                wt_or_mut_energy_dictionaries.append(OrderedDict(zip(energy_words, energy_values)))
+
+        LOGGER.info("Parsed %d WT rows and %d MUT rows from %s", len(wt_energy_dictionaries),len(mut_energy_dictionaries),self._ddg_predictions_filename)
+
+        # calculate the mean and standard deviations for each energy term
+        wt_energy_df = pd.DataFrame(wt_energy_dictionaries)
+        wt_energy_means = wt_energy_df.mean(axis=0)
+        wt_energy_stds = wt_energy_df.std(axis=0)
+
+        mut_energy_df = pd.DataFrame(mut_energy_dictionaries)
+        mut_energy_2_lowest = mut_energy_df.nsmallest(2,'total') # Do NOT use 'all' as you can get more than 2 rows!!
+
+        lowest_2_total_energies = mut_energy_2_lowest['total'].to_numpy()
+        abs_mut_energy_2_lowest_diff = abs(lowest_2_total_energies[0] - lowest_2_total_energies[1])
+
+        if abs_mut_energy_2_lowest_diff > 1:
+            LOGGER.warning("DDG Cartesian min energy mutant calculations did not converge to within 1 Rosetta Energy Unit.  Difference=%f",
+                           abs_mut_energy_2_lowest_diff)
+        else:
+            LOGGER.warning("DDG Cartesian min energy mutant calculations converged to %f Rosetta Enerfy Units",
+                           abs_mut_energy_2_lowest_diff)
+
+        # mut_energy_means = mut_energy_2_lowest.mean(axis=0)
+
+        wt_2_rows_matching_mut_2_lowest_df = wt_energy_df.iloc[mut_energy_2_lowest.index]
+
+        # mut_energy_stds = mut_energy_2_lowest.std(axis=0)
+
+        ddgs_df = pd.DataFrame((mut_energy_2_lowest - wt_2_rows_matching_mut_2_lowest_df).mean()).transpose()
+
+        LOGGER.debug("DDGs Calculated from %s\n%s",self._ddg_predictions_filename,str(ddgs_df))
+
+        return ddgs_df
+
+    def run(self) -> Tuple[bool, pd.DataFrame]:
+
+        self._ddg_repo.make_variant_directory_heirarchy()
 
         # Mirror the log - with INFO level details - to a local file
 
         # commandfile = "commands.txt"
         # Always use silent file/standard ddg for low quality models
-        if not high_resolution:
-            silent = True
-            standard_ddg = True
+        #if not high_resolution:
+        #    silent = True
+        #    standard_ddg = True
 
-        LOGGER.info('DDG_monomer.run called with\nsilent: %s\n,standard_ddg: %s\n,Row16: %s' % (
-            silent, standard_ddg, high_resolution))
+        LOGGER.info('DDG_cartesian.run() starting')
+        # called with\nsilent: %s\n,standard_ddg: %s\n,Row16: %s' % (
+        #    silent, standard_ddg, high_resolution))
 
-        # timestamp_suffix = datetime.datetime.now().strftime("%d%m%y%H%M%S")
+        timestamp_suffix = datetime.datetime.now().strftime("%d%m%y%H%M%S")
         # isoresult, isopdbname, to_pdb = isolate_chain(self._pdb, self._chain)
         # if not isoresult:
         #    return self.failure(None, to_pdb)
         # else:
         #    self._to_pdb = to_pdb
 
-        # Convert mutation to pose numbering for internal consistency
-        rosetta_mutations = []  # List of mutations input to ddg
-
-        mutation_resids = []
-        # Capture the inner bytes,123A of the S123AW format, as Biopython resid tuple
-        for mutation in self._mutations:
-            if mutation[-2].isalpha():  # Then Mutation is like ex: S123AF (Ser->Phe at res 123A)
-                mutation_resid = (' ', int(mutation[1:-2]), mutation[-2])
-            else:  # The much more common case of format S456T
-                mutation_resid = (' ', int(mutation[1:-1]), ' ')
-            assert mutation_resid in self._ddg_repo.residue_to_clean_xref, (
-                    "mutation %s is not in source structure" % str(mutation_resid))
-            mutation_resids.append(mutation_resid)
-
-        for mutation, mutation_resid in zip(self._mutations, mutation_resids):
-            rosetta_residue_number = self._ddg_repo.residue_to_clean_xref[mutation_resid][1]
-            LOGGER.info("Res %s converted to rosetta cleaned res # %d" % (mutation_resid, rosetta_residue_number))
-            # Add to list of rosetta mutations in form A123S
-            rosetta_mutations.append(mutation[0] + str(rosetta_residue_number) + mutation[-1])
-
-        if not rosetta_mutations:
-            self._ddg_repo.psb_status_manager.sys_exit_failure(
-                "No mutations found in parameter self._mutations %s" % self._mutations)
-
-        if len(rosetta_mutations) != 1:
-            self._ddg_repo.psb_status_manager.sys_exit_failure(
-                "Only 1 mutation can be setisfied in parameter self._mutations %s" % self._mutations)
-
-        # Create a reverse lookup dictionary, mapping the 1..N rosetta resdiue numbers
-        # back to source structure residue IDs (which might have insertion codes)
-        rosetta_residue_number_to_residue_xref = {}
-        for residue, clean in self._ddg_repo.residue_to_clean_xref.items():
-            try:
-                rosetta_residue_number = int(clean[1])
-                rosetta_residue_number_to_residue_xref[rosetta_residue_number] = residue
-                LOGGER.debug("%s %s" % (rosetta_residue_number, residue))
-            except:
-                self._ddg_repo.psb_status_manager.sys_exit_failure(
-                    "Creating rosetta->residue reverse xref Failure to deal with residue=%s clean=%s" %
-                    (residue, clean) )
-
         save_current_directory = os.getcwd()
-        os.chdir(self._ddg_repo.calculation_dir)
-
-        def move_prior_file_if_exists(filename):
-            if os.path.exists(filename):
-                archive_dir = "./archive"
-                os.makedirs(archive_dir, exist_ok=True)
-                # append the modification time of the file to the name
-                # and archive in ./archive subdir
-                archive_filename = os.path.join(
-                    archive_dir,
-                    # precede the filename with time stamp of the file's last modification.
-                    datetime.datetime.fromtimestamp(os.path.getmtime(filename)).strftime(
-                        "%Y%M%d%H%M%S") + "_%s" % filename
-                )
-                try:
-                    os.replace(filename, archive_filename)
-                    LOGGER.info("Saved prior run %s as %s" % (filename, archive_filename))
-                except OSError:
-                    LOGGER.exception("Failed to save prior run %s as %s: " % (filename, archive_filename))
-
-        def command_ran_previously(binary_program_basename: str) -> Tuple[int, str, str]:
-            """ 
-            If this program ran earlier, don't re-run it.
-            Instead return the results of the last run 
-
-            param: binary_program_basename:  The binary program file to check for previous completion
-            :return (
-                exit_code: integer exit code we can test for 0
-                str: stdout from command
-                str: stderr from command
-                )
-            
-            """
-            stdout_filename, stderr_filename, exitcd_filename = self._command_result_filenames(binary_program_basename)
-            previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
-
-            previous_stdout = ""
-            if os.path.isfile(stdout_filename):
-                with open(stdout_filename, 'r') as stdout_record:
-                    previous_stdout = stdout_record.read()  # This stdout from previous successful run
-
-            previous_stderr = ""
-            if os.path.isfile(stderr_filename):
-                with open(stderr_filename, 'r') as stderr_record:
-                    previous_stderr = stderr_record.read()  # Read stderr from previous successful run
-
-            if previous_exit_int == 0:
-                LOGGER.info("Previous successful run found\n.  NOT re-running:\n%s" % (
-                    binary_program_basename))
-            else:
-                LOGGER.warning("Previous run did not exit with code 0\n.  Re-running:\n%s" % (
-                    binary_program_basename))
-
-            return (previous_exit_int,
-                    previous_stdout,
-                    previous_stderr)  # runtime 0 may or may not be quite right
-
-        def run_command_line_terminate_on_nonzero_exit(command_line_list: List[str],
-                                                       additional_files_to_archive: List[str] = [],
-                                                       force_rerun=False) -> Tuple[int, str, str, float]:
-            """
-            Launch a shell to run the command line.  
-
-            Definitely run if force_rerun==True (unusual)
-
-            Typically, we do not re-run if we find a .exit file with a zero exit value
-            In that case, we return the saved .stdout and .stderr files, and save
-            the cpu cycles
-
-            Terminates hard if non-zero return value from command line
-
-            :param command_line_list: list of command line components
-            
-            :return (
-                int: return/exit code from command invocation
-                str: stdout from command
-                str: stderr from command
-                float: run time
-
-            """
-
-            # Example: minimzer.linuxgccrelease
-            binary_program_basename = os.path.basename(command_line_list[0])
-            stdout_filename, stderr_filename, exitcd_filename = self._command_result_filenames(binary_program_basename)
-
-            # We've been playing with letting the command list have embedded spaces which have to be 
-            # split back apart...
-            # We may get bitten at some point because some of our arguments are actually 2 arguments
-            # separated by a space.  For now...
-            submitted_command_line_list = []
-            for arg_with_spaces in command_line_list:
-                submitted_command_line_list.extend(arg_with_spaces.split(' '))
-
-            # Archive any additional output files once we commit to re-launching
-            for additional_file in additional_files_to_archive:
-                move_prior_file_if_exists(additional_file)
-
-                # If there is already a file out there with exit code 0, then return the old status
-
-            # For sanity, capture precicsely a reproducible shell command at work for future analysis
-            commandline_record_filename = binary_program_basename + ".commandline_record.sh"
-            move_prior_file_if_exists(commandline_record_filename)
-            with open(commandline_record_filename, 'w') as commandline_record:
-                commandline_record.write("#!/bin/bash\n")
-                commandline_record.write("# Record of command invocation\n")
-                commandline_record.write("# %s\n" % time.ctime(time.time()))
-                commandline_record.write(" \\\n".join(command_line_list))
-                # End the command with redirects to the stderr/stdout files
-                commandline_record.write(" \\\n> %s 2> %s\n" % (stdout_filename, stderr_filename))
-                commandline_record.write("echo Command exited with $?\n")
-
-            command_start_time = time.perf_counter()
-            LOGGER.info("Running via commands:\n%s" % ' '.join(submitted_command_line_list))
-            # run using new API call, 
-            completed_process = subprocess.run(submitted_command_line_list, shell=False, text=True, capture_output=True)
-            fail_message = None
-            if completed_process.returncode == 0:
-                LOGGER.info("%s completed successfully (exit 0)", binary_program_basename)
-            else:
-                fail_message = "%s failed with exit %d" % (binary_program_basename, completed_process.returncode)
-                LOGGER.critical(fail_message)
-
-            # Record all stdout and stderr and exit code
-            move_prior_file_if_exists(stdout_filename)
-            with open(stdout_filename, 'w') as stdout_record:
-                stdout_record.write(completed_process.stdout)  # This writes the 'str'
-
-            move_prior_file_if_exists(stderr_filename)
-            with open(stderr_filename, 'w') as stderr_record:
-                stderr_record.write(completed_process.stderr)
-
-            move_prior_file_if_exists(exitcd_filename)
-            with open(exitcd_filename, 'w') as exitcd_record:
-                exitcd_record.write(str(completed_process.returncode))
-            LOGGER.info(
-                "stdout/stderr/exit saved in files %s/%s/%s" % (stdout_filename, stderr_filename, exitcd_filename))
-
-            if fail_message:
-                self._ddg_repo.psb_status_manager.sys_exit_failure(fail_message)
-
-            # Convert output byte streams to manageable unicode strings.
-            # Return (stdout,stderr,elapsed_time)
-            return (completed_process.returncode,
-                    completed_process.stdout,
-                    completed_process.stderr,
-                    time.perf_counter() - command_start_time)
+        os.chdir(self._ddg_repo.variant_dir)
 
         #############################################################################################
-        # Part 1 of 4        Preminimize the cleaned and renumbered PDB
+        # Part 1 of 2        Relax the cleaned a PDB
         #############################################################################################
 
-        # We will generate file of harmonic restraints - an input to the part 3 calculation
-        minimize_directory = os.path.join(self._ddg_repo.structure_dir, "minimize")
+        relax_directory = os.path.join(self._ddg_repo.structure_dir, "relax")
 
-        ddg_monomer_atom_pair_constraints_basename = "%s_%s.cst" % (
-            self._ddg_repo.structure_id, self._ddg_repo.chain_id)
-        ddg_monomer_atom_pair_constraints_fullpath = os.path.join(
-            minimize_directory, ddg_monomer_atom_pair_constraints_basename)
-
-        def run_part1_minimizer() -> Tuple[str, List[str]]:
+        def run_part1_relax() -> Tuple[str, List[str]]:
             """
-            :return minimized_pdb filename and orignal atom pair distnaces for constraints or halt on errors:
+            Relax creates a number of candidate 'relaxed' .pdb files.  In part 2, we select
+            lowest energy conformation for ddg cartesian calculation
             """
-            # 2020-June-28 Chris Moth Command copied from
-            # https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
+            # See 2020 Frenz et al for guidance
             self._verify_applications_available()
 
             save_curwd = os.getcwd()
@@ -310,97 +289,110 @@ class DDG_cartesian(DDG_base):
             # If the minimize directory is not there
             # Or somehow there without good exit code (should be impossible)
             # Then rerun
-            def load_from_prior_minimize():
-                LOGGER.info("os.chdir('%s')" % minimize_directory)
-                os.chdir(minimize_directory)
-                previous_exit_code, stdout, stdin = command_ran_previously(self._minimize_application_filename)
-                assert previous_exit_code == 0, \
-                    "%s directory lacks a 0 exit code recorded.  This should never happen" % \
-                    minimize_directory
-                assert os.path.isfile(ddg_monomer_atom_pair_constraints_basename), \
-                    "%s directory lacks atom_pair constraints file %s" % (
-                        minimize_directory, ddg_monomer_atom_pair_constraints_basename)
-                LOGGER.info("Returning via os.chdir('%s')" % save_curwd)
-                os.chdir(save_curwd)
-                return previous_exit_code, stdout, stdin
 
-            if os.path.isdir(minimize_directory):
-                previous_exit_code, stdout, stderr = load_from_prior_minimize()
+            def load_from_prior_relax():
+                with pushdir(relax_directory):
+                    previous_exit_code, stdout, stdin = self._command_ran_previously(self._relax_application_filename)
+                    assert previous_exit_code == 0, \
+                        "%s directory lacks a 0 exit code recorded.  This should never happen" % \
+                        relax_directory
+                    return previous_exit_code, stdout, stdin
 
-            minimized_pdb_filename = "minimized.%s_0001.pdb" % (
-                os.path.basename(self._ddg_repo.cleaned_structure_filename).split(".")[0])
+            if os.path.isdir(relax_directory):
+                previous_exit_code, stdout, stderr = load_from_prior_relax()
+
+            target_score_filename = "target.score"
 
             if previous_exit_code == 0:
-                LOGGER.info("Skipping minimization.  Using results from prior calculation")
+                LOGGER.info("Skipping relax.  Using results from prior calculation")
                 returncode = previous_exit_code
                 runtime = 0.0
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
-                # If all goes well, this directory will be moved to remove the minimize_directory
-                tmp_directory = 'tmp_minimize'
+                # If all goes well, this directory will be moved to remove the relax_directory
+                tmp_directory = tempfile.mkdtemp(prefix='tmp_relax',dir='.')
+
                 os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
+ 
+                
+                # relax_script_filename = 'cartesian_relax.script'
+                # with open(relax_script_filename, mode='w') as relax_script_fp:
+                #    relax_script_fp.write(
+                """\
+switch:cartesian
+repeat 2
+ramp_repack_min 0.02  0.01     1.0  50
+ramp_repack_min 0.250 0.01     0.5  50
+ramp_repack_min 0.550 0.01     0.0 100
+ramp_repack_min 1     0.00001  0.0 200
+accept_to_best
+endrepeat"""
+                #)
 
-                # Premin only takes a list of structs even if you only have 1
-                structure_list_filename = 'filename.input'
-                with open(structure_list_filename, mode="w") as structure_list_fp:
-                    structure_list_filename = structure_list_fp.name
-                    structure_list_fp.write(self._ddg_repo.cleaned_structure_filename)
+                # Taken directly from 2020 Frenz et all supplement information
+                with open("cartesianrelaxprep.xml", mode='w') as relax_script_fp:
+                    relax_script_fp.write("""\
+<ROSETTASCRIPTS>
+  <SCOREFXNS>
+    <ScoreFunction name="fullatom" weights="ref2015_cart" symmetric="0" />
+  </SCOREFXNS>
+  <MOVERS>
+    <FastRelax name="fastrelax" scorefxn="fullatom" cartesian="1" repeats="4" />
+  </MOVERS>
+  <PROTOCOLS>
+    <Add mover="fastrelax"/>
+  </PROTOCOLS>
+<OUTPUT scorefxn="fullatom"/>
+</ROSETTASCRIPTS>
+""")
 
-                # WAS  minimize_with_cst.default.linuxgccrelease
-                minimize_with_cst_command = [
-                    # Commented out parameters are in current ddG_monomer documentation
-                    # but incompatible with current rosetta version.  Chris Moth
-                    # discussed with Rocco - and we are staying with our old parameters
-                    # even though they are likely 'wrong'er than they need to be
-                    # 
-                    # OLD command = minimize_with_cst.default.linuxgccrelease -in:file:fullatom -fa_max_dis 9.0 -ddg:harmonic_ca_tether 0.5 -ddg::constraint_weight 1.0 -ddg::out_pdb_prefix minimized -ddg::sc_min_only false -score:weights talaris2014 -in:file:l %s -overwrite -ignore_zero_occupancy false % (templistfile)
-                    #
+                not_used_old_idea_relax_command = [
+                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._relax_application_filename),
+                    "-in:file:s %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    # Not sure about this one: "-in:file:native %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    "-in:file:fullatom",
+                    "-nstruct 20",
+                    "-ignore_unrecognized_res",
+                    "-ignore_zero_occupancy false",
+                    "-parser:protocol cartesianrelaxprep.xml",
+                    "-out:file:scorefile target.score",
+                    "-score:set_weights cart_bonded 0.5 pro_close 0",
+                    "-relax:cartesian true",
+                    "-multiple_processes_writing_to_one_directory",
+                    "-no_color"]
 
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._minimize_application_filename),
-                    '-in:file:l {0}'.format(structure_list_filename),
-                    '-in:file:fullatom',
-                    '-ignore_unrecognized_res',
-                    '-fa_max_dis 9.0',
-                    # '-database {0}'.format(self._ddg_repo.rosetta_database_dir),  # the full oath to the database is required
-                    '-ddg:harmonic_ca_tether 0.5',
-                    '-ddg:out_pdb_prefix minimized',
-                    # '-score:weights standard',
-                    '-score:weights talaris2014',
-                    '-ddg:constraint_weight 1.0',
-                    # '-ddg:out_pdb_prefix minimized',  # Makes no sense to have file name have recommended min_cst_0.5
-                    '-ddg:sc_min_only false'
-                    # '-score:patch {0}'.format(os.path.join(self._ddg_repo.rosetta_database_dir,
-                    #                                        "scoring", "weights", "score12.wts_patch"))
-                    # '> mincst.log'
-                ]
+                    # "-relax:cartesian-score:weights ref2015_cart",
+                    # "-relax:min_type lbfgs_armijo_nonmonotone",
+                    # "-relax_script card2.script",
+                    # Note from colleages: # modify fa_atr and fa_sol
+                    # behavior, really important for protein stability (default: 6).
+                    # This flag needs to match what is used in the cartesian ddg options below.
+                    # "-fa_max_dis 9.0"
+                    #]
 
-                returncode, stdout, stderr, runtime = run_command_line_terminate_on_nonzero_exit(
-                    minimize_with_cst_command,
-                    additional_files_to_archive=[minimized_pdb_filename])
+                # Try the new approach using Mover as described in 2020 paper
+                relax_command = [
+                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._relax_application_filename),
+                    "-in:file:s %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    # Not sure about this one: "-in:file:native %s"%format(self._ddg_repo.cleaned_structure_filename),
+                    "-in:file:fullatom",
+                    "-default_max_cycles 200",
+                    "-ignore_unrecognized_res",
+                    "-ignore_zero_occupancy false",
+                    "-parser:protocol cartesianrelaxprep.xml",
+                    "-out:file:scorefile target.score",
+                    "-missing_density_to_jump",
+                    "-nstruct 20",
+                    "-fa_max_dis 9",
+                    "-relax:cartesian true",
+                    "-multiple_processes_writing_to_one_directory"]
 
-                # Collect data from successful run and create file for part 3
 
-                # Grab the pairwise C-alpha distances (pre-minimized) as constraints to input to next
-                original_atom_pair_distances_constraints = []
-                for line in stdout.split("\n"):
-                    if len(line) > 7 and line[:7] == "c-alpha":
-                        cur = line.split()
-                        original_atom_pair_distances_constraints.append(
-                            "AtomPair CA %s CA %s HARMONIC %s %s" % (cur[5], cur[7], cur[9], cur[12]))
-
-                if not original_atom_pair_distances_constraints:
-                    self._ddg_repo.psb_status_manager.sys_exit_failure(
-                        "No AtomPair contraints returned from %s" % self._minimize_application_filename)
-
-                with open(ddg_monomer_atom_pair_constraints_basename, 'w') as outfile:
-                    outfile.write("\n".join(original_atom_pair_distances_constraints))
-                    outfile.write("\n")
-
-                LOGGER.info("%d atom pair constraints for ddg_monomer written to %s" % (
-                    len(original_atom_pair_distances_constraints),
-                    ddg_monomer_atom_pair_constraints_fullpath) )
+                returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                    relax_command)
+                    # additional_files_to_archive=[minimized_pdb_filename])
 
                 LOGGER.info("Returning via os.chdir(%s)" % save_curwd)
                 os.chdir(save_curwd)
@@ -411,11 +403,12 @@ class DDG_cartesian(DDG_base):
                 # If OTHER tasks beat us to installing their work directory, then 
                 # no worries!  Load that as the data source instead
                 # and discard our hard work
-                LOGGER.info("Attempting os.rename(%s,%s)" % (tmp_directory, minimize_directory))
+
+                LOGGER.info("Attempting os.rename(%s,%s)" % (tmp_directory, relax_directory))
                 rename_succeeded = False
                 if returncode == 0:
                     try:
-                        os.rename(tmp_directory, minimize_directory)
+                        os.rename(tmp_directory, relax_directory)
                         rename_succeeded = True
                     except OSError:
                         # The final minimize directory already exists there
@@ -423,421 +416,199 @@ class DDG_cartesian(DDG_base):
 
                 if not rename_succeeded:
                     # Then some other task beat us...
-                    LOGGER.info("%s already installed by another process." % minimize_directory)
+
+                    LOGGER.info("%s already installed by another process." % relax_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
-                    returncode, stdout, stderr = load_from_prior_minimize()
+                    returncode, stdout, stderr = load_from_prior_relax()
                     assert returncode == 0
 
-            _minimized_pdb_relpath = os.path.join('..', '..', minimize_directory, minimized_pdb_filename)
-            if not os.path.isfile(_minimized_pdb_relpath):
-                self._ddg_repo.psb_status_manager.sys_exit_failure('Minimized pdb file %s was not created by %s' % (
-                    os.path.abspath(_minimized_pdb_relpath), self._minimize_application_filename))
+            _target_score_relpath = os.path.join('..', '..', relax_directory, target_score_filename)
+            if not os.path.isfile(_target_score_relpath):
+                self._ddg_repo.psb_status_manager.sys_exit_failure('file %s was not created by %s' % (
+                    os.path.abspath(_target_score_relpath), self._relax_application_filename))
 
-            return _minimized_pdb_relpath
+            return _target_score_relpath
 
-        self._ddg_repo.psb_status_manager.write_info("Part 1: Minimization")
-        minimized_pdb_relpath = run_part1_minimizer()
+        self._ddg_repo.psb_status_manager.write_info("Part 1: Relax")
+        target_score_relpath = run_part1_relax()
+        target_score_df = pd.read_csv(target_score_relpath,skiprows=1,sep='\s+')
 
-        LOGGER.info("Minimized structure %s available for part 2",
-                    minimized_pdb_relpath)
+
+        LOGGER.info("%s with %d scores available for part 2",target_score_relpath,len(target_score_df))
 
         #############################################################################################
-        # Part 2 of 4        Rescore minimized model and get residue per-residue score  (quasi energy)
+        # Part 2 of 2       Determine the lowest energy relax structure and run Cartesian
         #############################################################################################
-        def run_part2_rescore():
+        def run_part2_ddg_cartesian():
+            previous_exit_code, stdout, stdin = self._command_ran_previously(self._ddg_cartesian_application_filename)
+
+
+            # Step 2.1 is to identify the lowest energy structure from the relax operation.
+            # Grab the .pdb filename based on the minimum score in teh dataframe.
+            min_total_score_rows = target_score_df[target_score_df.total_score == target_score_df.total_score.min()]
+            min_scoring_relaxed_pdb = os.path.join("../../../relax/",min_total_score_rows.iloc[0].description + ".pdb")
+
             self._verify_applications_available()
-            min_residues_filename = 'min_residues.sc'  # Not sure why we'd want timestamp_suffix...
-            per_residues_directory = os.path.join(self._ddg_repo.structure_dir, "per_residue_energies")
             save_curwd = os.getcwd()
             previous_exit_code = 1
             stderr = ""
             stdout = ""
 
-            #######################################################################
-            def load_raw_per_residue_scores():
-                raw_per_residue_scores = []
-                with open(min_residues_filename) as min_residues_f:
-                    for line in min_residues_f.readlines():
-                        line_components = line.strip().split()
-                        if len(line_components) > 2:
-                            if line_components[-1] != 'description':
-                                raw_per_residue_scores.append(line_components[-2])
 
-                # Make sure that we have a score for each residue
-                if len(raw_per_residue_scores) != len(self._ddg_repo.residue_to_clean_xref):
-                    self._ddg_repo.psb_status_manager.sys_exit_failure("%s yielded %d raw_scores.  %d were expected" % (
-                        self._per_residues_application_filename,
-                        len(raw_per_residue_scores),
-                        len(self._ddg_repo.residue_to_clean_xref)))
-                return raw_per_residue_scores
 
-            # If the per_residues directory is not there
+
+            # If the ddg_cartesian directory is not there
             # Or somehow there without good exit code (should be impossible)
             # Then rerun
-            def load_from_prior_per_residues_run():
-                LOGGER.info("os.chdir('%s')" % per_residues_directory)
-                os.chdir(per_residues_directory)
-                previous_exit_code, stdout, stderr = command_ran_previously(self._per_residues_application_filename)
-                assert previous_exit_code == 0, \
-                    "%s directory lacks a 0 exit code recorded.  This should never happen" % \
-                    per_residues_directory
+            def load_from_prior_ddg_cartesian_run():
+                with pushdir(self._ddg_cartesian_final_directory):
+                    previous_exit_code, stdout, stderr = self._command_ran_previously(self._ddg_cartesian_application_filename)
+                    assert previous_exit_code == 0, \
+                        "%s directory lacks a 0 exit code recorded.  This should never happen" % \
+                        self._ddg_cartesian_final_directory
 
-                raw_scores = load_raw_per_residue_scores()
-                LOGGER.info("Returning via os.chdir('%s')" % save_curwd)
-                os.chdir(save_curwd)
-                return previous_exit_code, stdout, stderr, raw_scores
+                    return previous_exit_code, stdout, stderr
 
             #######################################################################
 
-            if os.path.isdir(per_residues_directory):
-                previous_exit_code, stdout, stderr, raw_scores = load_from_prior_per_residues_run()
+            if os.path.isdir(self._ddg_cartesian_final_directory):
+                previous_exit_code, stdout, stderr = load_from_prior_ddg_cartesian_run()
                 returncode = previous_exit_code
                 runtime = 0.0
             else:
-                # Then re-run the minimization in a subdirectory of the variant current directory
-                # If all goes well, this directory will be moved to remove the minimize_directory
-                tmp_directory = tempfile.mkdtemp(prefix='tmp_per_residues', dir='.')
+                # We need to run the cartesian calculation.
+                tmp_directory = tempfile.mkdtemp(prefix='tmp_ddg_cartesian', dir='.')
+
                 os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
-                # Then re-run the minimization in a subdirectory of the variant current directory
-                rescore_command = [
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._per_residues_application_filename),
-                    '-s ' + minimized_pdb_relpath,
-                    '-score:weights talaris2014',
-                    '-out:file:silent %s' % min_residues_filename
-                ]
+
+               
+                # Create a list of mutations to be analyzed by ddg_monomer, .
+                # Documented https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
+                # Cartesian uses same format as monomer for th e".mut" file
+                optimize_proline_flag = 'false'
+                with open(self._mutation_list_filename, 'w') as mutation_list_f:
+                    mutation_list_f.write("total %d\n" % len(self._mutation_resids))
+                    for rosetta_mutation in self._rosetta_mutations:
+                        mutation_list_f.write("1\n")
+                        rosetta_resno = int(rosetta_mutation[1:-1])
+
+                        mutation_list_f.write("%s %d %s\n" % (
+                            rosetta_mutation[0],
+                            rosetta_resno,
+                            rosetta_mutation[-1]))
+
+                        if rosetta_mutation[0] == 'P' or rosetta_mutation[-1] == 'P':
+                            optimize_proline_flag = 'true'
+
+
+                # ddg_cartesian_command = [
+                #     os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename),
+                #     "-database %s"%self._ddg_repo.rosetta_database_dir,
+                #     "-in:file:s %s"%min_scoring_relaxed_pdb,       # The lowest scoring pdb produced by relax
+                #     '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
+                #     "-score:weights ref2015_cart",
+                #     "-ddg:iterations 10",
+                #     "-fa_max_dis 9.0",
+                #     "-ddg:dump_pdbs true",
+                #     "-ddg:cartesian",
+                #     "-ddg:bbnbrs 1",
+                #     "-detect_disulf false",
+                #     "-fa_max_dis 9.0"
+                #     ]
+
+                # min_scoring_relaxed_pdb = "/dors/capra_lab/users/mothcw/ddg_cartesian/FrenzReconstruction/pdbs/%s_%s.pdb"%(
+                #    self._ddg_repo.structure_id.upper(),self._ddg_repo.chain_id)
+                # LOGGER.warning("DO NOT CHECK THIS ABOVE IN OVERRIDE OF STRUCT TO %s",min_scoring_relaxed_pdb)
+                ddg_cartesian_command = [
+                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename),
+                    "-database %s"%self._ddg_repo.rosetta_database_dir,
+                    "-s %s"%min_scoring_relaxed_pdb,       # The lowest scoring pdb produced by relax
+                    "-ddg::iterations 3",
+                    "-ddg::score_cutoff 1",
+                    "-ddg:dump_pdbs true",
+                    "-ddg::bbnbrs 1",
+                    "-score:weights ref2015_cart",
+                    '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
+                    "-ddg:frag_nbrs 2",
+                    "-ignore_zero_occupancy false",
+                    "-missing_density_to_jump",
+                    "-ddg:flex_bb false",
+                    "-ddg::force_iterations false",
+                    "-fa_max_dis 9.0",
+                    # "-ddg::json true",
+                    "-ddg:optimize_wt true",
+                    "-ddg:optimize_proline %s"%optimize_proline_flag, # Set above if WT or MUT res is Pro
+                    "-ddg:legacy false"
+                    # "-ddg:cartesian",
+                    # "-detect_disulf false",
+                    ]
+
+
+
+
+
+
 
                 # stdout, stderr, runtime
-                returncode, _, _, _ = run_command_line_terminate_on_nonzero_exit(
-                    rescore_command,
-                    additional_files_to_archive=[min_residues_filename])
-
-                raw_scores = load_raw_per_residue_scores()
+                returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
+                    ddg_cartesian_command,
+                    additional_files_to_archive=["Need to list there here"])
 
                 LOGGER.info("Returning via os.chdir(%s)" % save_curwd)
                 os.chdir(save_curwd)
 
-                # Move our work to become the new "per_residues" directory
+                # Move our work to become the new "ddg_cartesian" directory
                 # so that other tasks do not have to repeat this work
                 #
                 # If OTHER tasks beat us to installing their work directory, then 
                 # no worries!  Load that as the data source instead
                 # and discard our hard work
-                LOGGER.info("Attempting os.rename('%s','%s')" % (tmp_directory, per_residues_directory))
+                LOGGER.info("Attempting os.rename('%s','%s')" % (tmp_directory, self._ddg_cartesian_final_directory))
                 rename_succeeded = False
                 if returncode == 0:
                     try:
-                        os.rename(tmp_directory, per_residues_directory)
+                        os.rename(tmp_directory, self._ddg_cartesian_final_directory)
                         rename_succeeded = True
                     except OSError:
-                        # The final per_residues directory already exists there
+                        # The final ddg_cartesian directory already exists there
                         pass
 
                 if not rename_succeeded:
                     # Then some other task beat us...
-                    LOGGER.info("%s already installed by another process." % per_residues_directory)
+
+                    LOGGER.info("%s already installed by another process." % self._ddg_cartesian_final_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
-                    returncode, stdout, stderr, raw_scores = load_from_prior_per_residues_run()
+                    returncode, stdout, stderr, raw_scores = load_from_prior_ddg_cartesian_run()
                     assert returncode == 0
 
-            mutation_scores = {}
-            for original_residue_id, rosetta_residue_id in self._ddg_repo.residue_to_clean_xref.items():
-                # Extract the residue # from biopython resid tuple
-                rosetta_residue_number = int(rosetta_residue_id[1])
-                # Rosetta residues start with 1.  Scores indexed from 0
-                raw_score = raw_scores[rosetta_residue_number - 1]
-                if not raw_score:
-                    self._ddg_repo.psb_status_manager.sys_exit_failure(
-                        "Mutation residue %s result is None - investigate" % mutation)
+            # end of part 2 - nothing is returned
 
-                LOGGER.debug("Mutation score for %d %s=%s" % (
-                    rosetta_residue_number,
-                    original_residue_id,
-                    raw_score))
-                mutation_scores[original_residue_id] = float(raw_score)
 
-            return mutation_scores
+        self._ddg_repo.psb_status_manager.write_info("Part 2: Cartesian ddg")
+        run_part2_ddg_cartesian()
 
-        self._ddg_repo.psb_status_manager.write_info("Part 2: Rescore all residues")
-        mutation_scores = run_part2_rescore()
+        return 0,self.analyze_cartesian_ddg;
 
-        #############################################################################################
-        # Part 3 of 4        Run ddg_mononomer
-        # Unlike parts 1 and 2, this run is unique to each mutation
-        # We assume that use of the parent directory here will be unique
-        #############################################################################################
-
-        def run_part3_ddg():
-            self._verify_applications_available()
-            # As other steps, don't re-run ddg monomer if we already have run it successfully
-            previous_exit_code, stdout, stdin = command_ran_previously(self._ddg_monomer_application_filename)
-            ddg_predictions_filename = 'ddg_predictions.out'
-
-            # Does it look like we exited with no error before?
-
-            previous_run_acceptable = False
-            if previous_exit_code == 0:
-                previous_run_acceptable = True
-
-                if not os.path.isfile(ddg_predictions_filename):
-                    previous_run_acceptable = False
-                    LOGGER.warning("Prior ddg_monomer run missing %s.  Restarting" % \
-                                   ddg_predictions_filename)
-
-                if not os.path.isfile(self.final_results_filename()):
-                    previous_run_acceptable = False
-                    LOGGER.warning("Prior ddg_monomer run missing %s.  Restarting" % \
-                                   self.final_results_filename())
-
-            if previous_run_acceptable:
-                # report back from prior run
-                returncode = previous_exit_code
-                final_results_df = pd.read_csv(self.final_results_filename(), sep='\t',
-                                               dtype={'ddG': float, 'WT_Res_Score': float})
-            else:
-                # Start a new run of ddg_monomer
-                # Get rid of the predictions output, else ddg appends to it - problems!
-                try:
-                    os.unlink(ddg_predictions_filename)
-                except OSError:
-                    pass
-
-                # Create a list of mutations to be analyzed by ddg_monomer, using Rosetta 1..N numberings.
-                # Documented https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
-                mutation_list_filename = "%s_%s_%s.mut" % (
-                    self._ddg_repo.structure_id, self._ddg_repo.chain_id, self._mutationtext)
-                with open(mutation_list_filename, 'w') as mutation_list_f:
-                    mutation_list_f.write("total %d\n" % len(rosetta_mutations))
-                    for rosetta_mutation in rosetta_mutations:
-                        mutation_list_f.write("1\n")
-                        mutation_list_f.write("%s %d %s\n" % (
-                            rosetta_mutation[0],
-                            int(rosetta_mutation[1:-1]),
-                            rosetta_mutation[-1]))
-
-                #
-                # https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
-                # STart with obtions common to both protocols
-                ddg_options_filename = "%s_%s_%s.options" % (
-                    self._ddg_repo.structure_id,
-                    self._ddg_repo.chain_id,
-                    self._mutationtext)
-
-                ddg_options = [
-                    '-in:file:s ' + minimized_pdb_relpath,
-                    # PDB file of structure on which point mutations should be made
-                    '-in::file::fullatom',  # read the input PDB file as a fullatom structure
-                    '-ddg::mut_file ' + mutation_list_filename,  # the list of point mutations to consider in this run
-                    '-fa_max_dis 9.0',  # optional -- if not given, the default value of 9.0 Angstroms is used.
-                    '-ddg::dump_pdbs true',
-                    # write one PDB for the wildtype and one for the pointmutant for each iteration
-                    '-database ' + self._ddg_repo.rosetta_database_dir,  # the full oath to the database is required
-                    '-ddg::iterations %d' % iterations,  # Typically 50 iterations of the algorithm
-                    '-mute all',  # silence all of the log-file / stdout output generated by this protocol
-                    '-ignore_unrecognized_res',  # ignore Rosetta-foreign res instead of quitting with error
-                    '-ddg::suppress_checkpointing true',  # don't checkpoint LIZ DOES CHECKPOINTING WORK AT ALL?
-                    '-ddg::output_silent true',  # write output to a silent file
-                    '-ddg:weight_file soft_rep_design'
-                    # soft-repulsive weights for initial sidechain optimization stage'
-                ]
-
-                if high_resolution:
-                    protocol = "Row16"
-                    comment1 = "#High resolution protocol"
-                    comment2 = "#Based on kellogg et al 2011 table 1 row 16"
-                    # Add Row 16-specific options
-                    ddg_options.extend([
-                        # optional -- the weights file to use, if not given, then
-                        # "score12" will be used (score12 = standard.wts + score12.wts_patch)
-                        # '-ddg:minimization_scorefunction <weights file>',
-
-                        # optional -- the weight-patch file to apply to the weight file; does not have to be given"
-                        # -ddg::minimization_patch <weights patch file>
-
-                        # recommended: local optimization restricts the sidechain optimization to only the
-                        # 8 A neighborhood of the mutation (equivalent to row 13)
-                        '-ddg::local_opt_only false',
-
-                        '-ddg::min_cst true',
-                        # use distance restraints (constraints) during backbone minimization phase
-                        # the set of constraints gleaned from the original (non-pre-relaxed/minimized) structure
-                        '-constraints::cst_file ' + ddg_monomer_atom_pair_constraints_fullpath,
-                        '-ddg::mean false',  # do not report the mean energy
-                        '-ddg::min true',  # report the minimum energy
-                        '-ddg::sc_min_only false',
-                        # don't minimize only the backbone during backbone minimization phase
-
-                        # perform three rounds of minimization (and not just the default 1 round)
-                        # where the weight on the repulsive term is increased from 10% to 33% to 100%
-                        '-ddg::ramp_repulsive true',
-                        '-unmute core.optimization.LineMinimizer'  # optional -- unsilence a particular tracer
-
-                        # Options we USED to use:
-                        # -ddg:minimization_scorefunction talaris2014
-                        # - ignore_zero_occupancy false
-                    ])
-                    LOGGER.info("Running high quality (row 16) ddG monomer protocol: %d iterations" % iterations)
-                else:
-                    protocol = "Row3"
-                    comment1 = "#Low resolution protocol"
-                    comment2 = "#Based on kellogg et al 2011 table 1 row 3"
-                    # Add Row 3-specific options
-                    ddg_options.extend([
-                        # repack the residues in an 8 Angstrom shell around the site of the point mutation
-                        '-ddg::local_opt_only true',
-                        '-ddg::mean true # do not report the mean energy',
-                        '-ddg::min false # report the minimum energy'
-                        # Options we USED to use
-                        # -ignore_zero_occupancy false
-                        # -ddg:minimization_scorefunction talaris2014
-                        # Worried about -constraints file
-                    ])
-
-                    LOGGER.info("Running low quality (row 3) ddG monomer protocol: %d iterations" % iterations)
-
-                move_prior_file_if_exists(ddg_options_filename)
-                with open(ddg_options_filename, 'w') as ddg_options_f:
-                    ddg_options_f.write("%s\n" % comment1)
-                    ddg_options_f.write("%s\n" % comment2)
-                    for ddg_option in ddg_options:
-                        ddg_options_f.write("%s\n" % ddg_option)
-
-                # Run actual ddg_monomer application
-
-                # stdout, stderr, runtime =
-                returncode, _, _, _ = run_command_line_terminate_on_nonzero_exit([
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_monomer_application_filename),
-                    "@" + ddg_options_filename],
-                    additional_files_to_archive=[ddg_predictions_filename])
-
-                ######################################################3
-                # Make sure all expected files have been generated
-                # From what I can tell, this branch is abandoned - but wire it in just in case it might be resurrected soon
-                ######################################################3
-                if not silent:
-                    # Cool - looks like one could get all 50 (#iterations) pdbs
-                    # But this code just looks way wrong.
-                    expected_files = [
-                                         "repacked_wt_round_%d.pdb" % (x + 1) for x in range(iterations)] + \
-                                     [ddg_predictions_filename]
-                    for mut in rosetta_mutations:
-                        expected_files += ["mut_%s_round_%d.pdb" % ("".join(str(x) for x in mut), x + 1) for x in
-                                           range(iterations)]
-                else:
-                    # What we normally get
-                    expected_files = [ddg_predictions_filename]
-
-                for expected_file in expected_files:
-                    if not os.path.exists(expected_file):
-                        self._ddg_repo.psb_status_manager.sys_exit_failure(
-                            "Something went wrong with ddg_monomer, expected file %s is missing!" % expected_file)
-
-                # These files are always empty - double check
-                if os.path.isfile("wt_traj"):
-                    if os.stat("wt_traj").st_size == 0:
-                        os.remove("wt_traj")
-
-                # for mut in mutation_pose:
-                #    if os.path.isfile("mutant_traj%s" % "".join(str(x) for x in mut)):
-                #        os.remove("mutant_traj%s" % "".join(str(x) for x in mut))
-
-                ddg_predictions_df = pd.read_csv(
-                    ddg_predictions_filename,
-                    delim_whitespace=True)
-
-                # Ultimate target is final_results file with everything we "want"
-                final_results_df = pd.DataFrame(
-                    columns=["File", "Chain", "Residue", "WT_Res_Score", "Mutation", "ddG", "Protocol"])
-
-                expected = len(self._mutations)
-
-                if ddg_predictions_df.shape[0] != expected:
-                    self._ddg_repo.psb_status_manager.sys_exit_failure(
-                        "Something went wrong with ddg_monomer, expected %d pridictions, got only %d!" % (
-                            expected, ddg_predictions_df.shape[0])
-                    )
-
-                mutation_ddg = {}
-                # temp = mutation_pose[:]
-                # temp.sort(key=lambda x: x[1])
-                # tempraw = "".join("".join(str(x) for x in y) for y in sorted(self._mutations, key=lambda z: z[1]))
-                # Standard ddg uses the output ddG score as provided by application
-                # Nonstandard ddg uses difference in pose scores between the mean score of the top 3 models per condition.
-                if standard_ddg:
-                    for index, row in ddg_predictions_df.iterrows():
-                        rosetta_mutation = row['description']
-
-                        # Populate the ddgs back to the original structure positions (perhaps with insertion codes)
-
-                        original_residue = rosetta_residue_number_to_residue_xref[int(rosetta_mutation[1:-1])]
-                        original_residue_insertion_code = original_residue[2] if original_residue[2].isalpha() else ''
-                        original_mutation = (
-                                rosetta_mutation[0] +
-                                str(original_residue[1]) +
-                                original_residue_insertion_code +
-                                rosetta_mutation[-1])
-
-                        mutation_ddg[original_mutation] = float(row['total'])
-
-                        final_results_df = final_results_df.append({
-                            "File": self._ddg_repo.structure_id,
-                            "Chain": self._ddg_repo.chain_id,
-                            "Residue": str(original_residue[1]) + original_residue_insertion_code,
-                            "WT_Res_Score": mutation_scores[original_residue],
-                            "Mutation": original_mutation,
-                            "ddG": mutation_ddg[original_mutation],
-                            "Protocol": protocol
-                        }, ignore_index=True)
-
-                else:
-                    self._ddg_repo.psb_status_manager.sys_exit_failure(
-                        "NOn Standard DDG is not supported in 2020 see ddg_monomer.py")
-                    # scout, scres = self.get_ddg(high_resolution, silent)
-                    # if not scout:
-                    #     return [False, scres]
-                    # for line in scres:
-                    #    mut, dg = line.split("\t")
-                    #    try:
-                    #        curmut = pose_to_raw[mut]
-                    #    except KeyError:
-                    #        curmut = tempraw
-                    #    mutation_ddg[curmut] = dg
-
-                # full_final_results_filename = os.path.join(save_current_directory, self.final_results_filename())
-
-                final_results_df.to_csv(self.final_results_filename(), sep='\t')
-                LOGGER.info("Results saved to %s" % os.path.abspath(self.final_results_filename()))
-                # End of ddg_monomer calculation
-            return True, final_results_df
-
-        self._ddg_repo.psb_status_manager.write_info("Part 3: DDG monomer")
-        success, final_results_df = run_part3_ddg()
-        if not success:
-            self._ddg_repo.psb_status_manager.sys_exit_failure(
-                "run_part3_ddg() failed - not sure why it got to this point")
-
-        self._ddg_repo.psb_status_manager.mark_complete()
-
-        # self._log_close()
-        os.chdir(save_current_directory)
-        return True, final_results_df
 
     def jobstatus(self) -> Dict[str, str]:
         jobstatus_info = {}
         save_current_directory = os.getcwd()
         try:
-            os.chdir(self._ddg_repo.calculation_dir)
+
+            os.chdir(self._ddg_cartesian_final_directory)
         except FileNotFoundError:
             jobstatus_info['ExitCode'] = None
-            jobstatus_info['jobinfo'] = 'ddg_monomer has not created %s' % self._ddg_repo.calculation_dir
+            jobstatus_info['jobinfo'] = 'ddg_cartesian has not created %s' % self._ddg_cartesian_final_directory
             jobstatus_info['jobprogress'] = jobstatus_info['jobinfo']
             return jobstatus_info
 
-        _, _, exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
+        _, _, exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
+
         previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
         if previous_exit_int == 0:
             jobstatus_info['ExitCode'] = '0'
@@ -853,28 +624,36 @@ class DDG_cartesian(DDG_base):
         os.chdir(save_current_directory)
         return jobstatus_info
 
-    def retrieve_result(self):
-        _, _, exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
+    def retrieve_result(self) -> pd.Series:
+        """
+        Return the ddg_cartesian results details for the one variant as a Pandas Series
+        """
         save_current_directory = os.getcwd()
         try:
-            os.chdir(self._ddg_repo.calculation_dir)
+            os.chdir(self._ddg_repo.variant_dir)
         except FileNotFoundError:
-            LOGGER.info("No results directory %s", self._ddg_repo.calculation_dir)
+            LOGGER.info("No results directory %s",self._ddg_repo.variant_dir)
             return None
 
-        previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
+        ddg_cartesian_result_df = None
 
-        final_results_fullpath = os.path.join(self._ddg_repo.calculation_dir, self.final_results_filename())
+        _,_,exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
+        exitcd_fullpath = os.path.join(self._ddg_cartesian_final_directory,exitcd_filename)
+        previous_exit,previous_exit_int = self._get_previous_exit(exitcd_fullpath)
 
-        if previous_exit_int == 0:
-            final_results_df = pd.read_csv(final_results_fullpath, sep='\t',
-                                           dtype={'ddG': float, 'WT_Res_Score': float})
-            final_results_df['RefAA'] = final_results_df['Mutation'].str[0]
-            final_results_df['AltAA'] = final_results_df['Mutation'].str[-1]
-            LOGGER.debug("ddg of %f read from %s" % (final_results_df['ddG'], final_results_fullpath))
+        if previous_exit is None:
+            LOGGER.info("ddg Results exit status file %s not found" % exitcd_fullpath)
+        elif previous_exit_int == 0:
+            ddg_cartesian_result_df = self.analyze_cartesian_ddg
+            # Above returns None if results could not be loaded.  Put variant at front of series
+            if isinstance(ddg_cartesian_result_df,pd.DataFrame):
+                ddg_cartesian_result_df['structure_id'] = self._ddg_repo.structure_id
+                ddg_cartesian_result_df['chain'] = self._ddg_repo.chain_id
+                ddg_cartesian_result_df['variant'] = self._mutationtext
         else:
-            LOGGER.info("ddg results file %s not found" % (final_results_fullpath))
-            final_results_df = None
+            LOGGER.info("ddg Results exit status file %s contains non-zero exit failure: %s" % (exitcd_fullpath,previous_exit))
 
         os.chdir(save_current_directory)
-        return final_results_df
+
+        return ddg_cartesian_result_df.iloc[0] if ddg_cartesian_result_df is not None else None
+      

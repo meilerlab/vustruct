@@ -32,12 +32,11 @@ import pprint
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, Tuple, List
 from typing import TextIO
-
 # Inspect to recover bsub_submit() and slurm_submit() source code for integration
 # into generated final file
 import inspect
 
-# Dataframes
+
 import pandas as pd
 # from jinja2 import Environment, FileSystemLoader
 
@@ -53,10 +52,7 @@ try:
     capra_group = grp.getgrnam('capra_lab').gr_gid
 except KeyError:
     capra_group = os.getegid()
-
-
 # THIS ABOVE IS CRAP
-
 
 def set_capra_group_sticky(dirname):
     return
@@ -150,6 +146,8 @@ LOGGER.info("Command Line Arguments:\n%s", pprint.pformat(vars(args)))
 
 launchParametersPathProx: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+launchParametersDDGCartesian: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+  
 launchParametersUDNSequence: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDigenicAnalysis: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 
@@ -170,6 +168,7 @@ LSF_required_settings = [
 for launchParameterDictDesc, launchParameters in [
     ('ParametersPathProx', launchParametersPathProx),
     ('ParametersDDGMonomer', launchParametersDDGMonomer),
+    ('ParametersDDGCartesian', launchParametersDDGCartesian),
     ('ParametersUDNSequence', launchParametersUDNSequence),
     ('ParametersDigenicAnalysis', launchParametersDigenicAnalysis)
 ]:
@@ -265,7 +264,7 @@ class JobsLauncher:
         self._all_jobs_cwd = None
 
         # Whether by slurm, LSF or other, each job has s specific command line with arguments that must be run.
-        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'SequenceAnnotation': [], 'DigenicAnalysis': []}
+        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'ddG_cartesian': [],'SequenceAnnotation': [], 'DigenicAnalysis': []}
 
         # After jobs are launched, we will create a 'submitted' file in the status directories for the jobs
         # Might collide with launched program though - so perhaps rethink a bit....
@@ -334,15 +333,11 @@ class JobsLauncher:
                 assert self._all_jobs_cwd is None or self._all_jobs_cwd == row['cwd']
                 self._all_jobs_cwd = row['cwd']
                 # Create the meat of the slurm script for this job
-                # ddG monomer is simpler because it is not managed by the pipeline
+                # ddG monomer and cartesian are simpler because they is not managed by the pipeline
                 launch_string = "%(command)s %(options)s" % row
                 LOGGER.info("%s %s", row['flavor'], launch_string)
                 if 'ddG' not in row['flavor']:
                     launch_string += " --outdir %(outdir)s/%(flavor)s --uniquekey %(uniquekey)s" % row
-                # else: << No just do this in the container
-                #    launch_string = """\
-                #export LD_LIBRARY_PATH=/psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default:\
-                #/psbadmin/rosetta3.7/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default; """ + launch_string
 
                 uniquekey_launch_string = (row['uniquekey'], launch_string)
                 # Launch PathProx Clinvar and COSMIC both with same parameters
@@ -485,6 +480,8 @@ fi
                 slurm_dict = dict(launchParametersPathProx)
             elif subdir == "ddG_monomer":
                 slurm_dict = dict(launchParametersDDGMonomer)
+            elif subdir == "ddG_cartesian":
+                slurm_dict = dict(launchParametersDDGCartesian)
             elif subdir == "SequenceAnnotation":
                 slurm_dict = dict(launchParametersUDNSequence)
             elif subdir == "DigenicAnalysis":
@@ -510,14 +507,14 @@ fi
             # if jobCount > 10:
             #   slurmDict['array'] += "%%10"
 
-            for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output',
+            for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output', 'reservation',
                                 'array']:
                 if slurm_field in slurm_dict and slurm_dict[slurm_field]:
                     slurm_f.write("#SBATCH --%s=%s\n" % (slurm_field, slurm_dict[slurm_field]))
 
             if job_count > 1:
                 slurm_f.write("""\
-echo "SLURM_ARRAY_TASKID="$SLURM_ARRAY_TASKID
+echo "SLURM_ARRAY_TASK_ID="$SLURM_ARRAY_TASK_ID
 """)
             slurm_f.write("""\
 echo "SLURM_JOBID="$SLURM_JOBID
@@ -550,6 +547,7 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
                 slurm_f.write(container_exec_prefix + self._launch_strings[subdir][0][1])
+
                 slurm_f.write("\n")
             else:
                 # Via the case/esac mechanism, select the specific job to run
@@ -587,6 +585,8 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 bsub_dict = dict(launchParametersPathProx)
             elif subdir == "ddG_monomer":
                 bsub_dict = dict(launchParametersDDGMonomer)
+            elif subdir == "ddG_cartesian":
+                bsub_dict = dict(launchParametersDDGCartesian)
             elif subdir == "SequenceAnnotation":
                 bsub_dict = dict(launchParametersUDNSequence)
             elif subdir == "DigenicAnalysis":
@@ -733,7 +733,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         # retail the list of all the .slurm or .bsub files getting launched.
         launch_filenames = []
 
-        for subdir in ['PathProx', 'ddG_monomer', 'SequenceAnnotation', 'DigenicAnalysis']:
+        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','SequenceAnnotation', 'DigenicAnalysis']:
             if len(self._launch_strings[subdir]) == 0:
                 # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
                 if (self._gene == 'casewide' and subdir == 'DigenicAnalysis') or (
@@ -924,11 +924,9 @@ def main():
 Created %s by command line:
 %s
 """ % (datetime.now(), ' '.join(sys.argv)))
-
     launcher_f.write('\n"""\n')
 
     launcher_f.write("""\
-
 import subprocess as sp
 import sys
 import re
@@ -1086,4 +1084,4 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
 
 if __name__ == '__main__':
     main()
-sys.exit(0)
+

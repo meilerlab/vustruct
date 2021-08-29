@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 #
-# Project        : ddg_run
-# Filename       : ddg_run.py
-# Authors        : Chris Moth, based on udn_pipeline2.py
+# Project        : ddg_run_cartesian
+# Filename       : ddg_run_cartesian.py
+# Authors        : Chris Moth, based on ddg_cartesian.py
 # Organization   : Vanderbilt Genetics Institute,
 #                : Vanderbilt University
 # Email          : chris.moth@vanderbilt.edu
@@ -10,8 +10,9 @@
 # =============================================================================#
 
 """ddg_relax
-   - relax structure in preparation for ddg_cartesian.
    - Strips (preps) mmCIF or PDB input structures for Rosetta format,
+   - relax structure in preparation for ddg_cartesian.
+   - calls ddg_Cartesian on the lowest energy relax output structure.
    - maintains a repository (repo) of past ddg results
 
    References:
@@ -59,8 +60,7 @@ from psb_shared.psb_progress import PsbStatusManager
 
 from lib import PDBMapSwiss
 from lib import PDBMapModbase2020
-# from lib import PDBMapModbase2016
-# from lib import PDBMapModbase2013
+from lib import PDBMapAlphaFold
 
 
 #=============================================================================#
@@ -108,6 +108,8 @@ required_config_items = [
     "pdb_dir",
     "modbase2020_dir",
     "modbase2020_summary",
+    "alphafold_dir",
+    "modbase2020_dir",
     "swiss_dir",
     "swiss_summary"]
 
@@ -124,7 +126,7 @@ if not args.ddg_config:  # Usually ddg_config will come from a config file - but
     args.ddg_config = config_dict['ddg_config']
 
 ddg_repo = DDG_repo(args.ddg_config,
-                    calculation_flavor='ddg_cartesian')
+                    calculation_flavor='ddG_cartesian')
 # ddg_repo_dir must be extended below
 if args.pdb:
     ddg_structure_dir = ddg_repo.set_pdb(args.pdb.lower(),args.chain)
@@ -132,16 +134,18 @@ elif args.swiss:
     ddg_structure_dir = ddg_repo.set_swiss(args.swiss,args.chain)
 elif args.modbase:
     ddg_structure_dir = ddg_repo.set_modbase(args.modbase,args.chain)
+elif args.alphafold:
+    ddg_structure_dir = ddg_repo.set_alphafold(args.alphafold,args.chain)
 elif args.usermodel:
     ddg_structure_dir = ddg_repo.set_usermodel(args.usermodel,args.chain)
 else:
-    message="One of --pdb or --swiss or --modbase or --usermodel required on command line"
+    message="One of --pdb, --swiss, --modbase, --alphafold, or --usermodel required on command line"
     LOGGER.critical(message)
     sys.exit(message)
 
 ddg_repo.set_variant(args.variant)
 
-ddg_repo.make_calculation_directory_heirarchy()
+ddg_repo.make_variant_directory_heirarchy()
 
 
 # Add a rotating file handler log in the calculation directory
@@ -191,8 +195,8 @@ else:
                                         mmcif_dict,
                                         True,
                                         species_filter=args.species_filter,
-                                        renumber_residues=False)
-    cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg(False, [args.chain])
+                                        renumber_residues=True)
+    cleaned_structure, residue_to_clean_xref = ddg_cleaner.clean_structure_for_ddg([args.chain])
 
 
     from Bio.PDB import PDBIO
@@ -213,9 +217,10 @@ else:
 # Resume by figuring out that we should keep everything or whatever
 # this case of a SHEEP protein...
 cleaned_structure_filename = ddg_repo.cleaned_structure_filename
+LOGGER.info("Cleaned structure is %s", ddg_repo.cleaned_structure_filename)
 ddg_cartesian = DDG_cartesian(ddg_repo, mutations=args.variant)
+ddg_outcome,ddg_results_df = ddg_cartesian.run()
 
-sys.exit(0)
 
 
 ddg_monomer = DDG_monomer(ddg_repo, mutations=args.variant)
@@ -227,59 +232,3 @@ if not ddg_outcome:  # Really we should never take this branch
     sys.exit(ddg_results_df)
 
 LOGGER.info("Successful end of ddg_run:\n%s"%tabulate(ddg_results_df,headers='keys',tablefmt='psql'))
-
-sys.exit(0)
-
-import pdb; pdb.set_trace()
-
-
-
-"""
-# if args.biounit:
-#  is_biounit,
-# chain_to_transcript)
-if args.usermodel:
-    if not args.label:
-        exitmsg = "--label is required on the command line when loading a --usermodel"
-        LOGGER.critical(exitmsg)
-        ddg_repo.psb_status_manager.sys_exit_failure(exitmsg)
-    structure = load_structure(args.label, args.usermodel)
-elif args.swiss:  # This is a lenghty-ish swiss model ID, NOT the file location
-    PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'], config_dict['swiss_summary']);
-    structure = load_structure(args.swiss, PDBMapSwiss.get_coord_file(args.swiss))
-
-    assigned_chain_id = next(iter(chain_to_transcript))
-
-    # Swiss _could_ be a homo-oliomer - and we want to capture that!
-    # by pointing the additional chain IDs at the same alignment
-    for chain in structure[0]:
-        if chain.id not in chain_to_transcript:
-            first_residue = next(iter(structure[0][chain.id]))
-            # Swiss model seems to put some HETATMs in some of the chains.  DO NOT align to those!
-            if first_residue.id[0] == ' ':
-                chain_to_transcript[chain.id] = chain_to_transcript[assigned_chain_id]
-
-
-    # Finally - if the chain left has no id, set the id to A for sanity
-for chain in list(structure.get_chains()):
-    if chain.id in ('', ' '):
-        LOGGER.info('Renaming blank/missing chain ID to A')
-        chain.id = 'A'
-
-
-
-assert structure, statusdir_info(
-    "A structure file must be specified via --pdb, --biounit, --swiss, --modbase, or --usermodel")
-
-print("AWESOME - %s"%structure)
-
-# config.items() returns a list of (name, value) pairs - convert to dict
-config_dict = dict(config.items("Genome_PDB_Mapper"))
-
-
-
-
-
-print('Test me')
-sys.exit(1)
-"""
