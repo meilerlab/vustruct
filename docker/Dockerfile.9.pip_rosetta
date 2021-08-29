@@ -10,11 +10,15 @@ COPY . psbadmin/
 ENV PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"
 ENV PYTHONPATH="/psbadmin/pdbmap:/psbadmin/bin:$PYTHONPATH"
 ENV psbbin="/psbadmin/bin"
-ENV LD_LIBRARY_PATH="/psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default:\
-/psbadmin/rosetta3.7/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default:$LD_LIBRARY_PATH"
+#
+# Do not hard-code rosetta3.7 in environment, because some of our code needs rosetta3.13 for ddG Cartesian
+# ENV LD_LIBRARY_PATH="/psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default:\
+# /psbadmin/rosetta3.7/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default:$LD_LIBRARY_PATH"
 
 
-#Grab anaconda python and install needed python modules
+#Install python modules needed by the pipeline
+#Install the rosetta 3.7 and 3.13 _extracted_ files, previously extracted
+#by the xfer_rosetta* scripts
 RUN  \
   echo 'PATH=/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:${PATH}' >> /etc/environment && \
   echo 'PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"' > /etc/profile.d/pipeline_setpath9.sh && \
@@ -23,6 +27,9 @@ RUN  \
   mkdir -p /psbadmin/rosetta3.7/main/source/bin && \
   cd /psbadmin/rosetta3.7/main/source/bin && \
   ln -s /psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
+  mkdir -p /psbadmin/rosetta3.13/main/source/bin && \
+  cd /psbadmin/rosetta3.13/main/source/bin && \
+  ln -s /psbadmin/rosetta3.13/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   cd /psbadmin && \
   rm -f --verbose '/psbadmin/chimera-1.15-linux_x86_64_osmesa.bin'
 CMD [ "/bin/bash" ]

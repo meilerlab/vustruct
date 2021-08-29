@@ -2,7 +2,6 @@
 
 FROM chrismoth/image_phase0
 
-#Grab anaconda python and install needed python modules
 RUN \
   yum -y install mysql && \
   yum -y install which && \
