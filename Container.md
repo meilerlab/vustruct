@@ -29,5 +29,9 @@ $ git status # << Check that you are on the branch, typically master, you expect
 ```
 
 3) You must download and install Rosetta versions 3.7 and 3.13 to support ddg_monomer and ddg_cartesian calculations, respectively 
+4) You must push your docker image to the repo before it can be integrated into singularity
+```
+docker push chrismoth/image_phase9:tagname
+```
 
 
