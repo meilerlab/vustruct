@@ -52,8 +52,8 @@ $ python --version
 Python 3.8.8
 
 
-Then install add-on libraries with 
-$ source rampup/pip_install_modules.bash
+# Then install add-on numerous python add-on libraries with:
+./rampup/pip_install_modules.bash
 
 4d) Use "ln -s" so three perl scripts in pdbmap/lib visible in pdbmap directory
 
@@ -65,8 +65,10 @@ ln -sv lib/*.pl .
 $ cd /dors/capra_lab/users/psbadmin
 $ ./precompile.bash
 
-6) Install the htslib-1.11 (or higher) code.  When done binaries bgzip and tabix (used by Ensembl-vep) will be in the PATH.
+6) It now looks like "yum install htslib-tools" is sufficient to get bgzip and tabix
+
 On CentOS 7, this may be easiest via "sudo yum install htslib-tools" and perhaps "sudo yum install htslib-devel"
+
 
 If you lack sudo priviledge, it is not too difficult to download and build the tools for installation
 /dors/capra_lab/users/psbadmin/htslib-1.11 and include the bin subdirectory off that in the PATH there in your psb_prep.bash script

@@ -5,7 +5,6 @@ inside the directory heirarchy supplied by a ddg_repo object
 """
 import os
 import datetime
-import gzip
 import lzma
 import pprint
 import subprocess
@@ -16,10 +15,6 @@ from io import StringIO
 from psb_shared.ddg_repo import DDG_repo
 from psb_shared.ddg_base import DDG_base
 from typing import Dict, List, Tuple, Union
-# from sys import argv, stderr, stdout
-# from os import popen, system
-# from os.path import exists, basename
-from psb_shared.psb_progress import PsbStatusManager
 
 import logging
 
@@ -59,10 +54,10 @@ class DDG_monomer(DDG_base):
 
     def _verify_applications_available(self):
         for application in [
-                self._minimize_application_filename,
-                self._per_residues_application_filename,
-                self._ddg_monomer_application_filename,
-                self._score_jd2_application_filename]:
+            self._minimize_application_filename,
+            self._per_residues_application_filename,
+            self._ddg_monomer_application_filename]:
+            # self._score_jd2_application_filename]:
             application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
             assert os.path.exists(application_fullpath), (
                     "%s is a required application for ddg_monomer, but not found" % application_fullpath)
@@ -73,6 +68,8 @@ class DDG_monomer(DDG_base):
         :param mutations: S123AF format (or list of these) that indicate AA, res#, insert code, new AA.
         """
 
+        self._mutations = None
+        self._ddg_repo = None
         self.refresh_ddg_repo_and_mutations(ddg_repo, mutations)
 
         # Convert mutation to pose numbering for internal consistency
@@ -82,10 +79,10 @@ class DDG_monomer(DDG_base):
 
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
-        self._minimize_application_filename =    'minimize_with_cst.default.linuxgccrelease'
-        self._per_residues_application_filename ='per_residue_energies.linuxgccrelease'
-        self._ddg_monomer_application_filename = 'ddg_monomer.linuxgccrelease'
-        self._score_jd2_application_filename =   'score_jd2.linuxgccrelease'
+        self._minimize_application_filename = 'minimize_with_cst.default.linuxgccrelease'
+        self._per_residues_application_filename = 'per_residue_energies.default.linuxgccrelease'
+        self._ddg_monomer_application_filename = 'ddg_monomer.default.linuxgccrelease'
+        # self._score_jd2_application_filename =   'score_jd2.linuxgccrelease'
 
         self._application_timers = ['minimize', 'rescore', 'ddg_monomer']
         self._to_pdb = []
@@ -124,6 +121,7 @@ class DDG_monomer(DDG_base):
 
         return previous_exit,previous_exit_int
         
+
     def run(self,
             iterations: int = 50,
             standard_ddg: bool = True,
@@ -143,7 +141,7 @@ class DDG_monomer(DDG_base):
         self._ddg_repo.make_variant_directory_heirarchy()
 
         # Mirror the log - with INFO level details - to a local file
-        
+
         # commandfile = "commands.txt"
         # Always use silent file/standard ddg for low quality models
         if not high_resolution:
@@ -167,7 +165,8 @@ class DDG_monomer(DDG_base):
                 archive_filename = os.path.join(
                     archive_dir,
                     # precede the filename with time stamp of the file's last modification.
-                    datetime.datetime.fromtimestamp(os.path.getmtime(filename)).strftime("%Y%M%d%H%M%S") + "_%s"%filename
+                    datetime.datetime.fromtimestamp(os.path.getmtime(filename)).strftime(
+                        "%Y%M%d%H%M%S") + "_%s" % filename
                 )
                 try:
                     os.replace(filename, archive_filename)
@@ -175,8 +174,7 @@ class DDG_monomer(DDG_base):
                 except OSError:
                     LOGGER.exception("Failed to save prior run %s as %s: " % (filename, archive_filename))
 
-
-        def command_ran_previously(binary_program_basename:str) -> Tuple[int,str,str]:
+        def command_ran_previously(binary_program_basename: str) -> Tuple[int, str, str]:
             """ 
             If this program ran earlier, don't re-run it.
             Instead return the results of the last run 
@@ -189,37 +187,33 @@ class DDG_monomer(DDG_base):
                 )
             
             """
-            stdout_filename,stderr_filename,exitcd_filename = self._command_result_filenames(binary_program_basename)
-            previous_exit,previous_exit_int = self._get_previous_exit(exitcd_filename)
+            stdout_filename, stderr_filename, exitcd_filename = self._command_result_filenames(binary_program_basename)
+            previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
 
-            previous_stdout = ""                        
+            previous_stdout = ""
             if os.path.isfile(stdout_filename):
                 with open(stdout_filename, 'r') as stdout_record:
-                    previous_stdout = stdout_record.read() # This stdout from previous successful run
+                    previous_stdout = stdout_record.read()  # This stdout from previous successful run
 
-            previous_stderr = ""                        
+            previous_stderr = ""
             if os.path.isfile(stderr_filename):
                 with open(stderr_filename, 'r') as stderr_record:
-                    previous_stderr = stderr_record.read() # Read stderr from previous successful run
+                    previous_stderr = stderr_record.read()  # Read stderr from previous successful run
 
             if previous_exit_int == 0:
                 LOGGER.info("Previous successful run found\n.  NOT re-running:\n%s" % (
-                            binary_program_basename))
+                    binary_program_basename))
             else:
                 LOGGER.warning("Previous run did not exit with code 0\n.  Re-running:\n%s" % (
-                            binary_program_basename))
+                    binary_program_basename))
 
             return (previous_exit_int,
                     previous_stdout,
-                    previous_stderr) # runtime 0 may or may not be quite right
-
-
-             
-
+                    previous_stderr)  # runtime 0 may or may not be quite right
 
         def run_command_line_terminate_on_nonzero_exit(command_line_list: List[str],
-                additional_files_to_archive: List[str]=[],
-                force_rerun=False) -> Tuple[int, str, str, float]:
+                                                       additional_files_to_archive: List[str] = [],
+                                                       force_rerun=False) -> Tuple[int, str, str, float]:
             """
             Launch a shell to run the command line.  
 
@@ -243,7 +237,7 @@ class DDG_monomer(DDG_base):
 
             # Example: minimzer.linuxgccrelease
             binary_program_basename = os.path.basename(command_line_list[0])
-            stdout_filename,stderr_filename,exitcd_filename = self._command_result_filenames(binary_program_basename)
+            stdout_filename, stderr_filename, exitcd_filename = self._command_result_filenames(binary_program_basename)
 
             # We've been playing with letting the command list have embedded spaces which have to be 
             # split back apart...
@@ -254,12 +248,10 @@ class DDG_monomer(DDG_base):
                 submitted_command_line_list.extend(arg_with_spaces.split(' '))
 
             # Archive any additional output files once we commit to re-launching
-            for additional_file in additional_files_to_archive: 
-                move_prior_file_if_exists(additional_file) 
+            for additional_file in additional_files_to_archive:
+                move_prior_file_if_exists(additional_file)
 
-
-
-            # If there is already a file out there with exit code 0, then return the old status
+                # If there is already a file out there with exit code 0, then return the old status
 
             # For sanity, capture precicsely a reproducible shell command at work for future analysis
             commandline_record_filename = binary_program_basename + ".commandline_record.sh"
@@ -287,7 +279,7 @@ class DDG_monomer(DDG_base):
             # Record all stdout and stderr and exit code
             move_prior_file_if_exists(stdout_filename)
             with open(stdout_filename, 'w') as stdout_record:
-                stdout_record.write(completed_process.stdout) # This writes the 'str'
+                stdout_record.write(completed_process.stdout)  # This writes the 'str'
 
             move_prior_file_if_exists(stderr_filename)
             with open(stderr_filename, 'w') as stderr_record:
@@ -296,7 +288,8 @@ class DDG_monomer(DDG_base):
             move_prior_file_if_exists(exitcd_filename)
             with open(exitcd_filename, 'w') as exitcd_record:
                 exitcd_record.write(str(completed_process.returncode))
-            LOGGER.info("stdout/stderr/exit saved in files %s/%s/%s" % (stdout_filename, stderr_filename,exitcd_filename))
+            LOGGER.info(
+                "stdout/stderr/exit saved in files %s/%s/%s" % (stdout_filename, stderr_filename, exitcd_filename))
 
             if fail_message:
                 self._ddg_repo.psb_status_manager.sys_exit_failure(fail_message)
@@ -313,12 +306,12 @@ class DDG_monomer(DDG_base):
         #############################################################################################
 
         # We will generate file of harmonic restraints - an input to the part 3 calculation
-        minimize_directory = os.path.join(self._ddg_repo.structure_dir,"minimize")
+        minimize_directory = os.path.join(self._ddg_repo.structure_dir, "minimize")
 
         ddg_monomer_atom_pair_constraints_basename = "%s_%s.cst" % (
             self._ddg_repo.structure_id, self._ddg_repo.chain_id)
         ddg_monomer_atom_pair_constraints_fullpath = os.path.join(
-            minimize_directory,ddg_monomer_atom_pair_constraints_basename)
+            minimize_directory, ddg_monomer_atom_pair_constraints_basename)
 
         def run_part1_minimizer() -> Tuple[str, List[str]]:
             """
@@ -330,32 +323,31 @@ class DDG_monomer(DDG_base):
 
             save_curwd = os.getcwd()
             previous_exit_code = 1
-            stderr = ""
-            stdout = ""
+
             # If the minimize directory is not there
             # Or somehow there without good exit code (should be impossible)
             # Then rerun
             def load_from_prior_minimize():
-                LOGGER.info("os.chdir('%s')"%minimize_directory)
+                LOGGER.info("os.chdir('%s')" % minimize_directory)
                 os.chdir(minimize_directory)
-                previous_exit_code,stdout,stdin = command_ran_previously(self._minimize_application_filename)
-                assert previous_exit_code  == 0,\
-                    "%s directory lacks a 0 exit code recorded.  This should never happen"%\
+                previous_exit_code, stdout, stdin = command_ran_previously(self._minimize_application_filename)
+                assert previous_exit_code == 0, \
+                    "%s directory lacks a 0 exit code recorded.  This should never happen" % \
                     minimize_directory
-                assert os.path.isfile(ddg_monomer_atom_pair_constraints_basename),\
-                    "%s directory lacks atom_pair constraints file %s"%(
-                        minimize_directory,ddg_monomer_atom_pair_constraints_basename)
-                LOGGER.info("Returning via os.chdir('%s')"%save_curwd)
+                assert os.path.isfile(ddg_monomer_atom_pair_constraints_basename), \
+                    "%s directory lacks atom_pair constraints file %s" % (
+                        minimize_directory, ddg_monomer_atom_pair_constraints_basename)
+                LOGGER.info("Returning via os.chdir('%s')" % save_curwd)
                 os.chdir(save_curwd)
-                return previous_exit_code,stdout,stdin
+                return previous_exit_code, stdout, stdin
 
             if os.path.isdir(minimize_directory):
-                previous_exit_code,stdout,stderr = load_from_prior_minimize()
+                previous_exit_code, stdout, stderr = load_from_prior_minimize()
 
             minimized_pdb_filename = "minimized.%s_0001.pdb" % (
                 os.path.basename(self._ddg_repo.cleaned_structure_filename).split(".")[0])
 
-            if previous_exit_code == 0: 
+            if previous_exit_code == 0:
                 LOGGER.info("Skipping minimization.  Using results from prior calculation")
                 returncode = previous_exit_code
                 runtime = 0.0
@@ -363,13 +355,13 @@ class DDG_monomer(DDG_base):
                 # Then re-run the minimization in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the minimize_directory
                 tmp_directory = 'tmp_minimize'
-                os.makedirs(tmp_directory,mode=0o770,exist_ok=True)
-                LOGGER.info("os.chdir('%s')"%tmp_directory)
+                os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
+                LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
                 # Premin only takes a list of structs even if you only have 1
                 structure_list_filename = 'filename.input'
-                with open(structure_list_filename,mode="w") as structure_list_fp:
+                with open(structure_list_filename, mode="w") as structure_list_fp:
                     structure_list_filename = structure_list_fp.name
                     structure_list_fp.write(self._ddg_repo.cleaned_structure_filename)
 
@@ -382,8 +374,6 @@ class DDG_monomer(DDG_base):
                     # 
                     # OLD command = minimize_with_cst.default.linuxgccrelease -in:file:fullatom -fa_max_dis 9.0 -ddg:harmonic_ca_tether 0.5 -ddg::constraint_weight 1.0 -ddg::out_pdb_prefix minimized -ddg::sc_min_only false -score:weights talaris2014 -in:file:l %s -overwrite -ignore_zero_occupancy false % (templistfile)
                     #
-
-
 
                     os.path.join(self._ddg_repo.rosetta_bin_dir, self._minimize_application_filename),
                     '-in:file:l {0}'.format(structure_list_filename),
@@ -402,9 +392,7 @@ class DDG_monomer(DDG_base):
                     # '-score:patch {0}'.format(os.path.join(self._ddg_repo.rosetta_database_dir,
                     #                                        "scoring", "weights", "score12.wts_patch"))
                     # '> mincst.log'
-                    ]
-
-
+                ]
 
                 returncode, stdout, stderr, runtime = run_command_line_terminate_on_nonzero_exit(
                     minimize_with_cst_command,
@@ -422,17 +410,17 @@ class DDG_monomer(DDG_base):
 
                 if not original_atom_pair_distances_constraints:
                     self._ddg_repo.psb_status_manager.sys_exit_failure(
-                        "No AtomPair contraints returned from %s" % minimize_application_filename)
+                        "No AtomPair contraints returned from %s" % self._minimize_application_filename)
 
                 with open(ddg_monomer_atom_pair_constraints_basename, 'w') as outfile:
                     outfile.write("\n".join(original_atom_pair_distances_constraints))
                     outfile.write("\n")
 
-                LOGGER.info("%d atom pair constraints for ddg_monomer written to %s"%(
+                LOGGER.info("%d atom pair constraints for ddg_monomer written to %s" % (
                     len(original_atom_pair_distances_constraints),
-                    ddg_monomer_atom_pair_constraints_fullpath))
+                    ddg_monomer_atom_pair_constraints_fullpath) )
 
-                LOGGER.info("Returning via os.chdir(%s)"%save_curwd)
+                LOGGER.info("Returning via os.chdir(%s)" % save_curwd)
                 os.chdir(save_curwd)
 
                 # Move our work to become the new "minimize" directory
@@ -441,11 +429,11 @@ class DDG_monomer(DDG_base):
                 # If OTHER tasks beat us to installing their work directory, then 
                 # no worries!  Load that as the data source instead
                 # and discard our hard work
-                LOGGER.info("Attempting os.rename(%s,%s)"%(tmp_directory,minimize_directory))
+                LOGGER.info("Attempting os.rename(%s,%s)" % (tmp_directory, minimize_directory))
                 rename_succeeded = False
                 if returncode == 0:
                     try:
-                        os.rename(tmp_directory,minimize_directory)
+                        os.rename(tmp_directory, minimize_directory)
                         rename_succeeded = True
                     except OSError:
                         # The final minimize directory already exists there
@@ -453,25 +441,24 @@ class DDG_monomer(DDG_base):
 
                 if not rename_succeeded:
                     # Then some other task beat us...
-                    LOGGER.info("%s already installed by another process."%minimize_directory)
+                    LOGGER.info("%s already installed by another process." % minimize_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
-                    returncode, stdout,stderr = load_from_prior_minimize()
-                    assert returncode == 0 
+                    returncode, stdout, stderr = load_from_prior_minimize()
+                    assert returncode == 0
 
-
-            _minimized_pdb_relpath = os.path.join('..','..',minimize_directory,minimized_pdb_filename)
+            _minimized_pdb_relpath = os.path.join('..', '..', minimize_directory, minimized_pdb_filename)
             if not os.path.isfile(_minimized_pdb_relpath):
                 self._ddg_repo.psb_status_manager.sys_exit_failure('Minimized pdb file %s was not created by %s' % (
-                    os.path.abspath(_minimized_pdb_relpath), minimize_application_filename ))
+                    os.path.abspath(_minimized_pdb_relpath), self._minimize_application_filename))
 
             return _minimized_pdb_relpath
 
         self._ddg_repo.psb_status_manager.write_info("Part 1: Minimization")
         minimized_pdb_relpath = run_part1_minimizer()
 
-        LOGGER.info("Minimized structure %s available for part 2", 
-            minimized_pdb_relpath)
+        LOGGER.info("Minimized structure %s available for part 2",
+                    minimized_pdb_relpath)
 
         #############################################################################################
         # Part 2 of 4        Rescore minimized model and get residue per-residue score  (quasi energy)
@@ -479,12 +466,11 @@ class DDG_monomer(DDG_base):
         def run_part2_rescore():
             self._verify_applications_available()
             min_residues_filename = 'min_residues.sc'  # Not sure why we'd want timestamp_suffix...
-            per_residues_directory = os.path.join(self._ddg_repo.structure_dir,"per_residue_energies")
+            per_residues_directory = os.path.join(self._ddg_repo.structure_dir, "per_residue_energies")
             save_curwd = os.getcwd()
             previous_exit_code = 1
             stderr = ""
             stdout = ""
-
 
             #######################################################################
             def load_raw_per_residue_scores():
@@ -508,29 +494,30 @@ class DDG_monomer(DDG_base):
             # Or somehow there without good exit code (should be impossible)
             # Then rerun
             def load_from_prior_per_residues_run():
-                LOGGER.info("os.chdir('%s')"%per_residues_directory)
+                LOGGER.info("os.chdir('%s')" % per_residues_directory)
                 os.chdir(per_residues_directory)
-                previous_exit_code,stdout,stderr = command_ran_previously(self._per_residues_application_filename)
-                assert previous_exit_code == 0,\
-                    "%s directory lacks a 0 exit code recorded.  This should never happen"%\
+                previous_exit_code, stdout, stderr = command_ran_previously(self._per_residues_application_filename)
+                assert previous_exit_code == 0, \
+                    "%s directory lacks a 0 exit code recorded.  This should never happen" % \
                     per_residues_directory
 
                 raw_scores = load_raw_per_residue_scores()
-                LOGGER.info("Returning via os.chdir('%s')"%save_curwd)
+                LOGGER.info("Returning via os.chdir('%s')" % save_curwd)
                 os.chdir(save_curwd)
-                return previous_exit_code,stdout,stderr,raw_scores
+                return previous_exit_code, stdout, stderr, raw_scores
+
             #######################################################################
 
             if os.path.isdir(per_residues_directory):
-                previous_exit_code,stdout,stderr,raw_scores = load_from_prior_per_residues_run()
+                previous_exit_code, stdout, stderr, raw_scores = load_from_prior_per_residues_run()
                 returncode = previous_exit_code
                 runtime = 0.0
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the minimize_directory
-                tmp_directory = tempfile.mkdtemp(prefix='tmp_per_residues',dir='.')
-                os.makedirs(tmp_directory,mode=0o770,exist_ok=True)
-                LOGGER.info("os.chdir('%s')"%tmp_directory)
+                tmp_directory = tempfile.mkdtemp(prefix='tmp_per_residues', dir='.')
+                os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
+                LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
                 # Then re-run the minimization in a subdirectory of the variant current directory
@@ -548,7 +535,7 @@ class DDG_monomer(DDG_base):
 
                 raw_scores = load_raw_per_residue_scores()
 
-                LOGGER.info("Returning via os.chdir(%s)"%save_curwd)
+                LOGGER.info("Returning via os.chdir(%s)" % save_curwd)
                 os.chdir(save_curwd)
 
                 # Move our work to become the new "per_residues" directory
@@ -557,11 +544,11 @@ class DDG_monomer(DDG_base):
                 # If OTHER tasks beat us to installing their work directory, then 
                 # no worries!  Load that as the data source instead
                 # and discard our hard work
-                LOGGER.info("Attempting os.rename('%s','%s')"%(tmp_directory,per_residues_directory))
+                LOGGER.info("Attempting os.rename('%s','%s')" % (tmp_directory, per_residues_directory))
                 rename_succeeded = False
                 if returncode == 0:
                     try:
-                        os.rename(tmp_directory,per_residues_directory)
+                        os.rename(tmp_directory, per_residues_directory)
                         rename_succeeded = True
                     except OSError:
                         # The final per_residues directory already exists there
@@ -569,23 +556,23 @@ class DDG_monomer(DDG_base):
 
                 if not rename_succeeded:
                     # Then some other task beat us...
-                    LOGGER.info("%s already installed by another process."%per_residues_directory)
+                    LOGGER.info("%s already installed by another process." % per_residues_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
-                    returncode, stdout,stderr,raw_scores = load_from_prior_per_residues_run()
-                    assert returncode == 0 
-
+                    returncode, stdout, stderr, raw_scores = load_from_prior_per_residues_run()
+                    assert returncode == 0
 
             mutation_scores = {}
-            for original_residue_id,rosetta_residue_id in self._ddg_repo.residue_to_clean_xref.items():
+            for original_residue_id, rosetta_residue_id in self._ddg_repo.residue_to_clean_xref.items():
                 # Extract the residue # from biopython resid tuple
                 rosetta_residue_number = int(rosetta_residue_id[1])
                 # Rosetta residues start with 1.  Scores indexed from 0
                 raw_score = raw_scores[rosetta_residue_number - 1]
                 if not raw_score:
-                    self._ddg_repo.psb_status_manager.sys_exit_failure("Mutation residue %s result is None - investigate" % mutation)
+                    self._ddg_repo.psb_status_manager.sys_exit_failure(
+                        "Mutation residue %s result is None - investigate" % mutation)
 
-                LOGGER.debug("Mutation score for %d %s=%s"%(
+                LOGGER.debug("Mutation score for %d %s=%s" % (
                     rosetta_residue_number,
                     original_residue_id,
                     raw_score))
@@ -602,33 +589,33 @@ class DDG_monomer(DDG_base):
         # We assume that use of the parent directory here will be unique
         #############################################################################################
 
-
         def run_part3_ddg():
             self._verify_applications_available()
             # As other steps, don't re-run ddg monomer if we already have run it successfully
-            previous_exit_code,stdout,stdin = command_ran_previously(self._ddg_monomer_application_filename)
+            previous_exit_code, stdout, stdin = command_ran_previously(self._ddg_monomer_application_filename)
             ddg_predictions_filename = 'ddg_predictions.out'
 
             # Does it look like we exited with no error before?
-          
-            previous_run_acceptable = False 
+
+            previous_run_acceptable = False
             if previous_exit_code == 0:
                 previous_run_acceptable = True
 
                 if not os.path.isfile(ddg_predictions_filename):
                     previous_run_acceptable = False
-                    LOGGER.warning("Prior ddg_monomer run missing %s.  Restarting"%\
-                        ddg_predictions_filename)
+                    LOGGER.warning("Prior ddg_monomer run missing %s.  Restarting" % \
+                                   ddg_predictions_filename)
 
                 if not os.path.isfile(self.final_results_filename()):
                     previous_run_acceptable = False
-                    LOGGER.warning("Prior ddg_monomer run missing %s.  Restarting"%\
-                        self.final_results_filename())
+                    LOGGER.warning("Prior ddg_monomer run missing %s.  Restarting" % \
+                                   self.final_results_filename())
 
             if previous_run_acceptable:
                 # report back from prior run
                 returncode = previous_exit_code
-                final_results_df = pd.read_csv(self.final_results_filename(), sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
+                final_results_df = pd.read_csv(self.final_results_filename(), sep='\t',
+                                               dtype={'ddG': float, 'WT_Res_Score': float})
             else:
                 # Start a new run of ddg_monomer
                 # Get rid of the predictions output, else ddg appends to it - problems!
@@ -648,8 +635,6 @@ class DDG_monomer(DDG_base):
                             rosetta_resno,
                             rosetta_mutation[-1]))
 
-
-
                 #
                 # https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
                 # STart with obtions common to both protocols
@@ -659,11 +644,13 @@ class DDG_monomer(DDG_base):
                     self._mutationtext)
 
                 ddg_options = [
-                    '-in:file:s ' + minimized_pdb_relpath,  # PDB file of structure on which point mutations should be made
+                    '-in:file:s ' + minimized_pdb_relpath,
+                    # PDB file of structure on which point mutations should be made
                     '-in::file::fullatom',  # read the input PDB file as a fullatom structure
                     '-ddg::mut_file ' + self._mutation_list_filename,  # the list of point mutations to consider in this run
                     '-fa_max_dis 9.0',  # optional -- if not given, the default value of 9.0 Angstroms is used.
-                    '-ddg::dump_pdbs true',  # write one PDB for the wildtype and one for the pointmutant for each iteration
+                    '-ddg::dump_pdbs true',
+                    # write one PDB for the wildtype and one for the pointmutant for each iteration
                     '-database ' + self._ddg_repo.rosetta_database_dir,  # the full oath to the database is required
                     '-ddg::iterations %d' % iterations,  # Typically 50 iterations of the algorithm
                     '-mute all',  # silence all of the log-file / stdout output generated by this protocol
@@ -671,7 +658,8 @@ class DDG_monomer(DDG_base):
                     '-ignore_zero_occupancy false', # Plenty of good CryoEM structures publish with 0 occupancy
                     '-ddg::suppress_checkpointing true',  # don't checkpoint LIZ DOES CHECKPOINTING WORK AT ALL?
                     '-ddg::output_silent true',  # write output to a silent file
-                    '-ddg:weight_file soft_rep_design'  # soft-repulsive weights for initial sidechain optimization stage'
+                    '-ddg:weight_file soft_rep_design'
+                    # soft-repulsive weights for initial sidechain optimization stage'
                 ]
 
                 if high_resolution:
@@ -691,12 +679,14 @@ class DDG_monomer(DDG_base):
                         # 8 A neighborhood of the mutation (equivalent to row 13)
                         '-ddg::local_opt_only false',
 
-                        '-ddg::min_cst true',  # use distance restraints (constraints) during backbone minimization phase
+                        '-ddg::min_cst true',
+                        # use distance restraints (constraints) during backbone minimization phase
                         # the set of constraints gleaned from the original (non-pre-relaxed/minimized) structure
                         '-constraints::cst_file ' + ddg_monomer_atom_pair_constraints_fullpath,
                         '-ddg::mean false',  # do not report the mean energy
                         '-ddg::min true',  # report the minimum energy
-                        '-ddg::sc_min_only false',  # don't minimize only the backbone during backbone minimization phase
+                        '-ddg::sc_min_only false',
+                        # don't minimize only the backbone during backbone minimization phase
 
                         # perform three rounds of minimization (and not just the default 1 round)
                         # where the weight on the repulsive term is increased from 10% to 33% to 100%
@@ -740,7 +730,7 @@ class DDG_monomer(DDG_base):
                     os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_monomer_application_filename),
                     "@" + ddg_options_filename],
                     additional_files_to_archive=[ddg_predictions_filename])
-                 
+
                 ######################################################3
                 # Make sure all expected files have been generated
                 # From what I can tell, this branch is abandoned - but wire it in just in case it might be resurrected soon
@@ -749,7 +739,7 @@ class DDG_monomer(DDG_base):
                     # Cool - looks like one could get all 50 (#iterations) pdbs
                     # But this code just looks way wrong.
                     expected_files = [
-                            "repacked_wt_round_%d.pdb" % (x + 1) for x in range(iterations)] + \
+                                         "repacked_wt_round_%d.pdb" % (x + 1) for x in range(iterations)] + \
                                      [ddg_predictions_filename]
                     for mut in self._rosetta_mutations:
                         expected_files += ["mut_%s_round_%d.pdb" % ("".join(str(x) for x in mut), x + 1) for x in
@@ -761,12 +751,12 @@ class DDG_monomer(DDG_base):
                 for expected_file in expected_files:
                     if not os.path.exists(expected_file):
                         self._ddg_repo.psb_status_manager.sys_exit_failure(
-                            "Something went wrong with ddg_monomer, expected file %s is missing!"%expected_file)
+                            "Something went wrong with ddg_monomer, expected file %s is missing!" % expected_file)
 
                 # These files are always empty - double check
                 if os.path.isfile("wt_traj"):
-                   if os.stat("wt_traj").st_size == 0:
-                       os.remove("wt_traj")
+                    if os.stat("wt_traj").st_size == 0:
+                        os.remove("wt_traj")
 
                 # for mut in mutation_pose:
                 #    if os.path.isfile("mutant_traj%s" % "".join(str(x) for x in mut)):
@@ -795,7 +785,7 @@ class DDG_monomer(DDG_base):
                 # Standard ddg uses the output ddG score as provided by application
                 # Nonstandard ddg uses difference in pose scores between the mean score of the top 3 models per condition.
                 if standard_ddg:
-                    for index,row in ddg_predictions_df.iterrows():
+                    for index, row in ddg_predictions_df.iterrows():
                         rosetta_mutation = row['description']
 
                         # Populate the ddgs back to the original structure positions (perhaps with insertion codes)
@@ -818,7 +808,7 @@ class DDG_monomer(DDG_base):
                             "Mutation": original_mutation,
                             "ddG": mutation_ddg[original_mutation],
                             "Protocol": protocol
-                        },ignore_index=True)
+                        }, ignore_index=True)
 
                 else:
                     self._ddg_repo.psb_status_manager.sys_exit_failure(
@@ -842,9 +832,10 @@ class DDG_monomer(DDG_base):
             return True, final_results_df
 
         self._ddg_repo.psb_status_manager.write_info("Part 3: DDG monomer")
-        success,final_results_df = run_part3_ddg()
-        if not success: 
-            self._ddg_repo.psb_status_manager.sys_exit_failure("run_part3_ddg() failed - not sure why it got to this point")
+        success, final_results_df = run_part3_ddg()
+        if not success:
+            self._ddg_repo.psb_status_manager.sys_exit_failure(
+                "run_part3_ddg() failed - not sure why it got to this point")
 
         self._ddg_repo.psb_status_manager.mark_complete()
 
@@ -852,7 +843,7 @@ class DDG_monomer(DDG_base):
         os.chdir(save_current_directory)
         return True, final_results_df
 
-    def jobstatus(self) -> Dict[str,str]:
+    def jobstatus(self) -> Dict[str, str]:
         jobstatus_info = {}
         save_current_directory = os.getcwd()
         try:
@@ -863,20 +854,22 @@ class DDG_monomer(DDG_base):
             jobstatus_info['jobprogress'] = jobstatus_info['jobinfo']
             return jobstatus_info
 
-        _,_,exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
-        previous_exit,previous_exit_int = self._get_previous_exit(exitcd_filename)
+        _, _, exitcd_filename = self._command_result_filenames(self._ddg_monomer_application_filename)
+        previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
         if previous_exit_int == 0:
             jobstatus_info['ExitCode'] = '0'
-            jobstatus_info['jobprogress'] = 'Completed' # For now, we will overwrite memory on happy exit - need to think
+            jobstatus_info[
+                'jobprogress'] = 'Completed'  # For now, we will overwrite memory on happy exit - need to think
             jobstatus_info['jobinfo'] = 'Completed'
         else:
             jobstatus_info['ExitCode'] = previous_exit
-            info,progress = self._ddg_repo.psb_status_manager.read_info_progress()
+            info, progress = self._ddg_repo.psb_status_manager.read_info_progress()
             jobstatus_info['jobinfo'] = info
             jobstatus_info['jobprogress'] = progress
 
         os.chdir(save_current_directory)
         return jobstatus_info
+
 
     def retrieve_result(self) -> pd.Series:
         """Return the calculated ddG results as a pandas series, or None"""
@@ -888,7 +881,7 @@ class DDG_monomer(DDG_base):
             LOGGER.info("No results directory %s",self._ddg_repo.variant_dir)
             return None
 
-        previous_exit,previous_exit_int = self._get_previous_exit(exitcd_filename)
+        previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
 
         final_results_fullpath = os.path.join(self._ddg_repo.variant_dir,self.final_results_filename())
 
@@ -897,11 +890,10 @@ class DDG_monomer(DDG_base):
             assert len(final_results_df) == 1,"Format error: single row of data not found in %s - halting"%final_results_fullpath
             final_results_df['RefAA'] = final_results_df['Mutation'].str[0]
             final_results_df['AltAA'] = final_results_df['Mutation'].str[-1]
-            LOGGER.debug("ddg of %f read from %s"%(final_results_df['ddG'],final_results_fullpath))
+            LOGGER.debug("ddg of %f read from %s" % (final_results_df['ddG'], final_results_fullpath))
         else:
-            LOGGER.info("ddg results file %s not found"%(final_results_fullpath))
+            LOGGER.info("ddg results file %s not found" % (final_results_fullpath))
             final_results_df = None
 
         os.chdir(save_current_directory)
         return final_results_df.iloc[0] if final_results_df is not None else None
-        

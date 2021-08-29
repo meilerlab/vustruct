@@ -204,7 +204,10 @@ def copy_html_css_javascript():
         sys.exit(1)
 
     # Now give read access to everyone, read-write to group, execute on directories
-    capra_group = grp.getgrnam('capra_lab').gr_gid
+    try:
+        capra_group = grp.getgrnam('capra_lab').gr_gid
+    except KeyError:
+        capra_group = os.getegid()
 
     os.chmod(dest, 0o775)
     os.chown(dest, -1, capra_group)
@@ -217,7 +220,6 @@ def copy_html_css_javascript():
             fname = os.path.join(root, file)
             os.chmod(fname, 0o664)
             os.chown(os.path.join(fname), -1, capra_group)
-
 
 # Return a dictionary of "generic Interactions" that can flow into the summary report
 # Return an html table that can be placed at end of summary report
@@ -1014,10 +1016,12 @@ def _initialize_local_logging_in_variant_directory(variant_directory: str):
 
     return local_fh # Be sure to _end_local_logging(local_fh) on this later
 
+
 def _end_local_logging(local_fh: RotatingFileHandler):
     local_fh.flush()
     local_fh.close()
     LOGGER.removeHandler(local_fh)
+
 
 
 class PfamDomainGraphics:
@@ -1402,7 +1406,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str) -> Dict:
 
     save_cwd = os.getcwd();
     os.chdir(variant_report_directory);
-
+    
     # WE ARE NOW OPERATING FROM ..../UDN/CaseName target directory
     LOGGER.info("Now working in %s", variant_report_directory)
 

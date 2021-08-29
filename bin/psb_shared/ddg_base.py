@@ -44,7 +44,7 @@ class DDG_base(object):
     def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
         Initialize self._ddg_repo, self._mutations from caller's data.
-
+        
         Generally called from derived DDG_monomer or DDG_cartesian function to handle shared
         initializtion needs.
         :param ddg_repo:
@@ -115,7 +115,6 @@ class DDG_base(object):
 
         return mutation_resids,rosetta_mutations,rosetta_residue_number_to_residue_xref
 
-
     @staticmethod
     def evaluate_swiss(swiss_modelid, swiss_remark3_metrics):
         """Swiss models are assumed to be of reasonable fundamental quality.
@@ -162,7 +161,6 @@ class DDG_base(object):
         rmsd_threshold = 4.0
         qual_threshold = 1.1
 
-
         if not modbase_filename:
             if type(modbase_fullpath_or_fin) == StringIO:
                 modbase_filename = "[loaded memory buffer]"
@@ -174,6 +172,7 @@ class DDG_base(object):
         
 
         LOGGER.info('Checking quality of modbase file %s', modbase_filename)
+        
         with modbase_fullpath_or_fin if type(modbase_fullpath_or_fin) == StringIO else \
                 lzma.open(modbase_fullpath_or_fin, 'rt') as infile:
             for line in infile:
@@ -229,6 +228,7 @@ class DDG_base(object):
                        str(modpipe_acceptable), str(tsvmod_acceptable), str(sequence_identity_acceptable)))
 
         return modbase_ok
+
 
     @staticmethod
     def _move_prior_file_if_exists(filename):
@@ -377,7 +377,6 @@ class DDG_base(object):
                 completed_process.stdout,
                 completed_process.stderr,
                 time.perf_counter() - command_start_time)
-
 
     def final_results_filename(self) -> str:
         return "%s_%s_%s.csv" % (

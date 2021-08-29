@@ -9,7 +9,7 @@
 # Date           : 2020-May
 # =============================================================================#
 
-"""\
+"""ddg_relax
    - Strips (preps) mmCIF or PDB input structures for Rosetta format,
    - relax structure in preparation for ddg_cartesian.
    - calls ddg_Cartesian on the lowest energy relax output structure.
@@ -216,13 +216,11 @@ else:
 
 # Resume by figuring out that we should keep everything or whatever
 # this case of a SHEEP protein...
+cleaned_structure_filename = ddg_repo.cleaned_structure_filename
 LOGGER.info("Cleaned structure is %s", ddg_repo.cleaned_structure_filename)
 ddg_cartesian = DDG_cartesian(ddg_repo, mutations=args.variant)
 ddg_outcome,ddg_results_df = ddg_cartesian.run()
-# parameters from ddg_monomer, not used here apparently.
-# high_resolution=('resolution' in structure_info_dict) and (float(structure_info_dict['resolution']) < 2.5))
 
-sys.exit(0)
 
 
 ddg_monomer = DDG_monomer(ddg_repo, mutations=args.variant)
@@ -234,59 +232,3 @@ if not ddg_outcome:  # Really we should never take this branch
     sys.exit(ddg_results_df)
 
 LOGGER.info("Successful end of ddg_run:\n%s"%tabulate(ddg_results_df,headers='keys',tablefmt='psql'))
-
-sys.exit(0)
-
-import pdb; pdb.set_trace()
-
-
-
-"""
-# if args.biounit:
-#  is_biounit,
-# chain_to_transcript)
-if args.usermodel:
-    if not args.label:
-        exitmsg = "--label is required on the command line when loading a --usermodel"
-        LOGGER.critical(exitmsg)
-        ddg_repo.psb_status_manager.sys_exit_failure(exitmsg)
-    structure = load_structure(args.label, args.usermodel)
-elif args.swiss:  # This is a lenghty-ish swiss model ID, NOT the file location
-    PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'], config_dict['swiss_summary']);
-    structure = load_structure(args.swiss, PDBMapSwiss.get_coord_file(args.swiss))
-
-    assigned_chain_id = next(iter(chain_to_transcript))
-
-    # Swiss _could_ be a homo-oliomer - and we want to capture that!
-    # by pointing the additional chain IDs at the same alignment
-    for chain in structure[0]:
-        if chain.id not in chain_to_transcript:
-            first_residue = next(iter(structure[0][chain.id]))
-            # Swiss model seems to put some HETATMs in some of the chains.  DO NOT align to those!
-            if first_residue.id[0] == ' ':
-                chain_to_transcript[chain.id] = chain_to_transcript[assigned_chain_id]
-
-
-    # Finally - if the chain left has no id, set the id to A for sanity
-for chain in list(structure.get_chains()):
-    if chain.id in ('', ' '):
-        LOGGER.info('Renaming blank/missing chain ID to A')
-        chain.id = 'A'
-
-
-
-assert structure, statusdir_info(
-    "A structure file must be specified via --pdb, --biounit, --swiss, --modbase, --alphafold, or --usermodel")
-
-print("AWESOME - %s"%structure)
-
-# config.items() returns a list of (name, value) pairs - convert to dict
-config_dict = dict(config.items("Genome_PDB_Mapper"))
-
-
-
-
-
-print('Test me')
-sys.exit(1)
-"""

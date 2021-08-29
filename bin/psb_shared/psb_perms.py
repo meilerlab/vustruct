@@ -15,6 +15,7 @@ class PsbPermissions(object):
     """Attempt to mark a directory as being owned by the configured group.
     Then, attempt to mark the directory's sticky bit so that this group
     id propagates to any files created inside this directory"""
+    return
 
     try:
       os.chown(dirname, -1, self.gr_gid)

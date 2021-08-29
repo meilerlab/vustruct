@@ -317,6 +317,8 @@ class DDG_repo():
         Return the cross-reference dictionary which maps original structure residue IDs
         to calculation-ready (typically 1,2,..N) numbered residue ID tuples
         """
+        # assert self._calculation_flavor != "ddg_cartesian", \
+        #    "With ddg_cartesian, there is no cross-referencing of original residue numbers to 1..N"
         assert self._residue_to_clean_xref_filename, \
             "One of the set_* functions must first be called to setup a specific structure directory "
         if not self._residue_to_clean_xref:

@@ -1,0 +1,17 @@
+# Dockerfile to add the emsembl PERL library to centos+anaconda in phase0
+FROM chrismoth/image_phase2
+
+COPY chimera-1.15-linux_x86_64_osmesa.bin .
+
+#Download Bioperl following ENSEMBL instructions
+RUN \
+  chmod a+x ./chimera-1.15-linux_x86_64_osmesa.bin && \
+  yum -y install freetype && \
+  yum -y install libX11 && \
+  yum -y install libXext && \
+  echo -e "/chimera_headless\n" | ./chimera-1.15-linux_x86_64_osmesa.bin && \
+  rm -f --verbose 'chimera-1.15-linux_x86_64_osmesa.bin'
+  
+
+  
+CMD [ "/bin/bash" ]

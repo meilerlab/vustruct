@@ -1,0 +1,28 @@
+# Dockerfile to build the psbpipeline executables on centos7 and anconda
+# Copy in the pipeline python files, and their required supporting modules
+# via pips
+
+FROM chrismoth/image_phase3
+
+# See the .dockerignore file for important space saving details
+COPY . psbadmin/
+
+ENV PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"
+ENV PYTHONPATH="/psbadmin/pdbmap:/psbadmin/bin:$PYTHONPATH"
+ENV psbbin="/psbadmin/bin"
+ENV LD_LIBRARY_PATH="/psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default:\
+/psbadmin/rosetta3.7/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default:$LD_LIBRARY_PATH"
+
+
+#Grab anaconda python and install needed python modules
+RUN  \
+  echo 'PATH=/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:${PATH}' >> /etc/environment && \
+  echo 'PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"' > /etc/profile.d/pipeline_setpath9.sh && \
+  cd /psbadmin && \
+  ./rampup/pip_install_modules.bash && \
+  mkdir -p /psbadmin/rosetta3.7/main/source/bin && \
+  cd /psbadmin/rosetta3.7/main/source/bin && \
+  ln -s /psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
+  cd /psbadmin && \
+  rm -f --verbose '/psbadmin/chimera-1.15-linux_x86_64_osmesa.bin'
+CMD [ "/bin/bash" ]

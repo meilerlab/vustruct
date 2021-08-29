@@ -3,6 +3,7 @@ pdbmap/
 pipeline_download_scripts/
 anaconda2/
 anaconda3/
+*.simg
 
 ## File types ##
 *.bak

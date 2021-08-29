@@ -59,7 +59,10 @@ from lib import PDBMapModbase2013
 
 #=============================================================================#
 ## Function Definitions ##
-capra_group = grp.getgrnam('capra_lab').gr_gid
+try:
+    capra_group = grp.getgrnam('capra_lab').gr_gid
+except KeyError:
+    capra_group = os.getegid()
 
 ch = logging.StreamHandler()
 LOGGER = logging.getLogger()

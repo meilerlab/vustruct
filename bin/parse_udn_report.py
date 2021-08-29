@@ -346,9 +346,13 @@ if csv_rows and None:
 
     liftover_input_df.to_csv(liftover_bed_input,sep='\t',header=False,index=False)
     import subprocess as sp
-    liftover_arg_list = ['/dors/capra_lab/bin/liftOver',
+    # Ugly - but we need to find liftover either in a docker container or in the Vandy accre filesystem
+    liftover_files = ('/psbadmin/liftover/liftOver','/psbadmin/liftover/hg19ToHg38.over.chain.gz')
+    if not os.path.exists(liftover_files[0]) or not os.path.exists(liftover_files[1]):
+        liftover_files = ('/dors/capra_lab/bin/liftOver','/dors/capra_lab/data/ucsc/liftOver/hg19ToHg38.over.chain.gz')
+    liftover_arg_list = [liftover_files[0],
          liftover_bed_input,
-         '/dors/capra_lab/data/ucsc/liftOver/hg19ToHg38.over.chain.gz',
+         liftover_files[1], 
          liftover_output_lifted,
          liftover_output_unlifted]
 

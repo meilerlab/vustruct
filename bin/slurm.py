@@ -11,14 +11,13 @@
 # =============================================================================#
 
 import subprocess as sp
-import numpy as np
-import sys, os
+import sys
+import os
 from time import sleep
-from copy import deepcopy
+# from copy import deepcopy
 
 import logging
-from logging.handlers import RotatingFileHandler
-from logging import handlers
+import numpy as np
 
 logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
                     datefmt='%d-%m-%Y:%H:%M:%S', )
@@ -36,7 +35,7 @@ def slurm_scontrol_show_job(jobid):
     while (tries < 10):  # ACCRE can fail to respond - but we'll give up after 30 minutes
         scontrol_show_job = ["scontrol", "show", "job", jobid]
         command_line = ' '.join(scontrol_show_job)
-        logging.getLogger(__name__).info("Executing: %s" % command_line)
+        logging.getLogger(__name__).info("Executing: %s", command_line)
         try:
             p = sp.Popen(scontrol_show_job, stdout=sp.PIPE, stderr=sp.PIPE)
         except OSError as e:
@@ -68,7 +67,7 @@ def slurm_scontrol_show_job(jobid):
                 info["NodeList"] = "UNKNOWN"
                 return info
 
-            logging.getLogger(__name__).warning('Retrying because "%s" gave stderr: "%s"' % (command_line, stderr))
+            logging.getLogger(__name__).warning('Retrying because "%s" gave stderr: "%s"', command_line, stderr)
             sleep(10)
             # Unknown slurm submission error.
 
@@ -85,6 +84,7 @@ def slurm_scontrol_show_job(jobid):
 
 def slurm_submit(job_submit_command_line):
     sbmt_fail = True
+    run_result = None
     while sbmt_fail:
         logging.getLogger(__name__).info(job_submit_command_line)
 
@@ -104,7 +104,9 @@ This module requires the subprocess.run() function, which is only available in P
             sys.exit(1)
 
         except sp.TimeoutExpired:
-            logging.getLogger(__name__).warning('sbatch timeout on %s' % job_submit_command_line)
+            logging.getLogger(__name__).warning('sbatch timeout on %s', job_submit_command_line)
+            sleep(30)
+            continue
         except (sp.CalledProcessError, OSError) as e:
             msg = "Failed to run '%s'\nException: %s\nstderr: %s--->>> You do not seem to be logged in to a slurm cluster.\n" % (
             job_submit_command_line, str(e), e.stderr)
@@ -114,16 +116,16 @@ This module requires the subprocess.run() function, which is only available in P
 
         # Extract the job ID
         if run_result.returncode == 0 and run_result.stdout.startswith(b"Submitted batch job "):  # Case of clear success
-            logging.getLogger(__name__).info('sbatch successfully launched: %s' % run_result.stdout)
+            logging.getLogger(__name__).info('sbatch successfully launched: %s', run_result.stdout.decode('latin'))
             sbmt_fail = False
             break
         else:  # Non-zero return code
             logging.getLogger(__name__).warning(
                 'Dubious return of proc.communicate() for job "%s" with returncode %s\nstdout: %s\nstderr: %s' % (
-                job_submit_command_line, run_result.returncode, run_result.stdout, run_result.stderr))
+                job_submit_command_line, run_result.returncode, run_result.stdout.decode('latin'), run_result.stderr.decode('latin')))
         if not run_result.stderr:
             if len(run_result.stdout.strip().split()) < 2:
-                logging.getLogger(__name__).warning('Retrying because of no stdout from slurm command %s' % job_submit_command_line)
+                logging.getLogger(__name__).warning('Retrying because of no stdout from slurm command %s', job_submit_command_line)
             else:
                 # No stderr -> job submitted successfully
                 sbmt_fail = False
@@ -133,19 +135,24 @@ This module requires the subprocess.run() function, which is only available in P
                 'Retrying because of cluster "Socket timed out" no stdout from slurm command %s' % job_submit_command_line)
             sleep(30)
         else:
-            logging.getLogger(__name__).warning('Retrying because "%s" gave stderr: "%s"' % (job_submit_command_line, run_result.stderr))
+            logging.getLogger(__name__).warning('Retrying because "%s" gave stderr: "%s"', job_submit_command_line, run_result.stderr.decode('latin'))
             # Unknown slurm submission error.
             # Don't give up - loop again !!!
             # Was raise Exception("%s\n"%stderr)
-    # Extract and return the jobid (e.g. "Submitted batch job 12345678")
-    cluster_jobno = run_result.stdout.strip().split()[-1]
-    # Convert the bytes to str
-    cluster_jobno = cluster_jobno.decode('latin')
+
+    cluster_jobno = None
+    if not sbmt_fail:
+        # Extract and return the jobid (e.g. "Submitted batch job 12345678")
+        cluster_jobno = run_result.stdout.strip().split()[-1]
+        # Convert the bytes to str
+        cluster_jobno = cluster_jobno.decode('latin')
     return cluster_jobno
 
 
-class SlurmJob():
-    def __init__(self, script, args=[], array=None, account=None, debug=False):
+class SlurmJob:
+    def __init__(self, script, args=None, array=None, account=None, debug=False):
+        if args is None:
+            args = []
         self.script = script  # File name or content of slurm script
         if not os.path.exists(script):
             self.script = self._create_temp(self.script)
@@ -158,6 +165,7 @@ class SlurmJob():
         self.jobname = self.get_info()['JobName']
         self.failed = False  # Fail flag for job submission failures
         self.finished = False
+        self.info = None
 
     def _create_temp(self, script):
         """ Writes the SLURM contents to a temporary file for submission """
@@ -184,11 +192,11 @@ class SlurmJob():
         job_submit.append(self.script)
         job_submit.extend(self.args)
         cluster_jobno = slurm_submit(job_submit)
-        logging.getLogger(__name__).warning('Job number %s assigned to %s' % (cluster_jobno, job_submit))
+        logging.getLogger(__name__).warning('Job number %s assigned to %s', cluster_jobno, job_submit)
         return cluster_jobno
 
-    def get_info(self, requerySlurm=True):
-        if requerySlurm:
+    def get_info(self, requery_slurm=True):
+        if requery_slurm:
             self.info = None
         if not self.info:
             self.info = slurm_scontrol_show_job(self.jobid)
@@ -212,6 +220,7 @@ class SlurmJob():
 
     def get_submit_time(self):
         return self.get_info()["SubmitTime"]
+
 
     def get_start_time(self):
         return self.get_info()["StartTime"]

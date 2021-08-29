@@ -71,6 +71,7 @@ class DDG_cartesian(DDG_base):
 
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
+
         # self._relax_application_filename = 'relax.default.linuxgccrelease'
         self._relax_application_filename = 'rosetta_scripts.default.linuxgccrelease'
         self._ddg_cartesian_application_filename = 'cartesian_ddg.default.linuxgccrelease'
@@ -288,6 +289,7 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
             # If the minimize directory is not there
             # Or somehow there without good exit code (should be impossible)
             # Then rerun
+
             def load_from_prior_relax():
                 with pushdir(relax_directory):
                     previous_exit_code, stdout, stdin = self._command_ran_previously(self._relax_application_filename)
@@ -401,6 +403,7 @@ endrepeat"""
                 # If OTHER tasks beat us to installing their work directory, then 
                 # no worries!  Load that as the data source instead
                 # and discard our hard work
+
                 LOGGER.info("Attempting os.rename(%s,%s)" % (tmp_directory, relax_directory))
                 rename_succeeded = False
                 if returncode == 0:
@@ -413,6 +416,7 @@ endrepeat"""
 
                 if not rename_succeeded:
                     # Then some other task beat us...
+
                     LOGGER.info("%s already installed by another process." % relax_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
@@ -453,6 +457,7 @@ endrepeat"""
 
 
 
+
             # If the ddg_cartesian directory is not there
             # Or somehow there without good exit code (should be impossible)
             # Then rerun
@@ -474,9 +479,11 @@ endrepeat"""
             else:
                 # We need to run the cartesian calculation.
                 tmp_directory = tempfile.mkdtemp(prefix='tmp_ddg_cartesian', dir='.')
+
                 os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
+
 
                
                 # Create a list of mutations to be analyzed by ddg_monomer, .
@@ -572,6 +579,7 @@ endrepeat"""
 
                 if not rename_succeeded:
                     # Then some other task beat us...
+
                     LOGGER.info("%s already installed by another process." % self._ddg_cartesian_final_directory)
                     LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
@@ -586,10 +594,12 @@ endrepeat"""
 
         return 0,self.analyze_cartesian_ddg;
 
+
     def jobstatus(self) -> Dict[str, str]:
         jobstatus_info = {}
         save_current_directory = os.getcwd()
         try:
+
             os.chdir(self._ddg_cartesian_final_directory)
         except FileNotFoundError:
             jobstatus_info['ExitCode'] = None
@@ -598,6 +608,7 @@ endrepeat"""
             return jobstatus_info
 
         _, _, exitcd_filename = self._command_result_filenames(self._ddg_cartesian_application_filename)
+
         previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
         if previous_exit_int == 0:
             jobstatus_info['ExitCode'] = '0'
@@ -645,3 +656,4 @@ endrepeat"""
         os.chdir(save_current_directory)
 
         return ddg_cartesian_result_df.iloc[0] if ddg_cartesian_result_df is not None else None
+      

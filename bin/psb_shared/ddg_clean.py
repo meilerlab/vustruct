@@ -765,6 +765,7 @@ class DDG_Cleaner(object):
         self._ignorechain = True  # Not sure what this variable is there for.  Have to think...
         self.outfile = ""
         self.outfile_rev = ""
+
         # self.nmr = nmr
         self._keepdna = False
         self._non_species_residues = {}

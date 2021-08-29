@@ -32,6 +32,10 @@ import pprint
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, Tuple, List
 from typing import TextIO
+# Inspect to recover bsub_submit() and slurm_submit() source code for integration
+# into generated final file
+import inspect
+
 
 import pandas as pd
 # from jinja2 import Environment, FileSystemLoader
@@ -42,19 +46,13 @@ from bsub import bsub_submit
 from psb_shared import psb_config
 from psb_shared import psb_perms
 
-# Inspect to recover bsub_submit() and slurm_submit() source code for integration
-# into generated final file
-import inspect
 
 # THIS BELOW IS CRAP
 try:
     capra_group = grp.getgrnam('capra_lab').gr_gid
 except KeyError:
     capra_group = os.getegid()
-
-
 # THIS ABOVE IS CRAP
-
 
 def set_capra_group_sticky(dirname):
     return
@@ -121,19 +119,26 @@ LOGGER.info("Command: %s", ' '.join(sys.argv))
 # Most will launch on Slurm
 # WUSTL is LSF
 # Also, someday, hook in launching on high core boxes directly
-cluster_type = 'LSF' if 'cluster_type' in config_dict and config_dict['cluster_type'].upper() == 'LSF' else 'Slurm'
-container_type = None
+CLUSTER_TYPE = 'LSF' if 'cluster_type' in config_dict and config_dict['cluster_type'].upper() == 'LSF' else 'Slurm'
+CONTAINER_TYPE = None
+SINGULARITY_IMAGE = None
 if 'container_type' in config_dict:
     if config_dict['container_type'].upper() == 'DOCKER':
-        container_type = 'Docker'
+        CONTAINER_TYPE = 'Docker'
     elif config_dict['container_type'].upper() == 'SINGULARITY':
-        container_type = 'Singularity'
+        CONTAINER_TYPE = 'Singularity'
+        SINGULARITY_IMAGE = os.getenv('SINGULARITY_CONTAINER')
+        if not SINGULARITY_IMAGE:
+            msg = "SINGULARITY_CONTAINER is not defined in the launch environment.  container_type of Singularity is nonsensical"
+            LOGGER.critical(msg)
+            sys.exit(msg)
     else:
         sys.exit("container_type set to %s in config file.  Must be Docker or Singularity" %
-                 config_dict['container_ty[e'])
+                 config_dict['container_type'])
+
 
 try:
-    launchParametersAll: Dict[str, Any] = dict(config.items("%sParametersAll" % cluster_type))
+    launchParametersAll: Dict[str, Any] = dict(config.items("%sParametersAll" % CLUSTER_TYPE))
 except KeyError:
     launchParametersAll: Dict[str, Any] = {}
 
@@ -142,6 +147,7 @@ LOGGER.info("Command Line Arguments:\n%s", pprint.pformat(vars(args)))
 launchParametersPathProx: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGCartesian: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+  
 launchParametersUDNSequence: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDigenicAnalysis: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 
@@ -168,7 +174,7 @@ for launchParameterDictDesc, launchParameters in [
 ]:
     # Update each flavor-specific dictionaryof parameters
     # with the flavor-specific overrides in the config file
-    slurm_or_lsf_section_name = cluster_type + launchParameterDictDesc
+    slurm_or_lsf_section_name = CLUSTER_TYPE + launchParameterDictDesc
     config_items = {}
     if slurm_or_lsf_section_name in config:
         launchParameters.update(dict(config.items(slurm_or_lsf_section_name)))
@@ -176,28 +182,28 @@ for launchParameterDictDesc, launchParameters in [
     LOGGER.info("%s:\n%s", slurm_or_lsf_section_name, pprint.pformat(launchParameters))
 
     # Now make _sure_ that required parameters are in the (updated) launchParameters dictionary.
-    if cluster_type == 'Slurm':
+    if CLUSTER_TYPE == 'Slurm':
         for req in slurm_required_settings:
             if req not in launchParameters:
                 LOGGER.error(
                     """\
                     Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
                     (or %sParametersAll)\n in either file %s or %s\n""", 
-                    cluster_type, req, cluster_type, slurm_or_lsf_section_name, args.config, args.userconfig
+                    CLUSTER_TYPE, req, CLUSTER_TYPE, slurm_or_lsf_section_name, args.config, args.userconfig
                 )
                 sys.exit(1)
-    elif cluster_type == 'LSF':
+    elif CLUSTER_TYPE == 'LSF':
         for req in LSF_required_settings:
             if req[0] not in launchParameters and req[1] not in launchParameters:
                 LOGGER.error(
                     """\
                     Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
                     (or %sParametersAll)\n in either file %s or %s\n""",
-                    cluster_type, req, cluster_type, slurm_or_lsf_section_name, args.config, args.userconfig
+                    CLUSTER_TYPE, req, CLUSTER_TYPE, slurm_or_lsf_section_name, args.config, args.userconfig
                 )
                 sys.exit(1)
     else:
-        sys.exit("cluster_type=%s not supported" % cluster_type)
+        sys.exit("cluster_type=%s not supported" % CLUSTER_TYPE)
 
 # The collaboration_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
@@ -251,7 +257,7 @@ class JobsLauncher:
             self._geneRefseqMutation_OR_casewideString = "%s_%s_%s" % (
                 self._gene, self._refseq, self._mutation)  # This is usual case for the gene by gene mutation run sets
 
-        self._slurm_or_bsub = 'bsub' if cluster_type == 'LSF' else 'slurm'
+        self._slurm_or_bsub = 'bsub' if CLUSTER_TYPE == 'LSF' else 'slurm'
 
         # It is convenient to harvest the current working directory from the workplan/all_jobs_df
         # It should be the case that the 'cwd' column is the same across ALL jobs to be run.
@@ -403,7 +409,7 @@ class JobsLauncher:
         # variations in Docker/Singlularity/LSF demand we explicitly restate the PATH here.
         # If NOT in a container, then init the PATH to be whatever it is outside the container.
 
-        if container_type:
+        if CONTAINER_TYPE:
             path_statement="PATH=%s" % ':'.join([
                 "/opt/conda/bin",
                 "/ensembl/ensembl-git-tools/bin",
@@ -411,7 +417,7 @@ class JobsLauncher:
                 "/psbadmin/pdbmap",
                 "/psbadmin/pathprox",
                 "$PATH"])
-            LOGGER.info("Setting PATH for container %s", container_type)
+            LOGGER.info("Setting PATH for container %s", CONTAINER_TYPE)
             LOGGER.info(path_statement)
             slurm_f.write(path_statement + '\n')
         else:
@@ -522,9 +528,26 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 
             self._write_launch_independent_cd(launch_filename, slurm_f, subdir)
 
+            # Prepend the slurm file case/esac command with a 
+            if CONTAINER_TYPE == 'Singularity':
+                if 'singularity_bind' in config_dict:
+                    slurm_f.write("export SINGULARITY_BIND=%s\n" % config_dict['singularity_bind'])
+                else:
+                    slurm_f.write("# SINGULARITY_BIND not written.  singularity_bind omitted from .config files\n")
+
+                if 'singularity_pre_command' in config_dict:
+                    slurm_f.write("%s\n" % config_dict['singularity_pre_command'])
+                else:
+                    slurm_f.write("# No singularity pre command written.  Add singularity_pre_command to .config if this is desired")
+
+                container_exec_prefix = 'singularity exec %s ' % SINGULARITY_IMAGE
+            else:
+                container_exec_prefix = ''
+
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
-                slurm_f.write(self._launch_strings[subdir][0][1])
+                slurm_f.write(container_exec_prefix + self._launch_strings[subdir][0][1])
+
                 slurm_f.write("\n")
             else:
                 # Via the case/esac mechanism, select the specific job to run
@@ -536,7 +559,7 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                     # Save this to put back later
                     self._arrayids[uniquekey_launchstring[0]] = slurm_array_id
                     slurm_array_id += 1
-                    slurm_f.write(uniquekey_launchstring[1])
+                    slurm_f.write(container_exec_prefix + uniquekey_launchstring[1])
                     # end the case tag
                     slurm_f.write("\n;;\n\n")
                 slurm_f.write("esac\n")
@@ -600,6 +623,7 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 ('a', 'application_name'),
                 ('J', 'job_name'),  # Populated above
                 ('u', 'mail_user'),
+                ('g', 'job_group_name'),
                 ('W', 'limit'),
                 ('R', 'resource'),
                 ('n', 'tasks'),
@@ -733,7 +757,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                 LOGGER.info("Creating: %s", launch_filename)
 
                 launch_filename_outside_container = launch_filename
-                if launch_directory_outside_container != launch_directory:
+                if launch_directory_outside_container and launch_directory_outside_container != launch_directory:
                     launch_filename_outside_container = os.path.join(
                         launch_directory_outside_container,
                         "%s_%s.%s" % (self._geneRefseqMutation_OR_casewideString,
@@ -749,7 +773,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
 
                 launch_filenames.append(launch_filename_outside_container)
 
-                if cluster_type == 'LSF':
+                if CLUSTER_TYPE == 'LSF':
                     # job_name, job_count = \
                     self._create_bsub_file(subdir, launch_filename, launch_stdout_directory)
                     if args.nolaunch:
@@ -795,13 +819,13 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
 mutation_dir = ''
 
 
-def launch_one_mutation(workplan_or_case_filename: str):
+def launch_one_mutation(workplan_or_case_filename: str) -> Tuple[pd.DataFrame, str, List[str]]:
     # Load the schedule of jobs that was created by psb_plan.py
     df_all_jobs = pd.read_csv(workplan_or_case_filename, sep='\t', keep_default_na=False, na_filter=False)
 
     if len(df_all_jobs) < 1:
         LOGGER.warning("No rows in work plan file %s.  No jobs will be launched.", workplan_or_case_filename)
-        return pd.DataFrame(), workplan_or_case_filename
+        return pd.DataFrame(), workplan_or_case_filename, []
 
     LOGGER.info("%d rows read from work plan file %s", len(df_all_jobs), workplan_or_case_filename)
 
@@ -900,11 +924,9 @@ def main():
 Created %s by command line:
 %s
 """ % (datetime.now(), ' '.join(sys.argv)))
-
     launcher_f.write('\n"""\n')
 
     launcher_f.write("""\
-
 import subprocess as sp
 import sys
 import re
@@ -1008,7 +1030,7 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
             launcher_f.write("for launch_filename in launch_filenames:\n")
 
             # Write code to call bsub_submit or slurm_submit included in the .py above
-            if cluster_type == 'LSF':
+            if CLUSTER_TYPE == 'LSF':
                 launcher_f.write("    job_id = bsub_submit(launch_filename)\n")
             else:
                 launcher_f.write("    job_id = slurm_submit(['sbatch',launch_filename])\n")
@@ -1037,8 +1059,8 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
             launcher_f.write("launch_filenames = [\n    '%s']\n" % "',\n    '".join(launch_filenames))
             launcher_f.write("for launch_filename in launch_filenames:\n")
             # Write code to call bsub_submit or slurm_submit included in the .py above
-            if cluster_type == 'LSF':
-                launcher_f.write("    job_id = bsub_submit([launch_filename])\n")
+            if CLUSTER_TYPE == 'LSF':
+                launcher_f.write("    job_id = bsub_submit(launch_filename)\n")
             else:
                 launcher_f.write("    job_id = slurm_submit(['sbatch',launch_filename])\n")
 
@@ -1049,9 +1071,9 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
             print("No casewide file (%s) was found.  No casewide jobs will be started" % casewide_workplan_filename)
 
     user_launch_message = None
-    if container_type:
+    if CONTAINER_TYPE:
         user_launch_message = "./%s should be run outside %s container to launch jobs" % (
-            custom_launcher_filename, container_type)
+            custom_launcher_filename, CONTAINER_TYPE)
     elif args.nolaunch:
         user_launch_message = "Run ./%s to launch jobs" % custom_launcher_filename
 
@@ -1062,4 +1084,4 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
 
 if __name__ == '__main__':
     main()
-sys.exit(0)
+

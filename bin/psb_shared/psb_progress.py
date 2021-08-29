@@ -16,7 +16,12 @@ from typing import Tuple
 
 LOGGER = logging.getLogger(__name__)
 
-capra_group = grp.getgrnam('capra_lab').gr_gid
+# DO NOT CHECK THIS IN BELOW IT IS CRAP
+try:
+    capra_group = grp.getgrnam('capra_lab').gr_gid
+except:
+    capra_group = os.getegid()
+# DO NOT CHECK THIS IN ABOVE IT IS CRAP
 
 def set_capra_group_sticky(dirname):
     try:
