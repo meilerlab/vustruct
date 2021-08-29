@@ -1,7 +1,10 @@
-Notes on creation of the psbadmin python environment.
+A Docker (Singularity) container is the preferred mechanism for production runs.
+See Container.md
 
+The instructions below are for creating an editable set of development-oriented source files
+in the filesystem.
 ---------------------------------------------------------------------------------------------------------------
-ROOTING THE PIPELINE INSTALL
+0) CREATE a psbadmin top level directory for the pipeline
 
 All steps must be either run as user psbadmin, or in a local environment directory tree such as ~/psbadmin/
 
