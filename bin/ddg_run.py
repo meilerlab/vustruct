@@ -217,18 +217,3 @@ if not ddg_outcome:  # Really we should never take this branch
 LOGGER.info("Successful end of ddg_run:\n%s"%tabulate(ddg_results_df,headers='keys',tablefmt='psql'))
 
 sys.exit(0)
-
-
-    "A structure file must be specified via --pdb, --biounit, --swiss, --modbase, --alphafold, or --usermodel")
-
-print("AWESOME - %s"%structure)
-
-# config.items() returns a list of (name, value) pairs - convert to dict
-config_dict = dict(config.items("Genome_PDB_Mapper"))
-
-
-
-
-
-print('Test me')
-sys.exit(1)
