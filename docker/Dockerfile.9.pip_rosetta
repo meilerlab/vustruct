@@ -22,8 +22,14 @@ ENV psbbin="/psbadmin/bin"
 RUN  \
   echo 'PATH=/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:${PATH}' >> /etc/environment && \
   echo 'PATH="/psbadmin/bin:/psbadmin/pdbmap:/psbadmin/pathprox:$PATH"' > /etc/profile.d/pipeline_setpath9.sh && \
+  echo 'PYTHONPATH=/psbadmin/pdbmap:/psbadmin/pathprox:${PYTHONPATH}' >> /etc/environment && \
+  echo 'PYTHONPATH="/psbadmin/pdbmap:/psbadmin/pathprox:$PYTHONPATH"' > /etc/profile.d/pipeline_setpythonpath9.sh && \
+  echo 'psbbin="/psbadmin/bin"' >> /etc/environment && \
+  echo 'psbbin="/psbadmin/bin"' > /etc/profile.d/pipeline_setpsbbin9.sh && \
   cd /psbadmin && \
   ./rampup/pip_install_modules.bash && \
+  cd /pdbadmin/pdbmap && \
+  ln -s lib/*.pl . && \
   mkdir -p /psbadmin/rosetta3.7/main/source/bin && \
   cd /psbadmin/rosetta3.7/main/source/bin && \
   ln -s /psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
