@@ -1,4 +1,4 @@
-# Dockerfile to add the emsembl PERL library to centos+anaconda in phase0
+# Dockerfile to add the emsembl PERL library to centos+anaconda+perl
 FROM chrismoth/image_phase1
 
 ARG Anaconda3_release=Anaconda3-2020.11-Linux-x86_64.sh
