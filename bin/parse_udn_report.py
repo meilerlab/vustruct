@@ -456,7 +456,11 @@ if csv_rows:
         # import pdb; pdb.set_trace()
         # This below DEFINITELY broken
         if original_lineno not in df_with_original_lineno.index: # Then we have lost this element and need to add it back
-            df_with_original_lineno = df_with_original_lineno.append(row.drop(['genome','change']).append(pd.Series([original_lineno],index=['original_lineno'])),ignore_index = True)
+            # import pdb; pdb.set_trace()
+            # OLD idea from liftover days df_with_original_lineno = df_with_original_lineno.append(row.drop(['genome','change']).append(pd.Series([original_lineno],index=['original_lineno'])),ignore_index = True)
+            # Now the dataframe has all the fields so we can just add them all
+            df_with_original_lineno = df_with_original_lineno.append(row,ignore_index = True)
+
 
     # Index our dataframe by original_lineno and drop that column.  Then append the unp column to the index (but keep unp column)
     df_with_original_lineno\
