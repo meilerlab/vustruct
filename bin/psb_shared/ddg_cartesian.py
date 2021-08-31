@@ -549,10 +549,6 @@ endrepeat"""
 
 
 
-
-
-
-
                 # stdout, stderr, runtime
                 returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
                     ddg_cartesian_command,
@@ -586,11 +582,13 @@ endrepeat"""
                     returncode, stdout, stderr, raw_scores = load_from_prior_ddg_cartesian_run()
                     assert returncode == 0
 
-            # end of part 2 - nothing is returned
-
 
         self._ddg_repo.psb_status_manager.write_info("Part 2: Cartesian ddg")
         run_part2_ddg_cartesian()
+        self._ddg_repo.psb_status_manager.mark_complete()
+
+            # end of part 2 - nothing is returned
+
 
         return 0,self.analyze_cartesian_ddg;
 
@@ -656,4 +654,4 @@ endrepeat"""
         os.chdir(save_current_directory)
 
         return ddg_cartesian_result_df.iloc[0] if ddg_cartesian_result_df is not None else None
-      
+

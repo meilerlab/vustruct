@@ -221,14 +221,9 @@ LOGGER.info("Cleaned structure is %s", ddg_repo.cleaned_structure_filename)
 ddg_cartesian = DDG_cartesian(ddg_repo, mutations=args.variant)
 ddg_outcome,ddg_results_df = ddg_cartesian.run()
 
-
-
-ddg_monomer = DDG_monomer(ddg_repo, mutations=args.variant)
-ddg_outcome,ddg_results_df = ddg_monomer.run(
-    high_resolution=('resolution' in structure_info_dict) and (float(structure_info_dict['resolution']) < 2.5))
-
 if not ddg_outcome:  # Really we should never take this branch
-    LOGGER.info("ddg_monomer -FAILED- with message: %s" % ddg_results_df)
+    LOGGER.info("ddg_cartesian -FAILED- with message: %s" % ddg_results_df)
     sys.exit(ddg_results_df)
 
-LOGGER.info("Successful end of ddg_run:\n%s"%tabulate(ddg_results_df,headers='keys',tablefmt='psql'))
+LOGGER.info("Successful end of ddg_run_cartesian:\n%s"%tabulate(ddg_results_df,headers='keys',tablefmt='psql'))
+sys.exit(0)
