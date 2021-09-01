@@ -442,7 +442,7 @@ echo ENSEMBL_REGISTRY=$ENSEMBL_REGISTRY
         else:
             LOGGER.warning("ENSEMBL_REGISTRY is not defined in .config or environment.  Omitting from %s",
                            launch_filename)
-            slurm_f.write("echo WARNING: ENSEMBL_REGISTRY not defined in launch environment.  Omitted")
+            slurm_f.write("echo WARNING: ENSEMBL_REGISTRY not defined in launch environment.  Omitted\n")
 
         slurm_f.write("""
 # Prevent loading of an individual users ~/.local type python - really a mess for pipeline!
@@ -538,7 +538,7 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 if 'singularity_pre_command' in config_dict:
                     slurm_f.write("%s\n" % config_dict['singularity_pre_command'])
                 else:
-                    slurm_f.write("# No singularity pre command written.  Add singularity_pre_command to .config if this is desired")
+                    slurm_f.write("# No singularity pre command written.  Add singularity_pre_command to .config if this is desired\n")
 
                 container_exec_prefix = 'singularity exec %s ' % SINGULARITY_IMAGE
             else:
