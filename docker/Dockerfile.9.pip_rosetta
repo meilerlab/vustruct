@@ -32,9 +32,11 @@ RUN  \
   ln -s lib/*.pl . && \
   mkdir -p /psbadmin/rosetta3.7/main/source/bin && \
   cd /psbadmin/rosetta3.7/main/source/bin && \
+  ln -s /psbadmin/rosetta3.7/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   ln -s /psbadmin/rosetta3.7/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   mkdir -p /psbadmin/rosetta3.13/main/source/bin && \
   cd /psbadmin/rosetta3.13/main/source/bin && \
+  ln -s /psbadmin/rosetta3.13/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   ln -s /psbadmin/rosetta3.13/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   cd /psbadmin && \
   rm -f --verbose '/psbadmin/chimera-1.15-linux_x86_64_osmesa.bin'
