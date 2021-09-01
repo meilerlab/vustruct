@@ -127,6 +127,12 @@ class DDG_repo():
     @property
     def rosetta_database_dir(self):
         return self._ddg_config_dict['rosetta_database_dir']
+    @property
+    def rosetta_ld_library_path(self):
+        if 'rosetta_ld_library_path' in self._ddg_config_dict:
+            return self._ddg_config_dict['rosetta_ld_library_path']
+        else:
+            return None
 
     def _set_structure_filenames(self):
         assert self._structure_dir, "Must compute _structure_dir before calling this function"

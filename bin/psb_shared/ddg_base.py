@@ -324,6 +324,13 @@ class DDG_base(object):
         for arg_with_spaces in command_line_list:
             submitted_command_line_list.extend(arg_with_spaces.split(' '))
 
+        environment_override = None
+
+        if self._ddg_repo.rosetta_ld_library_path:
+            environment_override = os.environ.copy()
+            environment_override['LD_LIBRARY_PATH'] = self._ddg_repo.rosetta_ld_library_path + \
+                (environment_override['LD_LIBRARY_PATH'] if 'LD_LIBRARY_PATH' in environment_override else "")
+
         # Archive any additional output files once we commit to re-launching
         for additional_file in additional_files_to_archive:
             DDG_base._move_prior_file_if_exists(additional_file)
@@ -333,19 +340,27 @@ class DDG_base(object):
         # For sanity, capture precicsely a reproducible shell command at work for future analysis
         commandline_record_filename = binary_program_basename + ".commandline_record.sh"
         DDG_base._move_prior_file_if_exists(commandline_record_filename)
+        ld_library_path_echoi = None
         with open(commandline_record_filename, 'w') as commandline_record:
             commandline_record.write("#!/bin/bash\n")
             commandline_record.write("# Record of command invocation\n")
             commandline_record.write("# %s\n" % time.ctime(time.time()))
+            if self._ddg_repo.rosetta_ld_library_path:
+                ld_library_path_echo="export LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH"%self._ddg_repo.rosetta_ld_library_path
+                commandline_record.write("%s\n"%ld_library_path_echo)
             commandline_record.write(" \\\n".join(command_line_list))
             # End the command with redirects to the stderr/stdout files
             commandline_record.write(" \\\n> %s 2> %s\n" % (stdout_filename, stderr_filename))
             commandline_record.write("echo Command exited with $?\n")
 
         command_start_time = time.perf_counter()
-        LOGGER.info("Running below command line from cwd=%s:\n%s" % (os.getcwd(),' '.join(submitted_command_line_list)))
+        command_echo =  ' '.join(submitted_command_line_list)
+        if ld_library_path_echo: # Show user that we pre-pended LD_LIBRARY_PATH with config file override
+            command_echo = "%s\n%s"%(ld_library_path_echo,command_echo)
+
+        LOGGER.info("Running via commands:\n%s" % command_echo)
         # run using new API call,
-        completed_process = subprocess.run(submitted_command_line_list, shell=False, text=True, capture_output=True)
+        completed_process = subprocess.run(submitted_command_line_list, shell=False, text=True, env=environment_override, capture_output=True)
         fail_message = None
         if completed_process.returncode == 0:
             LOGGER.info("%s completed successfully (exit 0)", binary_program_basename)
