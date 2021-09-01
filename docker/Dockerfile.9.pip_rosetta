@@ -28,7 +28,7 @@ RUN  \
   echo 'psbbin="/psbadmin/bin"' > /etc/profile.d/pipeline_setpsbbin9.sh && \
   cd /psbadmin && \
   ./rampup/pip_install_modules.bash && \
-  cd /pdbadmin/pdbmap && \
+  cd /psbadmin/pdbmap && \
   ln -s lib/*.pl . && \
   mkdir -p /psbadmin/rosetta3.7/main/source/bin && \
   cd /psbadmin/rosetta3.7/main/source/bin && \

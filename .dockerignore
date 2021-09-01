@@ -1,6 +1,7 @@
 **/.git
 # Do not copy the unbuilt chimara source to the image
-chimera*
+# Well - actually leave it - but remove it later
+# chimera*
 # NEVER include singularity images floating around
 *.simg
 # NEVER include the Rosetta source bundle components
