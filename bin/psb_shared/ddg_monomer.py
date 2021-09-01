@@ -156,150 +156,6 @@ class DDG_monomer(DDG_base):
         save_current_directory = os.getcwd()
         os.chdir(self._ddg_repo.variant_dir)
 
-        def move_prior_file_if_exists(filename):
-            if os.path.exists(filename):
-                archive_dir = "./archive"
-                os.makedirs(archive_dir, exist_ok=True)
-                # append the modification time of the file to the name
-                # and archive in ./archive subdir
-                archive_filename = os.path.join(
-                    archive_dir,
-                    # precede the filename with time stamp of the file's last modification.
-                    datetime.datetime.fromtimestamp(os.path.getmtime(filename)).strftime(
-                        "%Y%M%d%H%M%S") + "_%s" % filename
-                )
-                try:
-                    os.replace(filename, archive_filename)
-                    LOGGER.info("Saved prior run %s as %s" % (filename, archive_filename))
-                except OSError:
-                    LOGGER.exception("Failed to save prior run %s as %s: " % (filename, archive_filename))
-
-        def command_ran_previously(binary_program_basename: str) -> Tuple[int, str, str]:
-            """ 
-            If this program ran earlier, don't re-run it.
-            Instead return the results of the last run 
-
-            param: binary_program_basename:  The binary program file to check for previous completion
-            :return (
-                exit_code: integer exit code we can test for 0
-                str: stdout from command
-                str: stderr from command
-                )
-            
-            """
-            stdout_filename, stderr_filename, exitcd_filename = self._command_result_filenames(binary_program_basename)
-            previous_exit, previous_exit_int = self._get_previous_exit(exitcd_filename)
-
-            previous_stdout = ""
-            if os.path.isfile(stdout_filename):
-                with open(stdout_filename, 'r') as stdout_record:
-                    previous_stdout = stdout_record.read()  # This stdout from previous successful run
-
-            previous_stderr = ""
-            if os.path.isfile(stderr_filename):
-                with open(stderr_filename, 'r') as stderr_record:
-                    previous_stderr = stderr_record.read()  # Read stderr from previous successful run
-
-            if previous_exit_int == 0:
-                LOGGER.info("Previous successful run found\n.  NOT re-running:\n%s" % (
-                    binary_program_basename))
-            else:
-                LOGGER.warning("Previous run did not exit with code 0\n.  Re-running:\n%s" % (
-                    binary_program_basename))
-
-            return (previous_exit_int,
-                    previous_stdout,
-                    previous_stderr)  # runtime 0 may or may not be quite right
-
-        def run_command_line_terminate_on_nonzero_exit(command_line_list: List[str],
-                                                       additional_files_to_archive: List[str] = [],
-                                                       force_rerun=False) -> Tuple[int, str, str, float]:
-            """
-            Launch a shell to run the command line.  
-
-            Definitely run if force_rerun==True (unusual)
-
-            Typically, we do not re-run if we find a .exit file with a zero exit value
-            In that case, we return the saved .stdout and .stderr files, and save
-            the cpu cycles
-
-            Terminates hard if non-zero return value from command line
-
-            :param command_line_list: list of command line components
-            
-            :return (
-                int: return/exit code from command invocation
-                str: stdout from command
-                str: stderr from command
-                float: run time
-
-            """
-
-            # Example: minimzer.linuxgccrelease
-            binary_program_basename = os.path.basename(command_line_list[0])
-            stdout_filename, stderr_filename, exitcd_filename = self._command_result_filenames(binary_program_basename)
-
-            # We've been playing with letting the command list have embedded spaces which have to be 
-            # split back apart...
-            # We may get bitten at some point because some of our arguments are actually 2 arguments
-            # separated by a space.  For now...
-            submitted_command_line_list = []
-            for arg_with_spaces in command_line_list:
-                submitted_command_line_list.extend(arg_with_spaces.split(' '))
-
-            # Archive any additional output files once we commit to re-launching
-            for additional_file in additional_files_to_archive:
-                move_prior_file_if_exists(additional_file)
-
-                # If there is already a file out there with exit code 0, then return the old status
-
-            # For sanity, capture precicsely a reproducible shell command at work for future analysis
-            commandline_record_filename = binary_program_basename + ".commandline_record.sh"
-            move_prior_file_if_exists(commandline_record_filename)
-            with open(commandline_record_filename, 'w') as commandline_record:
-                commandline_record.write("#!/bin/bash\n")
-                commandline_record.write("# Record of command invocation\n")
-                commandline_record.write("# %s\n" % time.ctime(time.time()))
-                commandline_record.write(" \\\n".join(command_line_list))
-                # End the command with redirects to the stderr/stdout files
-                commandline_record.write(" \\\n> %s 2> %s\n" % (stdout_filename, stderr_filename))
-                commandline_record.write("echo Command exited with $?\n")
-
-            command_start_time = time.perf_counter()
-            LOGGER.info("Running via commands:\n%s" % ' '.join(submitted_command_line_list))
-            # run using new API call, 
-            completed_process = subprocess.run(submitted_command_line_list, shell=False, text=True, capture_output=True)
-            fail_message = None
-            if completed_process.returncode == 0:
-                LOGGER.info("%s completed successfully (exit 0)", binary_program_basename)
-            else:
-                fail_message = "%s failed with exit %d" % (binary_program_basename, completed_process.returncode)
-                LOGGER.critical(fail_message)
-
-            # Record all stdout and stderr and exit code
-            move_prior_file_if_exists(stdout_filename)
-            with open(stdout_filename, 'w') as stdout_record:
-                stdout_record.write(completed_process.stdout)  # This writes the 'str'
-
-            move_prior_file_if_exists(stderr_filename)
-            with open(stderr_filename, 'w') as stderr_record:
-                stderr_record.write(completed_process.stderr)
-
-            move_prior_file_if_exists(exitcd_filename)
-            with open(exitcd_filename, 'w') as exitcd_record:
-                exitcd_record.write(str(completed_process.returncode))
-            LOGGER.info(
-                "stdout/stderr/exit saved in files %s/%s/%s" % (stdout_filename, stderr_filename, exitcd_filename))
-
-            if fail_message:
-                self._ddg_repo.psb_status_manager.sys_exit_failure(fail_message)
-
-            # Convert output byte streams to manageable unicode strings.
-            # Return (stdout,stderr,elapsed_time)
-            return (completed_process.returncode,
-                    completed_process.stdout,
-                    completed_process.stderr,
-                    time.perf_counter() - command_start_time)
 
         #############################################################################################
         # Part 1 of 4        Preminimize the cleaned and renumbered PDB
@@ -330,7 +186,7 @@ class DDG_monomer(DDG_base):
             def load_from_prior_minimize():
                 LOGGER.info("os.chdir('%s')" % minimize_directory)
                 os.chdir(minimize_directory)
-                previous_exit_code, stdout, stdin = command_ran_previously(self._minimize_application_filename)
+                previous_exit_code, stdout, stdin = DDG_base._command_ran_previously(self._minimize_application_filename)
                 assert previous_exit_code == 0, \
                     "%s directory lacks a 0 exit code recorded.  This should never happen" % \
                     minimize_directory
@@ -394,7 +250,7 @@ class DDG_monomer(DDG_base):
                     # '> mincst.log'
                 ]
 
-                returncode, stdout, stderr, runtime = run_command_line_terminate_on_nonzero_exit(
+                returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
                     minimize_with_cst_command,
                     additional_files_to_archive=[minimized_pdb_filename])
 
@@ -496,7 +352,7 @@ class DDG_monomer(DDG_base):
             def load_from_prior_per_residues_run():
                 LOGGER.info("os.chdir('%s')" % per_residues_directory)
                 os.chdir(per_residues_directory)
-                previous_exit_code, stdout, stderr = command_ran_previously(self._per_residues_application_filename)
+                previous_exit_code, stdout, stderr = DDG_base._command_ran_previously(self._per_residues_application_filename)
                 assert previous_exit_code == 0, \
                     "%s directory lacks a 0 exit code recorded.  This should never happen" % \
                     per_residues_directory
@@ -529,7 +385,7 @@ class DDG_monomer(DDG_base):
                 ]
 
                 # stdout, stderr, runtime
-                returncode, _, _, _ = run_command_line_terminate_on_nonzero_exit(
+                returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
                     rescore_command,
                     additional_files_to_archive=[min_residues_filename])
 
@@ -592,7 +448,7 @@ class DDG_monomer(DDG_base):
         def run_part3_ddg():
             self._verify_applications_available()
             # As other steps, don't re-run ddg monomer if we already have run it successfully
-            previous_exit_code, stdout, stdin = command_ran_previously(self._ddg_monomer_application_filename)
+            previous_exit_code, stdout, stdin = DDG_base._command_ran_previously(self._ddg_monomer_application_filename)
             ddg_predictions_filename = 'ddg_predictions.out'
 
             # Does it look like we exited with no error before?
@@ -716,7 +572,7 @@ class DDG_monomer(DDG_base):
 
                     LOGGER.info("Running low quality (row 3) ddG monomer protocol: %d iterations" % iterations)
 
-                move_prior_file_if_exists(ddg_options_filename)
+                DDG_base._move_prior_file_if_exists(ddg_options_filename)
                 with open(ddg_options_filename, 'w') as ddg_options_f:
                     ddg_options_f.write("%s\n" % comment1)
                     ddg_options_f.write("%s\n" % comment2)
@@ -726,7 +582,7 @@ class DDG_monomer(DDG_base):
                 # Run actual ddg_monomer application
 
                 # stdout, stderr, runtime =
-                returncode, _, _, _ = run_command_line_terminate_on_nonzero_exit([
+                returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit([
                     os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_monomer_application_filename),
                     "@" + ddg_options_filename],
                     additional_files_to_archive=[ddg_predictions_filename])
