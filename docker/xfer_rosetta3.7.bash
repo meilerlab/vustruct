@@ -33,11 +33,7 @@ done
 
 declare -a full_directories=(
   'database/chemical'
-  'database/scoring/score_functions/PairEPotential'
-  'database/scoring/score_functions/hbonds'
-  'database/scoring/score_functions/disulfides'
-  'database/scoring/score_functions/rama'
-  'database/scoring/score_functions/P_AA_pp'
+  'database/scoring/score_functions'
   'database/input_output'
   'database/rotamer/ExtendedOpt1-5'
 )
