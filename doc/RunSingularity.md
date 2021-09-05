@@ -1,4 +1,4 @@
-# Runnimg the PSB Pipeline from a Singularity Container,  2021-05-12
+# Runnimg the PSB Pipeline from a Singularity Container,  2021-09-05
 # Overview
 
 The Personal Structural Biology Pipeline reads a table of mutations from a missense.csv file for a given patient (also known as project, or case) and launches a variety of analysis algorithms (pathprox, ddG, sequence) on each mutation.
