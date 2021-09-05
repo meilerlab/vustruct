@@ -3,9 +3,10 @@
 
 The Personal Structural Biology Pipeline reads a table of mutations from a missense.csv file for a given patient (also known as project, or case) and launches a variety of analysis algorithms (pathprox, ddG, sequence) on each mutation.
 
-A typical case run involves ~50 mutations, and runs of ~500 indepent programs.  Currently, the Pipeline runs on a "slurm" cluster, though this requirement could easily be circumvented in a future release, if requested.
+A typical case run involves ~50 mutations, and runs of ~500 indepent programs.  Currently, the Pipeline runs on "slurm" or "LSF" compute clusters, 
+though the code has been architected to be as cluster-independent as possible.
 
-The final outputs are per-mutation structural analysis reports.
+The final output is a summary .html report, which can be drilled-down to per-mutation structural analysis reports.
 
 
 ## Quick Rampup
@@ -76,7 +77,7 @@ psb_plan.py
 psb_plan.py --nolaunch
 ```
 
-The --nolaunch option is used because .slurm files cannot be launched (sbatch) inside the container.  
+The --nolaunch option is required because .slurm files cannot be launched (sbatch) from inside the container.  
 Follow the on-screen instructions to run the created launch.py program.  Then, return to the container to monitor jobs.
 
 3) Monitor progress at intervals.
