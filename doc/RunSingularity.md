@@ -18,7 +18,7 @@ The final output is a summary .html report, which can be drilled-down to per-mut
 
 3) Create a ddg Repository directory on your file system. 
    DDG calculation results will be archived under this directory, to avoid re-calculations.
-   Place ddg_repo.config in the top level of that directory, and edit one line in file, following the instructions in the template.  
+   Place ddg_repo.config in the top level of that directory, and edit just one line in file, by following the instructions in the template.  
 
 4) Create an empty master (parent) parent work directory on your file system.  
    - Each variant set, or UDN 'case' will occupy a child directory under this parent.  It is convenient to point an environment variable to this directory in your .bashrc file.  We tend to 'export UDN=/our/case_caseparent' in our .bashrc files to accomplish this
@@ -34,13 +34,14 @@ The final output is a summary .html report, which can be drilled-down to per-mut
     - The directories in the .config files must be visible from _inside_ the singularity container.    
     
   
-6) In the parent work directory (I will move to parent/config/ in future version), 
-   create a your_username.config file.  In a typical multi-user pipeline installation, this file
+6) In this same config/ directory add a your_username.config file.  In a typical multi-user pipeline installation, this file
    allows each user to override global settings.  Minimally, each user will place their email 
    address, and slurm (or LSF) cluster job notification preferences in this file.  These are
    copied into the headers of the pipeline-generated .slurm files.
    
     - See mothcw.config as an example
+
+7) 
     
 ### Running case a case (analyzing a set of variants) in brief: 
 
