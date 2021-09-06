@@ -41,7 +41,11 @@ The final output is a summary .html report, which can be drilled-down to per-mut
    
     - See mothcw.config as an example
 
-7) 
+7) The ENSEMBL PERL API must be pointed to a SQL database.  This is done by setting the ENSEMBL_REGISTRY environment variable, or
+   by setting ensembly_registry=/wherever in your global.config file.  It is not required, but likely convenient, to place this file
+   in the same config/ directory
+
+    - see ensembl_registry_GRCh38.conf as an example.
     
 ### Running case a case (analyzing a set of variants) in brief: 
 
