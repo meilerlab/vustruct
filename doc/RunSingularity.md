@@ -1,11 +1,12 @@
-# Runnimg the PSB Pipeline from a Singularity Container,  2021-05-12
+# Runnimg the PSB Pipeline from a Singularity Container,  2021-09-05
 # Overview
 
 The Personal Structural Biology Pipeline reads a table of mutations from a missense.csv file for a given patient (also known as project, or case) and launches a variety of analysis algorithms (pathprox, ddG, sequence) on each mutation.
 
-A typical case run involves ~50 mutations, and runs of ~500 indepent programs.  Currently, the Pipeline runs on a "slurm" cluster, though this requirement could easily be circumvented in a future release, if requested.
+A typical case run involves ~50 mutations, and runs of ~500 indepent programs.  Currently, the Pipeline runs on "slurm" or "LSF" compute clusters, 
+though the code has been architected to be as cluster-independent as possible.
 
-The final outputs are per-mutation structural analysis reports.
+The final output is a summary .html report, which can be drilled-down to per-mutation structural analysis reports.
 
 
 ## Quick Rampup
@@ -17,7 +18,7 @@ The final outputs are per-mutation structural analysis reports.
 
 3) Create a ddg Repository directory on your file system. 
    DDG calculation results will be archived under this directory, to avoid re-calculations.
-   Place ddg_repo.config in the top level of that directory, and edit one line in file, following the instructions in the template.  
+   Place ddg_repo.config in the top level of that directory, and edit just one line in file, by following the instructions in the template.  
 
 4) Create an empty master (parent) parent work directory on your file system.  
    - Each variant set, or UDN 'case' will occupy a child directory under this parent.  It is convenient to point an environment variable to this directory in your .bashrc file.  We tend to 'export UDN=/our/case_caseparent' in our .bashrc files to accomplish this
@@ -33,13 +34,18 @@ The final outputs are per-mutation structural analysis reports.
     - The directories in the .config files must be visible from _inside_ the singularity container.    
     
   
-6) In the parent work directory (I will move to parent/config/ in future version), 
-   create a your_username.config file.  In a typical multi-user pipeline installation, this file
+6) In this same config/ directory add a your_username.config file.  In a typical multi-user pipeline installation, this file
    allows each user to override global settings.  Minimally, each user will place their email 
    address, and slurm (or LSF) cluster job notification preferences in this file.  These are
    copied into the headers of the pipeline-generated .slurm files.
    
     - See mothcw.config as an example
+
+7) The ENSEMBL PERL API must be pointed to a SQL database.  This is done by setting the ENSEMBL_REGISTRY environment variable, or
+   by setting ensembly_registry=/wherever in your global.config file.  It is not required, but likely convenient, to place this file
+   in the same config/ directory
+
+    - see ensembl_registry_GRCh38.conf as an example.
     
 ### Running case a case (analyzing a set of variants) in brief: 
 
@@ -76,7 +82,7 @@ psb_plan.py
 psb_plan.py --nolaunch
 ```
 
-The --nolaunch option is used because .slurm files cannot be launched (sbatch) inside the container.  
+The --nolaunch option is required because .slurm files cannot be launched (sbatch) from inside the container.  
 Follow the on-screen instructions to run the created launch.py program.  Then, return to the container to monitor jobs.
 
 3) Monitor progress at intervals.
