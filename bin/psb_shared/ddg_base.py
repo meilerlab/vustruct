@@ -340,7 +340,7 @@ class DDG_base(object):
         # For sanity, capture precicsely a reproducible shell command at work for future analysis
         commandline_record_filename = binary_program_basename + ".commandline_record.sh"
         DDG_base._move_prior_file_if_exists(commandline_record_filename)
-        ld_library_path_echoi = None
+        ld_library_path_echo = None
         with open(commandline_record_filename, 'w') as commandline_record:
             commandline_record.write("#!/bin/bash\n")
             commandline_record.write("# Record of command invocation\n")
