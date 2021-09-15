@@ -45,9 +45,10 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
 from psb_shared import psb_config
 from psb_shared.ddg_load_structure import ddg_load_structure,LoadStructureError
-from psb_shared.ddg_repo import DDG_repo
+from psb_shared.ddg_repo import DDG_repo, DDG_repo_RotatingFileHandler
 from psb_shared import ddg_clean
 from psb_shared.ddg_commandline_parser import ddg_commandline_parser
+from psb_shared.ddg_base import DDG_base
 from psb_shared.ddg_monomer import DDG_monomer
 from psb_shared.psb_progress import PsbStatusManager
 
@@ -57,23 +58,11 @@ from lib import PDBMapAlphaFold
 
 RESOLUTION_QUALITY_MAX=2.5  # Only structures with resolution < 2.5 are routed to the more rigid rosetta "high quality" algorithm
 
-#=============================================================================#
-## Function Definitions ##
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except KeyError:
-    capra_group = os.getegid()
-
-
-
 ch = logging.StreamHandler()
 LOGGER = logging.getLogger()
 LOGGER.addHandler(ch)
 
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string, date_format_string)
-ch.setFormatter(log_formatter)
+ch.setFormatter(logging.Formatter(DDG_base.log_format_string, DDG_base.date_format_string))
 
 LOGGER.setLevel(logging.DEBUG)
 ch.setLevel(logging.INFO)
@@ -143,9 +132,9 @@ ddg_repo.make_variant_directory_heirarchy()
 # Add a rotating file handler log in the calculation directory
 need_roll = os.path.isfile(ddg_repo.log_filename)
 
-logger_fh = RotatingFileHandler(ddg_repo.log_filename, backupCount=5)
+logger_fh = DDG_repo_RotatingFileHandler(ddg_repo, backupCount=5)
 
-logger_fh.setFormatter(log_formatter)
+logger_fh.setFormatter(logging.Formatter(DDG_base.log_format_string, DDG_base.date_format_string))
 logger_fh.setLevel(logging.DEBUG if args.debug else logging.INFO)
 LOGGER.addHandler(logger_fh)
 
@@ -192,9 +181,12 @@ else:
     pdbio = PDBIO()
     cleaned_structure_temp_filename = None
     with tempfile.NamedTemporaryFile(delete=False,dir=ddg_structure_dir,mode="w") as cleaned_structure_temp:
-        pdbio.set_structure(cleaned_structure)
         cleaned_structure_temp_filename = cleaned_structure_temp.name
-        pdbio.save(cleaned_structure_temp_filename, write_end=True, preserve_atom_numbering=False)
+        ddg_repo.os_file_chmod(cleaned_structure_temp_filename)
+        ddg_repo.set_group(cleaned_structure_temp_filename)
+        pdbio.set_structure(cleaned_structure)
+        # with os.fdopen(ddg_repo.os_open(cleaned_structure_temp_filename,'w'),'w') as cleaned_structure_f:
+        pdbio.save(cleaned_structure_temp, write_end=True, preserve_atom_numbering=False)
 
     # Save the cleaned structure in the repository
     ddg_repo.mv_cleaned_structure_in(cleaned_structure_temp_filename)

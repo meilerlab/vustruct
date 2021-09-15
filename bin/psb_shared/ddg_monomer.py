@@ -210,71 +210,79 @@ class DDG_monomer(DDG_base):
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the minimize_directory
-                tmp_directory = 'tmp_minimize'
-                os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
+                tmp_directory = self._ddg_repo.mkdtemp(prefix='tmp_minimize',dir='.')
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
-                # Premin only takes a list of structs even if you only have 1
-                structure_list_filename = 'filename.input'
-                with open(structure_list_filename, mode="w") as structure_list_fp:
-                    structure_list_filename = structure_list_fp.name
-                    structure_list_fp.write(self._ddg_repo.cleaned_structure_filename)
+                with os.fdopen(self._ddg_repo.os_open('minimize.log','w'),'w') as minimize_log_f:
+                    minimize_log= logging.StreamHandler(minimize_log_f)
+                    # minimize_log.setFormatter(logging.Formatter())
+                    # logging.getLogger(__name__).addHandler(minimize_log)
+                    minimize_log.setFormatter(logging.Formatter(DDG_base.log_format_string, DDG_base.date_format_string))
+                    logging.getLogger().addHandler(minimize_log)
 
-                # WAS  minimize_with_cst.default.linuxgccrelease
-                minimize_with_cst_command = [
-                    # Commented out parameters are in current ddG_monomer documentation
-                    # but incompatible with current rosetta version.  Chris Moth
-                    # discussed with Rocco - and we are staying with our old parameters
-                    # even though they are likely 'wrong'er than they need to be
-                    # 
-                    # OLD command = minimize_with_cst.default.linuxgccrelease -in:file:fullatom -fa_max_dis 9.0 -ddg:harmonic_ca_tether 0.5 -ddg::constraint_weight 1.0 -ddg::out_pdb_prefix minimized -ddg::sc_min_only false -score:weights talaris2014 -in:file:l %s -overwrite -ignore_zero_occupancy false % (templistfile)
-                    #
 
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._minimize_application_filename),
-                    '-in:file:l {0}'.format(structure_list_filename),
-                    '-in:file:fullatom',
-                    '-ignore_unrecognized_res',
-                    '-ignore_zero_occupancy false',
-                    '-fa_max_dis 9.0',
-                    # '-database {0}'.format(self._ddg_repo.rosetta_database_dir),  # the full oath to the database is required
-                    '-ddg:harmonic_ca_tether 0.5',
-                    '-ddg:out_pdb_prefix minimized',
-                    # '-score:weights standard',
-                    '-score:weights talaris2014',
-                    '-ddg:constraint_weight 1.0',
-                    # '-ddg:out_pdb_prefix minimized',  # Makes no sense to have file name have recommended min_cst_0.5
-                    '-ddg:sc_min_only false'
-                    # '-score:patch {0}'.format(os.path.join(self._ddg_repo.rosetta_database_dir,
-                    #                                        "scoring", "weights", "score12.wts_patch"))
-                    # '> mincst.log'
-                ]
+                    # Premin only takes a list of structs even if you only have 1
+                    structure_list_filename = 'filename.input'
+                    with os.fdopen(self._ddg_repo.os_open(structure_list_filename,'w'),'w') as structure_list_fp:
+                        structure_list_fp.write(self._ddg_repo.cleaned_structure_filename)
 
-                returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
-                    minimize_with_cst_command,
-                    additional_files_to_archive=[minimized_pdb_filename])
+                    # WAS  minimize_with_cst.default.linuxgccrelease
+                    minimize_with_cst_command = [
+                        # Commented out parameters are in current ddG_monomer documentation
+                        # but incompatible with current rosetta version.  Chris Moth
+                        # discussed with Rocco - and we are staying with our old parameters
+                        # even though they are likely 'wrong'er than they need to be
+                        #
+                        # OLD command = minimize_with_cst.default.linuxgccrelease -in:file:fullatom -fa_max_dis 9.0 -ddg:harmonic_ca_tether 0.5 -ddg::constraint_weight 1.0 -ddg::out_pdb_prefix minimized -ddg::sc_min_only false -score:weights talaris2014 -in:file:l %s -overwrite -ignore_zero_occupancy false % (templistfile)
+                        #
 
-                # Collect data from successful run and create file for part 3
+                        os.path.join(self._ddg_repo.rosetta_bin_dir, self._minimize_application_filename),
+                        '-in:file:l {0}'.format(structure_list_filename),
+                        '-in:file:fullatom',
+                        '-ignore_unrecognized_res',
+                        '-ignore_zero_occupancy false',
+                        '-fa_max_dis 9.0',
+                        # '-database {0}'.format(self._ddg_repo.rosetta_database_dir),  # the full oath to the database is required
+                        '-ddg:harmonic_ca_tether 0.5',
+                        '-ddg:out_pdb_prefix minimized',
+                        # '-score:weights standard',
+                        '-score:weights talaris2014',
+                        '-ddg:constraint_weight 1.0',
+                        # '-ddg:out_pdb_prefix minimized',  # Makes no sense to have file name have recommended min_cst_0.5
+                        '-ddg:sc_min_only false'
+                        # '-score:patch {0}'.format(os.path.join(self._ddg_repo.rosetta_database_dir,
+                        #                                        "scoring", "weights", "score12.wts_patch"))
+                        # '> mincst.log'
+                    ]
 
-                # Grab the pairwise C-alpha distances (pre-minimized) as constraints to input to next
-                original_atom_pair_distances_constraints = []
-                for line in stdout.split("\n"):
-                    if len(line) > 7 and line[:7] == "c-alpha":
-                        cur = line.split()
-                        original_atom_pair_distances_constraints.append(
-                            "AtomPair CA %s CA %s HARMONIC %s %s" % (cur[5], cur[7], cur[9], cur[12]))
+                    returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                        minimize_with_cst_command,
+                        additional_files_to_archive=[minimized_pdb_filename])
 
-                if not original_atom_pair_distances_constraints:
-                    self._ddg_repo.psb_status_manager.sys_exit_failure(
-                        "No AtomPair contraints returned from %s" % self._minimize_application_filename)
+                    # Collect data from successful run and create file for part 3
 
-                with open(ddg_monomer_atom_pair_constraints_basename, 'w') as outfile:
-                    outfile.write("\n".join(original_atom_pair_distances_constraints))
-                    outfile.write("\n")
+                    # Grab the pairwise C-alpha distances (pre-minimized) as constraints to input to next
+                    original_atom_pair_distances_constraints = []
+                    for line in stdout.split("\n"):
+                        if len(line) > 7 and line[:7] == "c-alpha":
+                            cur = line.split()
+                            original_atom_pair_distances_constraints.append(
+                                "AtomPair CA %s CA %s HARMONIC %s %s" % (cur[5], cur[7], cur[9], cur[12]))
 
-                LOGGER.info("%d atom pair constraints for ddg_monomer written to %s" % (
-                    len(original_atom_pair_distances_constraints),
-                    ddg_monomer_atom_pair_constraints_fullpath) )
+                    if not original_atom_pair_distances_constraints:
+                        self._ddg_repo.psb_status_manager.sys_exit_failure(
+                            "No AtomPair contraints returned from %s" % self._minimize_application_filename)
+
+                    with os.fdopen(self._ddg_repo.os_open(ddg_monomer_atom_pair_constraints_basename, 'w'),'w') as outfile:
+                        outfile.write("\n".join(original_atom_pair_distances_constraints))
+                        outfile.write("\n")
+
+                    LOGGER.info("%d atom pair constraints for ddg_monomer written to %s" % (
+                        len(original_atom_pair_distances_constraints),
+                        ddg_monomer_atom_pair_constraints_fullpath) )
+
+                    logging.getLogger().removeHandler(minimize_log)
 
                 LOGGER.info("Returning via os.chdir(%s)" % save_curwd)
                 os.chdir(save_curwd)
@@ -371,9 +379,7 @@ class DDG_monomer(DDG_base):
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the minimize_directory
-                tmp_directory = tempfile.mkdtemp(prefix='tmp_per_residues', dir='.')
-                os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
-                LOGGER.info("os.chdir('%s')" % tmp_directory)
+                tmp_directory = self._ddg_repo.mkdtemp(prefix='tmp_per_residues', dir='.')
                 os.chdir(tmp_directory)
 
                 # Then re-run the minimization in a subdirectory of the variant current directory
@@ -480,7 +486,7 @@ class DDG_monomer(DDG_base):
                 except OSError:
                     pass
 
-                with open(self._mutation_list_filename, 'w') as mutation_list_f:
+                with os.fdopen(self._ddg_repo.os_open(self._mutation_list_filename, 'w'),'w') as mutation_list_f:
                     mutation_list_f.write("total %d\n" % len(self._mutation_resids))
                     for rosetta_mutation in self._rosetta_mutations:
                         mutation_list_f.write("1\n")
@@ -572,8 +578,8 @@ class DDG_monomer(DDG_base):
 
                     LOGGER.info("Running low quality (row 3) ddG monomer protocol: %d iterations" % iterations)
 
-                DDG_base._move_prior_file_if_exists(ddg_options_filename)
-                with open(ddg_options_filename, 'w') as ddg_options_f:
+                self._move_prior_file_if_exists(ddg_options_filename)
+                with os.fdopen(self._ddg_repo.os_open(ddg_options_filename, 'w'),'w') as ddg_options_f:
                     ddg_options_f.write("%s\n" % comment1)
                     ddg_options_f.write("%s\n" % comment2)
                     for ddg_option in ddg_options:
@@ -682,7 +688,8 @@ class DDG_monomer(DDG_base):
 
                 # full_final_results_filename = os.path.join(save_current_directory, self.final_results_filename())
 
-                final_results_df.to_csv(self.final_results_filename(), sep='\t')
+                with os.fdopen(self._ddg_repo.os_open(self.final_results_filename(),'w'),'w') as frf:
+                    final_results_df.to_csv(frf, sep='\t')
                 LOGGER.info("Results saved to %s" % os.path.abspath(self.final_results_filename()))
                 # End of ddg_monomer calculation
             return True, final_results_df

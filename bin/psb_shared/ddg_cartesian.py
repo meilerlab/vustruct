@@ -310,9 +310,7 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the relax_directory
-                tmp_directory = tempfile.mkdtemp(prefix='tmp_relax',dir='.')
-
-                os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
+                tmp_directory = self._ddg_repo.mkdtemp(prefix='tmp_relax',dir='.')
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
  
@@ -332,7 +330,7 @@ endrepeat"""
                 #)
 
                 # Taken directly from 2020 Frenz et all supplement information
-                with open("cartesianrelaxprep.xml", mode='w') as relax_script_fp:
+                with os.fdopen(self._ddg_repo.os_open("cartesianrelaxprep.xml", 'w'),'w') as relax_script_fp:
                     relax_script_fp.write("""\
 <ROSETTASCRIPTS>
   <SCOREFXNS>
@@ -480,7 +478,7 @@ endrepeat"""
                 # We need to run the cartesian calculation.
                 tmp_directory = tempfile.mkdtemp(prefix='tmp_ddg_cartesian', dir='.')
 
-                os.makedirs(tmp_directory, mode=0o770, exist_ok=True)
+                self.ddg_report.makedirs(tmp_directory, exist_ok=True)
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
@@ -490,7 +488,7 @@ endrepeat"""
                 # Documented https://www.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
                 # Cartesian uses same format as monomer for th e".mut" file
                 optimize_proline_flag = 'false'
-                with open(self._mutation_list_filename, 'w') as mutation_list_f:
+                with os.fdopen(self._ddg_repo.os_open(self._mutation_list_filename, 'w'),'w') as mutation_list_f:
                     mutation_list_f.write("total %d\n" % len(self._mutation_resids))
                     for rosetta_mutation in self._rosetta_mutations:
                         mutation_list_f.write("1\n")

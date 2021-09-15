@@ -52,7 +52,7 @@ from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
 from psb_shared import psb_config
 from psb_shared.ddg_load_structure import ddg_load_structure,LoadStructureError
-from psb_shared.ddg_repo import DDG_repo
+from psb_shared.ddg_repo import DDG_repo,DDG_repo_RotatingFileHandler
 from psb_shared import ddg_clean
 from psb_shared.ddg_commandline_parser import ddg_commandline_parser
 from psb_shared.ddg_cartesian import DDG_cartesian
@@ -151,7 +151,19 @@ ddg_repo.make_variant_directory_heirarchy()
 # Add a rotating file handler log in the calculation directory
 need_roll = os.path.isfile(ddg_repo.log_filename)
 
-logger_fh = RotatingFileHandler(ddg_repo.log_filename, backupCount=5)
+
+
+
+def _open(self):
+    """
+    Open the current base file with the (original) mode and encoding.
+    Return the resulting stream.
+    """
+    open_func = self._builtin_open
+    return open_func(self.baseFilename, self.mode,
+                     encoding=self.encoding, errors=self.errors)
+
+logger_fh = DDG_repo_RotatingFileHandler(ddg_repo, backupCount=5)
 
 logger_fh.setFormatter(log_formatter)
 logger_fh.setLevel(logging.DEBUG if args.debug else logging.INFO)
@@ -203,9 +215,12 @@ else:
     pdbio = PDBIO()
     cleaned_structure_temp_filename = None
     with tempfile.NamedTemporaryFile(delete=False,dir=ddg_structure_dir,mode="w") as cleaned_structure_temp:
-        pdbio.set_structure(cleaned_structure)
         cleaned_structure_temp_filename = cleaned_structure_temp.name
-        pdbio.save(cleaned_structure_temp_filename, write_end=True, preserve_atom_numbering=False)
+        ddg_repo.os_file_chmod(cleaned_structure_temp_filename)
+        ddg_repo.set_group(cleaned_structure_temp_filename)
+        pdbio.set_structure(cleaned_structure)
+        # with os.fdopen(ddg_repo.os_open(cleaned_structure_temp_filename,'w'),'w') as cleaned_structure_f:
+        pdbio.save(cleaned_structure_temp, write_end=True, preserve_atom_numbering=False)
 
     # Save the cleaned structure in the repository
     ddg_repo.mv_cleaned_structure_in(cleaned_structure_temp_filename)

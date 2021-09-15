@@ -16,41 +16,63 @@ from typing import Tuple
 
 LOGGER = logging.getLogger(__name__)
 
-# DO NOT CHECK THIS IN BELOW IT IS CRAP
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except:
-    capra_group = os.getegid()
-# DO NOT CHECK THIS IN ABOVE IT IS CRAP
+# Provide a simple file opener in case it is not overridden
+class _DefaultOsInterface(object):
+    def os_open(self, filename: str, read_or_write: str) -> int:
+        """
+        Return an integer filedescriptor to a file opened with the permissions
+        and group ownership known to ddg_repo through ddg_repo's initialization
+        """
+        assert read_or_write == 'r' or read_or_write == 'w'
 
-def set_capra_group_sticky(dirname):
-    try:
-        os.chown(dirname, -1, capra_group)
-    except:
-        pass
+        # file_create_mode =(self._file_create_mode if (read_or_write == 'w') else 0)
+        # file_create_mode = 0o660
 
-    # Setting the sticky bit on directories also fantastic
-    try:
-        os.chmod(dirname, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | stat.S_ISGID);
-    except:
-        pass
+        # old_umask = os.umask(0)
+
+        fd = os.open(filename,
+                     (os.O_CREAT | os.O_WRONLY | os.O_TRUNC) if (read_or_write == 'w') else os.O_RDONLY,
+                       )
+
+        if fd < 0:
+            message = "Unable to os.open(%s,%s)"%(filename,read_or_write)
+            LOGGER.critical(message)
+            sys.exit(message)
+        LOGGER.info("Success: os.open(%s,%s,'%s') returning %d",
+                    os.path.abspath(filename),
+                    oct(file_create_mode),
+                    read_or_write,
+                    fd)
+        # self.set_group(filename)
+        # os.umask(old_umask)
+        return fd
+
+    def makedirs(self,name : str, exist_ok = True ) -> None:
+        """
+        name: fullpath of all directories to be made
+        """
+        os.makedirs(name,self._os_makedir_mode,exist_ok)
+
+    def touch(self,filename: str):
+        Path(filename).touch(exist_ok=True,mode=0o660)
 
 
 class PsbStatusManager(object):
-    def __init__(self,  status_dir_parent: str) -> None:
+    def __init__(self,  status_dir_parent: str, os_interface = _DefaultOsInterface()) -> None:
         self._status_dir = os.path.abspath(os.path.join(status_dir_parent,"status"))
         self._complete_filename = os.path.join(self._status_dir, "complete")
         self._failed_filename = os.path.join(self._status_dir, "FAILED")
         self._progress_filename = os.path.join(self._status_dir, "progress")
         self._info_filename = os.path.join(self._status_dir, "info")
+        self._os_interface = os_interface
 
     def clear_status_dir(self) -> None:
         if not os.path.exists(self._status_dir):
             try:
-                os.makedirs(self._status_dir)
+                self._os_interface.makedirs(self._status_dir)
             except:
                 pass
-        set_capra_group_sticky(self._status_dir)
+        # set_capra_group_sticky(self._status_dir)
 
         for the_file in os.listdir(self._status_dir):
             file_path = os.path.join(self._status_dir, the_file)
@@ -69,7 +91,7 @@ class PsbStatusManager(object):
 
     def mark_complete(self) -> None:
         LOGGER.info("Creating %s file to mark process successful end"%self._complete_filename)
-        Path(self._complete_filename).touch(exist_ok=True,mode=0o660)
+        self._os_interface.touch(self._complete_filename)
 
     @property
     def complete_file_present(self) -> float:
@@ -79,7 +101,7 @@ class PsbStatusManager(object):
 
     def mark_failed(self) -> None:
         LOGGER.info("Creating %s file to mark process final failure"%self._failed_filename)
-        Path(self._failed_filename).touch(exist_ok=True,mode=0o660)
+        self._os_interface.touch(self._failed_filename)
 
     @property
     def failed_file_present(self) -> float:
@@ -87,7 +109,6 @@ class PsbStatusManager(object):
             return os.path.getmtime(self._failed_filename)
         return False
 
- 
 
     def read_info_progress(self) -> Tuple[str,str]:
         """
@@ -116,21 +137,21 @@ class PsbStatusManager(object):
 
     def write_info(self, info):
         new_progress_filename = os.path.join(self._status_dir, "progress.new")
-        with open(new_progress_filename, 'w') as f:
+        with os.fdopen(self._os_interface.os_open(new_progress_filename, 'w'),'w') as f:
             f.write("%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
         os.replace(new_progress_filename,  self._progress_filename)
 
         new_info_filename = os.path.join(self._status_dir,"info.new")
-        with open(new_info_filename,'w') as f:
+        with os.fdopen(self._os_interface.os_open(new_info_filename,'w'),'w') as f:
             f.write(info + '\n')
         os.replace(new_info_filename,self._info_filename)
         LOGGER.info("%s now contains: %s"%(self._info_filename,info))
 
     def _write_info_progress(self,info, progress):
-        with open('%s/info.new' % self._status_dir, 'w') as f:
+        with os.fdopen(self._os_interface.os_open('%s/info.new' % self._status_dir,'w'), 'w') as f:
             f.write(info + '\n')
         os.replace('%s/info.new' % self._status_dir, '%s/info' % self._status_dir)
-        with open('%s/progress.new' % self._status_dir, 'w') as f:
+        with os.fdopen(self._os_interface.os_open('%s/progress.new' % self._status_dir, 'w'),'w') as f:
             f.write(progress)
         os.rename('%s/progress.new' % self._status_dir, '%s/progress' % self._status_dir)
 

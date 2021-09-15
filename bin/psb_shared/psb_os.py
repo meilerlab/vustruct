@@ -7,6 +7,14 @@ import os
 Define a set of extraordinarily useful OS wrappers
 """
 
+# def init_psb_os(dict)
+
+def makedirs(name,exist_ok = True):
+    """
+    os.makedirs(
+    """
+    pass
+
 LOGGER = logging.getLogger(__name__)
 
 @contextlib.contextmanager

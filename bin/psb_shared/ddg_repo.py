@@ -14,6 +14,7 @@ Restated:
 """
 import sys
 import os
+import grp
 import re
 from typing import Dict, List, Tuple, Union
 
@@ -23,6 +24,7 @@ import tempfile
 import datetime
 import configparser
 import shutil
+from pathlib import Path
 from psb_shared.psb_progress import PsbStatusManager
 LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ class DDG_repo():
 
         LOGGER.info("Successfully read ddg_config from " + ddg_config_filename)
 
-        for ddg_config_section in ['ddG', 'ddG_monomer', 'ddG_cartesian']:
+        for ddg_config_section in ['ddG', 'ddG_monomer', 'ddG_cartesian', 'os']:
             assert ddg_config.has_section(ddg_config_section),\
                 'The ddg_config file %s lacks a %s section'%(ddg_config_filename,ddg_config_section)
 
@@ -58,6 +60,7 @@ class DDG_repo():
                             required_item, ddg_type, ddg_config_filename)
                     LOGGER.critical(exit_str)
                     sys.exit(exit_str)
+
 
         return ddg_config
 
@@ -106,6 +109,32 @@ class DDG_repo():
         self._variant = None
         self._log_filename = None
         self._psb_status_manager = None
+
+        os_config_dict = DDG_repo._my_config_dicts[ddg_config_filename]['os']
+        if 'makedir_mode' in os_config_dict:
+            self._os_makedir_mode = int(os_config_dict['makedir_mode'],8)
+        else:
+            self._os_makedir_mode = 0o770 # Create directories with rwxrwx---
+
+        if 'makedir_group' in os_config_dict:
+            self._gr_gid = grp.getgrnam(os_config_dict['makedir_group']).gr_gid
+        else:
+            self._gr_gid =  os.getgid()
+        if 'file_create_mode' in os_config_dict:
+            self._file_create_mode = int(os_config_dict['file_create_mode'],8)
+        else:
+            self._file_create_mode = 0o770 # Create directories with rwxrwx---
+
+        if 'file_create_group' in os_config_dict:
+            self._file_create_group = grp.getgrnam(os_config_dict['file_create_group']).gr_gid
+        else:
+            self._file_create_group =  os.getgid()
+
+        if 'run_umask' in os_config_dict:
+            self._run_umask = int(os_config_dict['run_umask'],8)
+        else:
+            self._run_umask=  0o006
+
 
         self._ddg_root = os.path.join(self.repo_root_dir, self._calculation_flavor, self.rosetta_version)
         LOGGER.info('DDG calculations will be rooted in %s', self._ddg_root)
@@ -270,7 +299,9 @@ class DDG_repo():
         # results in locating to structure_dir/S123A/R/ for all calculations
         self._variant_dir = os.path.join(self._structure_dir, self._variant[0:-1], self._variant[-1])
 
-        self._psb_status_manager = PsbStatusManager(self._variant_dir)
+        # Set the psb status manager so that it uses our own member functions
+        # to perform the os file descriptor creation
+        self._psb_status_manager = PsbStatusManager(self._variant_dir,self)
         self._log_filename = os.path.join(self._variant_dir, "%s_%s_%s.log" % (
             self._calculation_flavor, self._structure_id,self._variant))
         return self._variant_dir
@@ -368,6 +399,9 @@ class DDG_repo():
             with tempfile.NamedTemporaryFile(delete=False, mode='w', dir=self._structure_dir) as json_output_temp_file:
                 tempfile_name = json_output_temp_file.name
                 json.dump(xref_raw, json_output_temp_file)
+
+            self.os_file_chmod(tempfile_name)
+            self.set_group(tempfile_name)
 
             if tempfile_name: # great now try to move the xref into position in the repo
                 try:
@@ -471,6 +505,8 @@ class DDG_repo():
                                  self._cleaned_structure_pdb_filename)
                 sys.exit(1)
 
+        self.os_file_chmod(self._cleaned_structure_pdb_filename)
+        self.set_group(self._cleaned_structure_pdb_filename)
         return self._cleaned_structure_pdb_filename
 
 
@@ -488,9 +524,7 @@ class DDG_repo():
         """
         
         LOGGER.info("Creating repo variant dir drwxrwx---: %s", self.variant_dir)
-        save_umask = os.umask(0)
-        os.makedirs(self.variant_dir, mode=0o770, exist_ok=True)
-        os.umask(save_umask)
+        self.makedirs(self.variant_dir, exist_ok=True)
 
     @property
     def structure_dir(self) -> str:
@@ -499,9 +533,7 @@ class DDG_repo():
 
     def slurm_directory_makedirs(self):
         LOGGER.info("Creating slurm directory drwxrwx---: %s", self.slurm_dir)
-        save_umask = os.umask(0)
-        os.makedirs(self.slurm_dir, mode=0o770, exist_ok=True)
-        os.umask(save_umask)
+        self.makedirs(self.slurm_dir, mode=0o770, exist_ok=True)
         return self.slurm_dir
 
 
@@ -511,3 +543,131 @@ class DDG_repo():
         """The calculation directory as set by __init__/set*structure/set_variant"""
         return self._slurm_dir
 
+    def set_group(self,path : str) -> None:
+        """
+        Recursively set the group of all the components of a path
+        so that group ownership matches the configuration of the ddg_repo
+        """
+        ddg_root_abspath = os.path.abspath(self._ddg_root)
+        while path and os.path.abspath(path) != ddg_root_abspath:
+            try:
+                os.chown(path,-1,self._gr_gid)
+            except:
+                LOGGER.info("Failed to os.chown(%s,-1,%d)"%(path,self._gr_gid))
+            head, tail = os.path.split(path)
+            if tail:
+                path= head
+            if path and path[-1] == '/':
+                path = path[0:-1]
+
+
+
+    def makedirs(self,name : str, exist_ok = True ) -> None:
+        """
+        name: fullpath of all directories to be made
+        """
+
+        try:
+            # Without overriding the prevailing umask, os.makedirs will fail
+            old_umask = os.umask(0)
+
+            os.makedirs(name,self._os_makedir_mode,exist_ok)
+        finally:
+            os.umask(old_umask)
+
+        self.set_group(name)
+
+    def os_open(self, filename: str, read_or_write: str) -> int:
+        """
+        Return an integer filedescriptor to a file opened with the permissions
+        and group ownership known to ddg_repo through ddg_repo's initialization
+        """
+        assert read_or_write in ['r','a','w']
+
+        file_create_mode =(self._file_create_mode if (read_or_write in ['w','a']) else 0)
+        # file_create_mode = 0o660
+
+        old_umask = os.umask(0)
+
+        os_flags = os.O_RDONLY
+        if read_or_write == 'a':
+            os_flags = os.O_CREAT | os.O_WRONLY | os.O_APPEND
+        elif read_or_write == 'w':
+            os_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+
+        fd = os.open(filename,
+                     os_flags,
+                       file_create_mode, # file_create_mode,
+                       )
+        if fd < 0:
+            message = "Unable to ddg_repo.os.open(%s,%s)"%(filename,read_or_write)
+            LOGGER.critical(message)
+            sys.exit(message)
+        LOGGER.info("Success: ddg_repo.os.open(%s,%s,'%s') returning %d",
+                    os.path.abspath(filename),
+                    oct(file_create_mode),
+                    read_or_write,
+                    fd)
+        self.set_group(filename)
+        os.umask(old_umask)
+        return fd
+
+    def touch(self, filename: str):
+        old_umask = os.umask(0)
+        Path(filename).touch(mode=self._file_create_mode,exist_ok= True)
+        os.umask(old_umask)
+        self.set_group(filename)
+
+    def os_file_chmod(self,filename: str) -> None:
+        old_umask = os.umask(0)
+        os.chmod(filename, self._file_create_mode)
+        os.umask(old_umask)
+
+    def os_replace(self, source, destination) -> None:
+        """
+        Call os.replace and add set ddg_repo's group ownership
+        """
+        os.replace(source,destination)
+        self.set_group(destination)
+
+    def os_run_umask_start(self):
+        assert not hasattr(self,"_save_mask"),"You did not call os_run_umask_end previously"
+        self._save_umask = os.umask(self._run_umask)
+
+    def os_run_umask_end(self):
+        assert hasattr(self,"_save_umask"),"You did not call os_run_umask_start"
+        os.umask(self._save_umask)
+        del self._save_umask
+
+    def mkdtemp(self,suffix:str = None, prefix:str = None, dir:str = None):
+        temp_dirname = tempfile.mkdtemp(suffix=suffix,prefix=prefix,dir=dir)
+        old_umask = os.umask(0)
+        os.chmod(temp_dirname, self._os_makedir_mode)
+        os.umask(old_umask)
+        self.set_group(temp_dirname)
+        return temp_dirname
+
+from logging.handlers import RotatingFileHandler
+class DDG_repo_RotatingFileHandler(RotatingFileHandler):
+    """
+    Replace the _builtin_open of the low level FileHandler
+    So that log files are opened with proper ddg-repo compatiable
+    permissions
+    """
+    _ddg_repo = None
+    def __init__(self,ddg_repo: DDG_repo,backupCount):
+        DDG_repo_RotatingFileHandler._ddg_repo = ddg_repo
+        super().__init__(ddg_repo.log_filename, backupCount=backupCount)
+        self._builtin_open = DDG_repo_RotatingFileHandler.open_func
+
+    def _open(self):
+        """
+        Open the current base file with the (original) mode and encoding.
+        Return the resulting stream.
+        """
+        return DDG_repo_RotatingFileHandler.open_func(self.baseFilename, self.mode, encoding=self.encoding)
+
+
+    @staticmethod
+    def open_func(filename: str, mode: str, encoding, errors='strict'):
+        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(filename,mode),mode=mode,encoding=encoding)

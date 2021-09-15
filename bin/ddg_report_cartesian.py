@@ -41,7 +41,7 @@ from Bio import BiopythonWarning
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
 from psb_shared import psb_config
-from psb_shared.ddg_repo import DDG_repo
+from psb_shared.ddg_repo import DDG_repo,DDG_repo_RotatingFileHandler
 from psb_shared import ddg_clean
 from psb_shared.ddg_cartesian import DDG_cartesian
 from psb_shared.psb_progress import PsbStatusManager
