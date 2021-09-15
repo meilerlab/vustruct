@@ -476,9 +476,7 @@ endrepeat"""
                 runtime = 0.0
             else:
                 # We need to run the cartesian calculation.
-                tmp_directory = tempfile.mkdtemp(prefix='tmp_ddg_cartesian', dir='.')
-
-                self.ddg_report.makedirs(tmp_directory, exist_ok=True)
+                tmp_directory = self._ddg_repo.mkdtemp(prefix='tmp_ddg_cartesian', dir='.')
                 LOGGER.info("os.chdir('%s')" % tmp_directory)
                 os.chdir(tmp_directory)
 
