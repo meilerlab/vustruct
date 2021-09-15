@@ -14,14 +14,17 @@ Restated:
 """
 import sys
 import os
+import pwd
+from base64 import b64encode
 import grp
 import re
 from typing import Dict, List, Tuple, Union
+import string
 
 import logging
 import json
 import tempfile
-import datetime
+from datetime import datetime
 import configparser
 import shutil
 from pathlib import Path
@@ -33,7 +36,7 @@ class DDG_repo():
 
     @staticmethod
     def ddg_config_read(ddg_config_filename: str) -> Dict[str, str]:
-        LOGGER.info("Attempting to read ddg_config from %s", ddg_config_filename)
+        LOGGER.debug("Attempting to read ddg_config from %s", ddg_config_filename)
 
         ddg_config = configparser.ConfigParser(allow_no_value=False)
 
@@ -459,7 +462,7 @@ class DDG_repo():
             with tempfile.NamedTemporaryFile(delete=False, mode='w', dir=self._structure_dir) as structure_configfile:
                 tempfile_name = structure_configfile.name
                 structure_configfile.write(
-                    "# Configuration mined from original PDB file %s\n" % datetime.date)
+                    "# Configuration mined from original PDB file %s\n" % datetime.now)
                 structure_config_parser.write(structure_configfile)
 
             if tempfile_name:  # great now try to move the xref into position in the repo
@@ -523,7 +526,7 @@ class DDG_repo():
         directories.
         """
         
-        LOGGER.info("Creating repo variant dir drwxrwx---: %s", self.variant_dir)
+        LOGGER.info("Creating repo variant dir: %s", self.variant_dir)
         self.makedirs(self.variant_dir, exist_ok=True)
 
     @property
@@ -532,7 +535,7 @@ class DDG_repo():
         return self._structure_dir
 
     def slurm_directory_makedirs(self):
-        LOGGER.info("Creating slurm directory drwxrwx---: %s", self.slurm_dir)
+        LOGGER.info("Creating slurm directory: %s", self.slurm_dir)
         self.makedirs(self.slurm_dir, mode=0o770, exist_ok=True)
         return self.slurm_dir
 
@@ -577,10 +580,13 @@ class DDG_repo():
 
         self.set_group(name)
 
-    def os_open(self, filename: str, read_or_write: str) -> int:
+    def os_open(self, filename: str, read_or_write: str, logging=True) -> int:
         """
         Return an integer filedescriptor to a file opened with the permissions
         and group ownership known to ddg_repo through ddg_repo's initialization
+
+        It is imperative to turn off logging _if_ this function is being called
+        form inside our custom logger handler 
         """
         assert read_or_write in ['r','a','w']
 
@@ -601,9 +607,12 @@ class DDG_repo():
                        )
         if fd < 0:
             message = "Unable to ddg_repo.os.open(%s,%s)"%(filename,read_or_write)
-            LOGGER.critical(message)
+            if logging:
+                LOGGER.critical(message)
             sys.exit(message)
-        LOGGER.info("Success: ddg_repo.os.open(%s,%s,'%s') returning %d",
+
+        if logging:
+            LOGGER.debug("Success: ddg_repo.os.open(%s,%s,'%s') returning %d",
                     os.path.abspath(filename),
                     oct(file_create_mode),
                     read_or_write,
@@ -639,12 +648,27 @@ class DDG_repo():
         os.umask(self._save_umask)
         del self._save_umask
 
-    def mkdtemp(self,suffix:str = None, prefix:str = None, dir:str = None):
-        temp_dirname = tempfile.mkdtemp(suffix=suffix,prefix=prefix,dir=dir)
-        old_umask = os.umask(0)
-        os.chmod(temp_dirname, self._os_makedir_mode)
-        os.umask(old_umask)
-        self.set_group(temp_dirname)
+    def mkdtemp(self,suffix:str = '', prefix:str = 'tmp_', dir:str = '.'):
+        """
+        Create a unique directory name composed of 
+           os.path.join(dir,prefix+timestamp_milliseconds+randombytes+suffix)
+        """
+
+        # We just seal the deal with some entropy in the final part of the filename
+        base64_encoding_of_8_random_bytes = b64encode(os.urandom(8)).decode('utf-8')
+        # BUT - we cannot allow / and other punctuation into the tmp directory name
+        same_without_punctuation = base64_encoding_of_8_random_bytes.translate(
+            str.maketrans('','',string.punctuation))
+
+        temp_dirname = os.path.join(dir,"%s%s_%s_%s%s"%(
+            prefix,
+            pwd.getpwuid(os.getuid()).pw_name,
+            datetime.now().strftime('%Y%m%d%H%M%S_%f'), # Timestring down to milliseconds
+            same_without_punctuation,
+            suffix
+            ))
+
+        self.makedirs(temp_dirname,exist_ok = False)
         return temp_dirname
 
 from logging.handlers import RotatingFileHandler
@@ -665,9 +689,10 @@ class DDG_repo_RotatingFileHandler(RotatingFileHandler):
         Open the current base file with the (original) mode and encoding.
         Return the resulting stream.
         """
-        return DDG_repo_RotatingFileHandler.open_func(self.baseFilename, self.mode, encoding=self.encoding)
+        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(self.baseFilename, self.mode, logging=False),self.mode, encoding=self.encoding)
+        # return DDG_repo_RotatingFileHandler.open_func(self.baseFilename, self.mode, encoding=self.encoding)
 
 
     @staticmethod
     def open_func(filename: str, mode: str, encoding, errors='strict'):
-        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(filename,mode),mode=mode,encoding=encoding)
+        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(filename,mode, logging=False),mode=mode,encoding=encoding)
