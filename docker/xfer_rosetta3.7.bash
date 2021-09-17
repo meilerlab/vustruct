@@ -10,6 +10,8 @@ ROSETTA_MAIN_SOURCE=/TB4/mothcw/rosetta3.7/rosetta_src_2016.32.58837_bundle/main
 # POINT ROSETTA_MAIN_DEST to the area where the Docker phase9 image will look for it
 ROSETTA_MAIN_DEST=~/psbadmin/rosetta3.7/main
 
+echo Copying from $ROSETTA_MAIN_SOURCE to $ROSETTA_MAIN_DEST
+
 cmd="rm -rfv $ROSETTA_MAIN_DEST"
 echo $cmd
 eval $cmd
