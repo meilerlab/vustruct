@@ -10,6 +10,8 @@ ROSETTA_MAIN_SOURCE=/TB4/mothcw/rosetta3.13/rosetta_src_2021.16.61629_bundle/mai
 # POINT ROSETTA_MAIN_DEST to the area where the Docker phase9 image will look for it
 ROSETTA_MAIN_DEST=~/psbadmin/rosetta3.13/main
 
+echo Copying from $ROSETTA_MAIN_SOURCE to $ROSETTA_MAIN_DEST
+
 cmd="rm -rfv $ROSETTA_MAIN_DEST"
 echo $cmd
 eval $cmd
@@ -24,7 +26,7 @@ declare -a full_directories=(
   'database/scoring/weights'
   'database/scoring/score_functions'
   'database/input_output'
-  'database/sampling/relax_scripts'
+  'database/sampling'
   'database/rotamer/shapovalov'
 )
 
