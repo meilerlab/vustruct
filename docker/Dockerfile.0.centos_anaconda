@@ -7,7 +7,7 @@ FROM centos:7
 
 # This large .sh file must be preloaded before attempting the build
 # Be sure to update line below with latest filename from anaconda
-ARG Anaconda3_release=Anaconda3-2020.11-Linux-x86_64.sh
+ARG Anaconda3_release=Anaconda3-2021.05-Linux-x86_64.sh
 
 # The Anaconda3_...sh installer will modify the root .profile
 # to include PATH=/opt/conda/bin.  HOWEVER, we ususally run
@@ -16,6 +16,8 @@ ARG Anaconda3_release=Anaconda3-2020.11-Linux-x86_64.sh
 ENV PATH="/opt/conda/bin:$PATH"
 
 #Grab anaconda python and install needed python modules
+#we install PyVCF because it weirdly solves downstream package problems
+#to do that now
 RUN echo $Anaconda3_release && \
   echo 'PATH=/opt/conda/bin:${PATH}' >> /etc/environment && \
   echo 'PATH="/opt/conda/bin:$PATH"' > /etc/profile.d/pipeline_setpath0.sh && \
@@ -31,7 +33,12 @@ RUN echo $Anaconda3_release && \
   wget --quiet https://repo.anaconda.com/archive/$Anaconda3_release -O ~/anaconda.sh && \
   /bin/bash ~/anaconda.sh -b -p /opt/conda && \
   rm ~/anaconda.sh && \
-  ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh 
+  ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+  pip install --upgrade setuptools \
+  pip install --upgrade pip \
+  pip install PyVCF
+
+
 
 # echo ". /opt/conda/etc/profile.d/conda.sh" >> /etc/profile.d/pipeline_phase0.sh && \
 
