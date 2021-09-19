@@ -20,8 +20,8 @@ pip install argparse
 pip install WeasyPrint
 
 echo 'CAUTION.  Installation of PyVCF at this point in container construction'
-echo 'May cause problems with python's "import vcf" from container'
-pip install PyVCF
+echo 'May cause problems with python "import vcf" from container'
+# pip install PyVCF
 
 # Newer versions of networkx have incompatible data file formats
 # Await news from Souhrid pip install networkx==1.9
