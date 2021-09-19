@@ -44,8 +44,8 @@ done
 mkdir -p $ROSETTA_MAIN_DEST/source/bin
 
 declare -a rosetta_binaries=(
-'source/bin/rosetta_scripts.default.linuxgccrelease'
-'source/bin/cartesian_ddg.default.linuxgccrelease'
+'source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/rosetta_scripts.default.linuxgccrelease'
+'source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/cartesian_ddg.default.linuxgccrelease'
 )
 
 for rosetta_binary in ${rosetta_binaries[@]}
