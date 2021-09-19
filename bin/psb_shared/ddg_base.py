@@ -331,7 +331,7 @@ class DDG_base(object):
         if self._ddg_repo.rosetta_ld_library_path:
             environment_override = os.environ.copy()
             environment_override['LD_LIBRARY_PATH'] = self._ddg_repo.rosetta_ld_library_path + \
-                (environment_override['LD_LIBRARY_PATH'] if 'LD_LIBRARY_PATH' in environment_override else "")
+                ((':' + environment_override['LD_LIBRARY_PATH']) if 'LD_LIBRARY_PATH' in environment_override else "")
 
         # Archive any additional output files once we commit to re-launching
         for additional_file in additional_files_to_archive:
@@ -348,7 +348,7 @@ class DDG_base(object):
             commandline_record.write("# Record of command invocation\n")
             commandline_record.write("# %s\n" % time.ctime(time.time()))
             if self._ddg_repo.rosetta_ld_library_path:
-                ld_library_path_echo="export LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH"%self._ddg_repo.rosetta_ld_library_path
+                ld_library_path_echo="export LD_LIBRARY_PATH=%s"%environment_override['LD_LIBRARY_PATH']
                 commandline_record.write("%s\n"%ld_library_path_echo)
             commandline_record.write(" \\\n".join(command_line_list))
             # End the command with redirects to the stderr/stdout files
