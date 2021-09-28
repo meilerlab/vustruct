@@ -546,7 +546,7 @@ class DDG_repo():
         """The calculation directory as set by __init__/set*structure/set_variant"""
         return self._slurm_dir
 
-    def set_group(self,path : str) -> None:
+    def set_group(self,path : str,logging_active = True) -> None:
         """
         Recursively set the group of all the components of a path
         so that group ownership matches the configuration of the ddg_repo
@@ -556,7 +556,8 @@ class DDG_repo():
             try:
                 os.chown(path,-1,self._gr_gid)
             except:
-                LOGGER.info("Failed to os.chown(%s,-1,%d)"%(path,self._gr_gid))
+                if logging_active:
+                    LOGGER.info("Failed to os.chown(%s,-1,%d)"%(path,self._gr_gid))
             head, tail = os.path.split(path)
             if tail:
                 path= head
@@ -580,7 +581,7 @@ class DDG_repo():
 
         self.set_group(name)
 
-    def os_open(self, filename: str, read_or_write: str, logging=True) -> int:
+    def os_open(self, filename: str, read_or_write: str, logging_active=True) -> int:
         """
         Return an integer filedescriptor to a file opened with the permissions
         and group ownership known to ddg_repo through ddg_repo's initialization
@@ -607,17 +608,17 @@ class DDG_repo():
                        )
         if fd < 0:
             message = "Unable to ddg_repo.os.open(%s,%s)"%(filename,read_or_write)
-            if logging:
+            if logging_active:
                 LOGGER.critical(message)
             sys.exit(message)
 
-        if logging:
+        if logging_active:
             LOGGER.debug("Success: ddg_repo.os.open(%s,%s,'%s') returning %d",
                     os.path.abspath(filename),
                     oct(file_create_mode),
                     read_or_write,
                     fd)
-        self.set_group(filename)
+        self.set_group(filename,logging_active=logging_active)
         os.umask(old_umask)
         return fd
 
@@ -660,7 +661,7 @@ class DDG_repo():
         same_without_punctuation = base64_encoding_of_8_random_bytes.translate(
             str.maketrans('','',string.punctuation))
 
-        temp_dirname = os.path.join(dir,"%s%s_%s_%s%s"%(
+        temp_dirname = os.path.join(dir,"%s_%s_%s_%s%s"%(
             prefix,
             pwd.getpwuid(os.getuid()).pw_name,
             datetime.now().strftime('%Y%m%d%H%M%S_%f'), # Timestring down to milliseconds
@@ -689,10 +690,10 @@ class DDG_repo_RotatingFileHandler(RotatingFileHandler):
         Open the current base file with the (original) mode and encoding.
         Return the resulting stream.
         """
-        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(self.baseFilename, self.mode, logging=False),self.mode, encoding=self.encoding)
+        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(self.baseFilename, self.mode, logging_active=False),self.mode, encoding=self.encoding)
         # return DDG_repo_RotatingFileHandler.open_func(self.baseFilename, self.mode, encoding=self.encoding)
 
 
     @staticmethod
     def open_func(filename: str, mode: str, encoding, errors='strict'):
-        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(filename,mode, logging=False),mode=mode,encoding=encoding)
+        return os.fdopen(DDG_repo_RotatingFileHandler._ddg_repo.os_open(filename,mode, logging_active=False),mode=mode,encoding=encoding)
