@@ -509,7 +509,7 @@ fi
             #   slurmDict['array'] += "%%10"
 
             for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output', 'reservation',
-                                'array']:
+                                'partition', 'nodelist', 'exclusive', 'export','array']:
                 if slurm_field in slurm_dict and slurm_dict[slurm_field]:
                     slurm_f.write("#SBATCH --%s=%s\n" % (slurm_field, slurm_dict[slurm_field]))
 
