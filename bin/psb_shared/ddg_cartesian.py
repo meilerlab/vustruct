@@ -244,6 +244,12 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
         return ddgs_df
 
     def run(self) -> Tuple[bool, pd.DataFrame]:
+        """
+        Run the ROSETTA relax, and ddG_cartesian programs in a tightly controlled fashion
+        For success, the Tuple [True, dataframe of ddG results] is returned
+        For failure, there is usually a hard fail to the OS, though the present design allows 
+           return of [False, explanation string] as an alternative
+        """
 
         self._ddg_repo.make_variant_directory_heirarchy()
 
@@ -388,7 +394,7 @@ endrepeat"""
                     "-multiple_processes_writing_to_one_directory"]
 
 
-                returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                eeturncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
                     relax_command)
                     # additional_files_to_archive=[minimized_pdb_filename])
 
@@ -586,7 +592,7 @@ endrepeat"""
             # end of part 2 - nothing is returned
 
 
-        return 0,self.analyze_cartesian_ddg;
+        return True,self.analyze_cartesian_ddg;
 
 
     def jobstatus(self) -> Dict[str, str]:
