@@ -482,8 +482,9 @@ fi
                 slurm_dict = dict(launchParametersDDGMonomer)
             elif subdir == "ddG_cartesian":
                 slurm_dict = dict(launchParametersDDGCartesian)
-            elif subdir == "SequenceAnnotation":
-                slurm_dict = dict(launchParametersUDNSequence)
+            # 2021-09-28: Remove SequenceAnnotaiton for time being
+            # elif subdir == "SequenceAnnotation":
+            #    slurm_dict = dict(launchParametersUDNSequence)
             elif subdir == "DigenicAnalysis":
                 slurm_dict = dict(launchParametersDigenicAnalysis)
             else:
@@ -587,8 +588,9 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 bsub_dict = dict(launchParametersDDGMonomer)
             elif subdir == "ddG_cartesian":
                 bsub_dict = dict(launchParametersDDGCartesian)
-            elif subdir == "SequenceAnnotation":
-                bsub_dict = dict(launchParametersUDNSequence)
+            # 2021-09-28: Remove SequenceAnnotaiton for time being
+            # elif subdir == "SequenceAnnotation":
+            #    bsub_dict = dict(launchParametersUDNSequence)
             elif subdir == "DigenicAnalysis":
                 bsub_dict = dict(launchParametersDigenicAnalysis)
             else:

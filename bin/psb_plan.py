@@ -398,10 +398,11 @@ def makejob(flavor,command,params,options: str,cwd=os.getcwd()):
     job['mers'] = params['mers']
 
 
-    if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
-        job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
-        job['outdir'] = params['mutation_dir']
-    elif "DigenicAnalysis" in flavor and job['pdbid'] == 'N/A':
+    # 2021-09-28 Remove SequenceAnnotation calculations
+    # if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
+    #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
+    #    job['outdir'] = params['mutation_dir']
+    if "DigenicAnalysis" in flavor and job['pdbid'] == 'N/A':
         job['uniquekey'] = job['flavor']
         job['outdir'] = params['mutation_dir']
     else: # Most output directories have pdbid and chain suffixes
@@ -479,11 +480,12 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
 
     return pathprox_jobs_to_run_df
 
-def makejob_udn_sequence(params):
-    # Secondary structure prediction and sequence annotation
-    return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
-          ("--config %(config)s --userconfig %(userconfig)s " +
-           "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
+# 2021-09-28 Remove SequenceAnnotation calculations
+# def makejob_udn_sequence(params):
+#     # Secondary structure prediction and sequence annotation
+#     return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
+#           ("--config %(config)s --userconfig %(userconfig)s " +
+#            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
 
 def _makejob_either_ddg(ddG_monomer_or_cartesian,ddg_run_command,params):
     # User models are odd in that the argument to ddg_run*.py is --usermodel full_filename
@@ -1785,8 +1787,9 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     if ENST_transcript_ids:
         params["transcript"] = ENST_transcript_ids[0]
 
+    # 2021-09-28 Remove SequenceAnnotation calculations
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-    df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
+    # df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
     
     # LOGGER.info("%d Structures/models of %s %s (unp=%s)"%(len(df),refseq,gene,unp))
     # If no structures at all are available, then the work plan takes a very different course
