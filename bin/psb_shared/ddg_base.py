@@ -326,12 +326,20 @@ class DDG_base(object):
         for arg_with_spaces in command_line_list:
             submitted_command_line_list.extend(arg_with_spaces.split(' '))
 
-        environment_override = None
+        environment_override = os.environ.copy()
 
         if self._ddg_repo.rosetta_ld_library_path:
-            environment_override = os.environ.copy()
             environment_override['LD_LIBRARY_PATH'] = self._ddg_repo.rosetta_ld_library_path + \
                 ((':' + environment_override['LD_LIBRARY_PATH']) if 'LD_LIBRARY_PATH' in environment_override else "")
+
+        # We must remove all ROSETTA3* environment variables
+        rosetta3_unset_variables = {}
+        for envvar in environment_override:
+            if envvar.startswith('ROSETTA3'):
+                rosetta3_unset_variables[envvar] = environment_override[envvar]
+       
+        for rosetta3_variable in rosetta3_unset_variables:
+            environment_override.pop(rosetta3_variable)        
 
         # Archive any additional output files once we commit to re-launching
         for additional_file in additional_files_to_archive:
@@ -350,6 +358,8 @@ class DDG_base(object):
             if self._ddg_repo.rosetta_ld_library_path:
                 ld_library_path_echo="export LD_LIBRARY_PATH=%s"%environment_override['LD_LIBRARY_PATH']
                 commandline_record.write("%s\n"%ld_library_path_echo)
+            for rosetta3_variable in rosetta3_unset_variables:
+                commandline_record.write('unset %s # which at launch was=%s\n' % (rosetta3_variable,rosetta3_unset_variables[rosetta3_variable]))
             commandline_record.write(" \\\n".join(command_line_list))
             # End the command with redirects to the stderr/stdout files
             commandline_record.write(" \\\n> %s 2> %s\n" % (stdout_filename, stderr_filename))
