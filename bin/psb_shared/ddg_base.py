@@ -94,7 +94,11 @@ class DDG_base(object):
 
         for mutation, mutation_resid in zip(self._mutations, mutation_resids):
             rosetta_residue_number = self._ddg_repo.residue_to_clean_xref[mutation_resid][1]
-            LOGGER.info("Res %s converted to rosetta cleaned res # %d" % (mutation_resid, rosetta_residue_number))
+            LOGGER.info("Res %s in %s converted to rosetta cleaned res # %d in %s", \
+                mutation_resid, 
+                self._ddg_repo.structure_id + '.' + self._ddg_repo.chain_id, \
+                rosetta_residue_number, \
+                self._ddg_repo._cleaned_structure_pdb_filename)
             # Add to list of rosetta mutations in form A123S
             rosetta_mutations.append(mutation[0] + str(rosetta_residue_number) + mutation[-1])
 
