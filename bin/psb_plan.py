@@ -147,14 +147,20 @@ required_config_items = ["dbhost","dbname","dbuser","dbpass",
   "swiss_dir",
   "swiss_summary"]
 
+
 # parser.add_argument("udn_excel",type=str,help="Raw input UDN patient report (format: xls/xlsx)")
 # parser.add_argument("udn_csv",type=str,help="Parsed output pipeline filename (e.g. filename.csv)")
 
 config,config_dict = psb_config.read_config_files(args,required_config_items)
 
+# You can add a [KeepPDBs] section to a config file and list pdb IDs which must not be dropped by the structure filterer
 keep_pdbs = []
 if 'KeepPDBs' in config:
     keep_pdbs = dict(config.items('KeepPDBs'))['keeppdbs'].upper().split(',')
+
+digipred_program = None
+if 'CaseWide' in config:
+    digipred_program = dict(config.items('CaseWide')).get('digipred',None)
 
 from psb_shared import psb_perms
 psb_permissions = psb_perms.PsbPermissions(config_dict)
@@ -372,6 +378,15 @@ def get_pdb_pos(*args):
 
   return df["chain_seqid"].values[0]
 
+# It is handy to have a list of all the dataframe headers for jobs
+JOB_DF_COLUMNS = [
+    'chain','command','config','cwd',
+    'flavor','gene','mers','method',
+    'mutation','options','outdir',
+    'pdbid','pdbmut','project','refseq',
+    'uniquekey','unp','userconfig']
+
+
 def makejob(flavor,command,params,options: str,cwd=os.getcwd()):
     job = {}
     job['flavor'] = flavor
@@ -402,7 +417,7 @@ def makejob(flavor,command,params,options: str,cwd=os.getcwd()):
     # if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
-    if "DigenicAnalysis" in flavor and job['pdbid'] == 'N/A':
+    if "DigiPred" in flavor and job['pdbid'] == 'N/A':
         job['uniquekey'] = job['flavor']
         job['outdir'] = params['mutation_dir']
     else: # Most output directories have pdbid and chain suffixes
@@ -1769,7 +1784,7 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     #
     # With the list of structures complete, now create a schedule of work to be later launched
     #
-    df_all_jobs = pd.DataFrame()
+    df_all_jobs = pd.DataFrame(columns=JOB_DF_COLUMNS)
     
     # This dictionary used to feed patching of .slurm template scripts
     # It now carries info to create a .csv file of work to be performed
@@ -1870,9 +1885,14 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
 
     workstatus_filename = "%s/%s_%s_%s_workstatus.csv"%(mutation_dir,gene,refseq,mutation)
 
-    df_all_jobs.set_index('uniquekey',inplace=True);
-    df_all_jobs.sort_index().to_csv(workplan_filename,sep='\t')
-    LOGGER.info("Workplan written to %s"%workplan_filename)
+    if len(df_all_jobs) > 0:
+        df_all_jobs.set_index('uniquekey',inplace=True);
+        df_all_jobs.sort_index().to_csv(workplan_filename,sep='\t')
+        LOGGER.info("Workplan written to %s"%workplan_filename)
+    else:
+        pd.DataFrame(columns=JOB_DF_COLUMNS).to_csv(workplan_filename,sep='\t')
+        LOGGER.info("Empty workplan written to %s"%workplan_filename)
+        
 
     if os.path.exists(workstatus_filename):
         LOGGER.warning("Removing prior workstatus file: %s"%workstatus_filename)
@@ -1884,19 +1904,19 @@ def plan_one_mutation(index:int, gene: str,refseq: str,mutation: str,user_model:
     LOGGER.removeHandler(local_fh)
     return df_all_jobs,workplan_filename,ci_df,df_dropped,log_filename
     
-def makejob_DigenicAnalysis(params,options:str):
+def makejob_DigiPred(params,options:str):
     # Secondary structure prediction and sequence annotation
-    return makejob("DigenicAnalysis", # Flavor
-        "python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/get_digenic_metrics.py", # Command
+    return makejob("DigiPred", # Flavor
+        digipred_program,      # something like python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/Run_DiGePred_PSB.py
         params, # Parameters for dataframe
         options) # Command line options
 
-def plan_casewide_work(original_case_xlsx_file):
+def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
     # Use the global database connection
     global args
     global io
 
-    LOGGER.info("Planning case-wide work for %s"%args.project)
+    LOGGER.info("Planning Vanderbilt-specific casewide work for %s"%args.project)
     # 2017-10-03 Chris Moth modified to key off NT_ refseq id
 
     casewideString = "casewide"
@@ -1940,11 +1960,14 @@ def plan_casewide_work(original_case_xlsx_file):
                         "pdb_mutation":"N/A"}
 
 
-    digenic_options = "-n %s -e %s"%(args.project,original_case_xlsx_file)
-
+    # DiGiPred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
+    if digipred_program:
+        digipred_options = "-n %s -e %s"%(args.project,original_Vanderbilt_UDN_case_xlsx_filename)
     
-    # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-    df_all_jobs = df_all_jobs.append(makejob_DigenicAnalysis(params,digenic_options),ignore_index=True)
+        # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
+        df_all_jobs = df_all_jobs.append(makejob_DigiPred(params,digipred_options),ignore_index=True)
+    else:
+        LOGGER.info("No digipred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
 
     df_all_jobs.set_index('uniquekey',inplace=True);
     df_all_jobs.sort_index().to_csv(workplan_filename,sep='\t')
@@ -1969,19 +1992,27 @@ if oneMutationOnly:
     print("%3d structures/models were considered, but dropped."%len(df_dropped))
     print("Full details in %s",log_filename)
 else:
-    original_case_xlsx_file = os.path.join(collaboration_dir,"%s.xlsx"%args.project)
+    original_Vanderbilt_UDN_case_xlsx_filename = None
+    if digipred_program:
+        original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(collaboration_dir,"%s.xlsx"%args.project)
+    else:
+        LOGGER.info('No digipred entry in config file(s).  Vanderbilt-specific UDN analysis will not be performed')
 
-    # The exception to the rule is/are the case-wide jobs that the pipeline launches.
-    # if not os.path.exists(phenotypes_filename):
-    #     LOGGER.critical("File %s was not created from the UDN report."%phenotypes_filename)
-    #     LOGGER.critical("Thus, psb_genedicts.py will NOT be part of the planned work")
-    # else:
-    df_all_jobs,workplan_filename,log_filename = plan_casewide_work(original_case_xlsx_file)
+    df_all_jobs = pd.DataFrame()
+    if original_Vanderbilt_UDN_case_xlsx_filename and os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename):
+        LOGGER.info('Planning casewide work from %s'%original_Vanderbilt_UDN_case_xlsx_filename)
+        df_all_jobs,workplan_filename,log_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
+    elif original_Vanderbilt_UDN_case_xlsx_filename:
+        LOGGER.info('Vanderbilt-specific file %s not found.  No casewide work will be performed'% \
+            original_Vanderbilt_UDN_case_xlsx_filename)
 
-    fulldir, filename = os.path.split(log_filename)
-    fulldir, casewide_dir = os.path.split(fulldir)
-    fulldir, project_dir = os.path.split(fulldir)
-    print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
+    if len(df_all_jobs):
+        fulldir, filename = os.path.split(log_filename)
+        fulldir, casewide_dir = os.path.split(fulldir)
+        fulldir, project_dir = os.path.split(fulldir)
+        print(" %4d casewide jobs will run.  See: $UDN/%s"%(len(df_all_jobs),os.path.join(project_dir,casewide_dir,filename)))
+    else:
+        print(" No casewide jobs will be run.")
 
     # Now plan the per-mutation jobs
     udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.project)
