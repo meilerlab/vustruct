@@ -394,7 +394,7 @@ endrepeat"""
                     "-multiple_processes_writing_to_one_directory"]
 
 
-                eeturncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
                     relax_command)
                     # additional_files_to_archive=[minimized_pdb_filename])
 
