@@ -30,6 +30,7 @@ import shutil
 from pathlib import Path
 from psb_shared.psb_progress import PsbStatusManager
 LOGGER = logging.getLogger(__name__)
+import socket
 
 
 class DDG_repo():
@@ -397,14 +398,13 @@ class DDG_repo():
                 rosetta_residue_id_str = str(residue_to_clean_xref[structure_residue_id])
                 xref_raw[structure_residue_id_str] = rosetta_residue_id_str
 
-            tempfile_name = None
             # Take care to not create an incomplete file
-            with tempfile.NamedTemporaryFile(delete=False, mode='w', dir=self._structure_dir) as json_output_temp_file:
-                tempfile_name = json_output_temp_file.name
+            tempfile_name,tempfile_fd = self.mkstemp(read_or_write='w', dir=self._structure_dir)
+            with os.fdopen(tempfile_fd,mode='w') as json_output_temp_file:
                 json.dump(xref_raw, json_output_temp_file)
 
-            self.os_file_chmod(tempfile_name)
-            self.set_group(tempfile_name)
+            # self.os_file_chmod(tempfile_name)
+            # self.set_group(tempfile_name)
 
             if tempfile_name: # great now try to move the xref into position in the repo
                 try:
@@ -434,10 +434,12 @@ class DDG_repo():
         if not self._structure_config:
             # If the json file is not in the repo - this falls through and returns None
             if os.path.exists(self._structure_config_filename):
+                LOGGER.info("Loading structure_config from %s", self._structure_config_filename)
                 structure_config_parser = configparser.ConfigParser(comment_prefixes='#')
                 structure_config_parser.read(self._structure_config_filename)
                 self._structure_config = dict(structure_config_parser.items('pdb_info'))
             else:
+                LOGGER.info("No structure config file: %s", self._structure_config_filename)
                 return {}
         return self._structure_config
 
@@ -457,10 +459,10 @@ class DDG_repo():
             structure_config_parser.set('pdb_info', infokey, structure_config[infokey])
 
         if (not self._residue_to_clean_xref) and (not os.path.exists(self._structure_config_filename)):
-            tempfile_name = None
             # Take care to not create an incomplete file
-            with tempfile.NamedTemporaryFile(delete=False, mode='w', dir=self._structure_dir) as structure_configfile:
-                tempfile_name = structure_configfile.name
+
+            tempfile_name,tempfile_fd = self.mkstemp(read_or_write='w', dir=self._structure_dir)
+            with os.fdopen(tempfile_df,mode='w') as structure_configfile:
                 structure_configfile.write(
                     "# Configuration mined from original PDB file %s\n" % datetime.now)
                 structure_config_parser.write(structure_configfile)
@@ -551,20 +553,49 @@ class DDG_repo():
         Recursively set the group of all the components of a path
         so that group ownership matches the configuration of the ddg_repo
         """
+
+        save_full_path = path
+
+        # Track chgrp fails for debugging.  Normally these fails are not a big problem
+        chown_failures = []
         ddg_root_abspath = os.path.abspath(self._ddg_root)
+        chown_attempted = 0
         while path and os.path.abspath(path) != ddg_root_abspath:
+            chown_needed = True
+
+            # Often the file group is already fine.  Don't repeat work, warnings, etc if so
             try:
-                os.chown(path,-1,self._gr_gid)
-            except:
-                if logging_active:
-                    LOGGER.info("Failed to os.chown(%s,-1,%d)"%(path,self._gr_gid))
+                stat_info = os.stat(path)
+                if stat_info.st_gid == self._gr_gid:
+                    chown_needed = False
+            except FileNotFoundError:
+                LOGGER.warning('Attempting set_group() on missing file %s',path)
+
+            if chown_needed:
+                chown_attempted += 1
+                try:
+                    os.chown(path,-1,self._gr_gid)
+                except PermissionError: # This is fine, because it just means some other user set the group
+                    if len(chown_failures) < 2:
+                        chown_failures.append(path)
+                    else: # We only track the first failure, and the last, then print them backwards
+                        chown_failures[1] = path
+                    if logging_active:
+                        LOGGER.debug("Failed to os.chown(%s,-1,%d)"%(path,self._gr_gid))
+
             head, tail = os.path.split(path)
             if tail:
                 path= head
             if path and path[-1] == '/':
                 path = path[0:-1]
 
-
+        if chown_attempted > 0 and logging_active:
+            if len(chown_failures) == 0:
+                LOGGER.info("Group %s=%d set successfully for path %s", \
+                    grp.getgrgid(self._gr_gid)[0],self._gr_gid, save_full_path)
+            else:
+                LOGGER.info("Likely harmless permissions errors setting group %d for %s", \
+                    self._gr_gid, str(chown_failures))
 
     def makedirs(self,name : str, exist_ok = True ) -> None:
         """
@@ -649,28 +680,45 @@ class DDG_repo():
         os.umask(self._save_umask)
         del self._save_umask
 
-    def mkdtemp(self,suffix:str = '', prefix:str = 'tmp_', dir:str = '.'):
-        """
-        Create a unique directory name composed of 
-           os.path.join(dir,prefix+timestamp_milliseconds+randombytes+suffix)
-        """
-
+    def _temp_name(self,suffix:str = '', prefix:str = 'tmp_', dir:str = '.') -> str:
         # We just seal the deal with some entropy in the final part of the filename
         base64_encoding_of_8_random_bytes = b64encode(os.urandom(8)).decode('utf-8')
         # BUT - we cannot allow / and other punctuation into the tmp directory name
-        same_without_punctuation = base64_encoding_of_8_random_bytes.translate(
+        random_bytes_without_punctuation = base64_encoding_of_8_random_bytes.translate(
             str.maketrans('','',string.punctuation))
 
-        temp_dirname = os.path.join(dir,"%s_%s_%s_%s%s"%(
+        hostname_withoout_punctuation = socket.gethostname().translate(
+            str.maketrans('','',string.punctuation))
+
+
+        temp_name = os.path.join(dir,"%s_%s_%s_%d_%s_%s%s"%(
             prefix,
             pwd.getpwuid(os.getuid()).pw_name,
+            hostname_without_punctuation,
+            os.getpid(),
             datetime.now().strftime('%Y%m%d%H%M%S_%f'), # Timestring down to milliseconds
-            same_without_punctuation,
+            random_bytes_without_punctuation,
             suffix
             ))
+        return temp_name
 
+    def mkdtemp(self,suffix:str = '', prefix:str = 'tmp_', dir:str = '.') -> str:
+        """
+        Create a unique directory name composed of 
+        os.path.join(dir,prefix+timestamp_milliseconds+randombytes+suffix)
+        """
+
+        temp_dirname = self._temp_name(suffix,prefix,dir)
         self.makedirs(temp_dirname,exist_ok = False)
         return temp_dirname
+
+    def mkstemp(self, read_or_write: str, dir='.', logging_active=True) -> (str,int):
+        """
+        Make a temporary filename, and it along with open int file descriptor
+        """
+        temp_filename = self._temp_name('.temp','tmpfile',dir)
+        return temp_filename,self.os_open(temp_filename,read_or_write,logging_active)
+
 
 from logging.handlers import RotatingFileHandler
 class DDG_repo_RotatingFileHandler(RotatingFileHandler):
