@@ -149,7 +149,7 @@ launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGCartesian: Dict[str, Any] = copy.deepcopy(launchParametersAll)
   
 launchParametersUDNSequence: Dict[str, Any] = copy.deepcopy(launchParametersAll)
-launchParametersDigenicAnalysis: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+launchParametersDigiPred: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 
 # Initialize the slurm/LSF parameters for each of the 4 possible calculation sets
 # Log the parameters (gathered from the config file
@@ -170,7 +170,7 @@ for launchParameterDictDesc, launchParameters in [
     ('ParametersDDGMonomer', launchParametersDDGMonomer),
     ('ParametersDDGCartesian', launchParametersDDGCartesian),
     ('ParametersUDNSequence', launchParametersUDNSequence),
-    ('ParametersDigenicAnalysis', launchParametersDigenicAnalysis)
+    ('ParametersDigiPred', launchParametersDigiPred)
 ]:
     # Update each flavor-specific dictionaryof parameters
     # with the flavor-specific overrides in the config file
@@ -264,7 +264,7 @@ class JobsLauncher:
         self._all_jobs_cwd = None
 
         # Whether by slurm, LSF or other, each job has s specific command line with arguments that must be run.
-        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'ddG_cartesian': [],'SequenceAnnotation': [], 'DigenicAnalysis': []}
+        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'ddG_cartesian': [],'SequenceAnnotation': [], 'DigiPred': []}
 
         # After jobs are launched, we will create a 'submitted' file in the status directories for the jobs
         # Might collide with launched program though - so perhaps rethink a bit....
@@ -344,7 +344,7 @@ class JobsLauncher:
                 # out of same .slurm file
                 if "PP_" in row['flavor']:
                     self._launch_strings['PathProx'].append(uniquekey_launch_string)
-                elif row['flavor'] in self._launch_strings:  # Great for ddG, SequenceAnnocation, DigenicAnalysis
+                elif row['flavor'] in self._launch_strings:  # Great for ddG, SequenceAnnocation, DigiPred
                     self._launch_strings[row['flavor']].append(uniquekey_launch_string)
                 else:
                     print("I don't know this job flavor: ", row['flavor'])
@@ -485,8 +485,8 @@ fi
             # 2021-09-28: Remove SequenceAnnotaiton for time being
             # elif subdir == "SequenceAnnotation":
             #    slurm_dict = dict(launchParametersUDNSequence)
-            elif subdir == "DigenicAnalysis":
-                slurm_dict = dict(launchParametersDigenicAnalysis)
+            elif subdir == "DigiPred":
+                slurm_dict = dict(launchParametersDigiPred)
             else:
                 print("I don't know what flavor(subdir) is: ", subdir)
                 sys.exit(1)
@@ -591,8 +591,8 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
             # 2021-09-28: Remove SequenceAnnotaiton for time being
             # elif subdir == "SequenceAnnotation":
             #    bsub_dict = dict(launchParametersUDNSequence)
-            elif subdir == "DigenicAnalysis":
-                bsub_dict = dict(launchParametersDigenicAnalysis)
+            elif subdir == "DigiPred":
+                bsub_dict = dict(launchParametersDigiPred)
             else:
                 print("I don't know what flavor(subdir) is: ", subdir)
                 sys.exit(1)
@@ -735,11 +735,11 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         # retail the list of all the .slurm or .bsub files getting launched.
         launch_filenames = []
 
-        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','SequenceAnnotation', 'DigenicAnalysis']:
+        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','SequenceAnnotation', 'DigiPred']:
             if len(self._launch_strings[subdir]) == 0:
                 # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
-                if (self._gene == 'casewide' and subdir == 'DigenicAnalysis') or (
-                        self._gene != 'casewide' and subdir != 'DigenicAnalysis'):
+                if (self._gene == 'casewide' and subdir == 'DigiPred') or (
+                        self._gene != 'casewide' and subdir != 'DigiPred'):
                     LOGGER.info(
                         "No %s jobs will be run for %s %s %s", subdir, self._gene, self._refseq, self._mutation)
             else:
