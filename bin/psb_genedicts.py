@@ -1,3 +1,4 @@
+error Early module for Digenic gene processing.  No longer used
 #!/usr/bin/env python
 #
 # Project        : PSB Pipeline
