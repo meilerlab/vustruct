@@ -43,6 +43,7 @@ from psb_shared.ddg_repo import DDG_repo
 import shutil
 import numpy as np
 import pandas as pd
+import csv
 from jinja2 import Environment, FileSystemLoader
 from io import StringIO, BytesIO
 import pycurl
@@ -226,7 +227,7 @@ def copy_html_css_javascript():
 # Return html long report
 # Return text that can be dumped to the log file
 def gene_interaction_report(case_root, case, CheckInheritance):
-    genepair_dict_file = os.path.join(case_root, 'casewide', 'DigenicAnalysis', '%s_all_gene_pairs_summary.json' % case)
+    genepair_dict_file = os.path.join(case_root, 'casewide', 'DigiPred', '%s_all_gene_pairs_summary.json' % case)
 
     try:
         with open(genepair_dict_file, 'r') as fd:
@@ -364,6 +365,10 @@ class CalculationResultsLoader:
 
     @property
     def workstatus_df(self) -> pd.DataFrame:
+        # If nothing was done, return a known empty dataframe
+        if not self._workstatus_filename_exists:
+            return self._workplan_df
+
         if self._workstatus_df is not None:
             return self._workstatus_df
         
@@ -816,15 +821,17 @@ class CalculationResultsLoader:
     def collaboration_dir_variant_directory_segment(variant_directory_segment:str):
         return os.path.join(collaboration_dir, variant_directory_segment)
 
-    def __init__(self,variant_directory_segment:str):
+    def __init__(self,variant_directory_segment:str, parent_report_row:Dict = None):
         """
         @param variant_directory_segment, usually str of form "GENE_refseq_A123B"
         @param workstatus_filename:       Filename of status of all calculations, previously updated by psb_monitor.py,
+        @param parent_report_row: In the event that no calculations were launched for the variant, then
+           the unp from the parent row (on the main page report) populates variables so a minimal report can be
+           completed
 
         Load all the calculation results from the filesystem, making them available as dataframes and dictionaries
         indexed by (method_structureid_chain_mers)
         """
-
         if not os.path.exists(CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)):
             LOGGER.critical(
                 "The  variant directory %s has not been created by the pipeline under %s.",
@@ -863,26 +870,45 @@ class CalculationResultsLoader:
         # filenames for display images, PDBs to display in the NGL viewer, as well as variant lists.
         self.structure_graphics_dicts = []
 
-        # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
-        self._workplan_row0 = self.workplan_df.iloc[0]
+        self._workstatus_filename_exists = False
+        if os.path.exists(self.workstatus_filename):
+            self._workstatus_filename_exists = True
 
-        # Assert that we have a 'unp' in the workstatus dataframe, else
-        # really the pipelien must halt altogether... at this juncture
-        if 'unp' not in self._workplan_row0:
-            msg = "No 'unp' column found in %s.  The report generator cannot continue"%(
-                self.workplan_filename)
-            LOGGER.critical(msg)
-            sys.exit(msg)
+        if not self._workstatus_filename_exists:
+           if len(self.workplan_df) > 0:
+              LOGGER.critical("No workstatus file (%s) found.  However, %d jobs should have been launched.",\
+                  len(self.workplan_df))
+           else:
+              LOGGER.info("No work was planned for this variant")
+
+        # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
+        if self._workstatus_filename_exists:
+            self._info_dict = self.workplan_df.iloc[0]
+
+            # Assert that we have a 'unp' in the workstatus dataframe, else
+            # really the pipelien must halt altogether... at this juncture
+            if 'unp' not in self._info_dict:
+                msg = "No 'unp' column found in %s.  The report generator cannot continue"%(
+                    self.workplan_filename)
+                LOGGER.critical(msg)
+                sys.exit(msg)
+        else: # Since we don't have any rows in the workstatus file, just use the information from the main page report
+            self._info_dict = parent_report_row
 
         self._unp_transcript = PDBMapTranscriptUniprot(self.unp)
 
+    @property
+    def project(self):
+        if 'project' in self._info_dict:
+            return self._info_dict['project']
+        return args.projectORstructures
+
     # What fun - define read-only @property class members with one-line anonymous functions
-    project = property(lambda self: self._workplan_row0['project'])
-    unp = property(lambda self: self._workplan_row0['unp'])
-    gene = property(lambda self: self._workplan_row0['gene'])
-    mutation = property(lambda self: self._workplan_row0['mutation'])
+    unp = property(lambda self: self._info_dict['unp'])
+    gene = property(lambda self: self._info_dict['gene'])
+    mutation = property(lambda self: self._info_dict['mutation'])
     # Try to move to "Variant" to describe that which was previously a mutation
-    variant = property(lambda self: self._workplan_row0['mutation'])
+    variant = property(lambda self: self._info_dict['mutation'])
     unp_transcript = property(lambda self: self._unp_transcript)
 
     @property
@@ -1256,7 +1282,7 @@ class PfamDomainGraphics:
 
 
 
-def report_one_variant_one_isoform(variant_directory_segment: str) -> Dict:
+def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_row: Dict) -> Dict:
     """
     Generate extensive structure analysis report .html for a single variant of a single transcript by
     reading all PathPRox/ddG/etc calculations into dataframes, transforming the data a bit, and then
@@ -1268,6 +1294,10 @@ def report_one_variant_one_isoform(variant_directory_segment: str) -> Dict:
     @param variant_directory: Typically a string like "Gene_transcriptId_aaVariant" that is the root subdirectory
             of the collaboration directory that houses all calculation results.  The string is also a prefix to
              key files that record calculation status
+
+    @param parent_report_row: In the event that no calculations were launched for the variant, then
+           the unp from the parent row (on the main page report) populates variables so a minimal report can be
+           completed
     @return: An variant_isoform_summary dictionary that can help the caller assemble the main report page.
     """
 
@@ -1275,7 +1305,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str) -> Dict:
     variant_directory_fullpath = CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)
     local_logger_fh = _initialize_local_logging_in_variant_directory(variant_directory_fullpath)
 
-    calculation_results_loader = CalculationResultsLoader(variant_directory_segment)
+    calculation_results_loader = CalculationResultsLoader(variant_directory_segment,parent_report_row)
     calculation_results_loader.load_dataframes()
     calculation_results_loader.load_structure_graphics_dicts()
 
@@ -1578,7 +1608,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     print(msg)
                 LOGGER.info(msg)
                 variant_directory = "%s_%s_%s" % (genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
-                variant_isoform_summary = report_one_variant_one_isoform(variant_directory)
+                variant_isoform_summary = report_one_variant_one_isoform(variant_directory, genome_variant_row)
                 if variant_isoform_summary:
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
@@ -1669,7 +1699,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 args.config, args.userconfig, structure_report_filename, workstatus_filename))
             else:
                 variant_directory = "%s_%s_%s" % (variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
-                variant_isoform_summary = report_one_variant_one_isoform(variant_directory)
+                variant_isoform_summary = report_one_variant_one_isoform(variant_directory,variant_row)
                 if variant_isoform_summary:
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
@@ -1776,33 +1806,75 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
     if genome_headers or variant_isoform_summaries:  # Excellent, we have a home page report for many variants
         # If there are DigenicInteraction .svg files in the right place, integrate them
-        digenic_graphics_types = ['digenic_score_only', 'digenic_details', 'sys_bio_details']
-        digenic_graphics_score_only_filename = None
-        found_graphics_files = {}
-        for digenic_graphic_type in digenic_graphics_types:
-            digenic_graphic_filename = os.path.join('casewide', 'DigenicAnalysis',
-                                                    '%s_all_gene_pairs_%s.svg' % (
-                                                    args.projectORstructures, digenic_graphic_type))
+        # digenic_graphics_types = [
+        #     'digenic_score', 
+        #     # 'digenic_details', 
+        #     'sys_bio_details']
+        # digenic_graphics_score_only_filename = None
+        # found_graphics_files = {}
+        # for digenic_graphic_type in digenic_graphics_types:
+        #     digenic_graphic_filename = os.path.join('casewide', 'DigiPred',
+        #                                             '%s_all_gene_pairs_%s.svg' % (
+        #                                             args.projectORstructures, digenic_graphic_type))
+        #
+        #      if os.path.exists(os.path.join(collaboration_dir, digenic_graphic_filename)):
+        #         found_graphics_files[digenic_graphic_type] = digenic_graphic_filename
+        #         website_filelist.append(os.path.join('.', digenic_graphic_filename))
 
-            if os.path.exists(os.path.join(collaboration_dir, digenic_graphic_filename)):
-                found_graphics_files[digenic_graphic_type] = digenic_graphic_filename
-                website_filelist.append(os.path.join('.', digenic_graphic_filename))
+        # Was there a generated .html file from DiGiPred
+        digipred_html_filename = os.path.join('casewide', 'DigiPred',
+                                                 '%s_all_gene_pairs_summary.html' % (
+                                                     args.projectORstructures,))
+
+        if os.path.exists(os.path.join(collaboration_dir,digipred_html_filename)):
+            website_filelist.append(digipred_html_filename)
+            LOGGER.info("Integrating DiGiPred html: %s", digipred_html_filename)
+        else:
+            LOGGER.warning("DigiPred %s missing.  Did you run DigiPred?", digipred_html_filename)
+            del digipred_html_filename
+
+        digipred_csv_filename = os.path.join('casewide', 'DigiPred',
+                                                 '%s_all_gene_pairs_digenic_metrics.csv' % (
+                                                     args.projectORstructures,))
+
+        digipred_metrics_df = pd.DataFrame()
+        if os.path.exists(os.path.join(collaboration_dir,digipred_csv_filename)):
+            LOGGER.info("Integrating DiGiPred csv: %s", digipred_csv_filename)
+            digipred_metrics_df = pd.read_csv(digipred_csv_filename,sep=',')
+            LOGGER.info("%d rows read",len(digipred_metrics_df))
+            digipred_metrics_df.sort_values(by=['digenic score'],ascending=False,inplace=True,ignore_index=True)
+        else:
+            LOGGER.warning("DigiPred %s missing.  Did you run DigiPred?", digipred_html_filename)
+            del digipred_html_filename
+
+        # Now prepare the entries which will go to the html table
+        # For now, max 20 or all
+        digipred_gene_pairs = []
+        max_rows = min(20,len(digipred_metrics_df))
+        for index,row in digipred_metrics_df.head(max_rows).iterrows():
+            gene_pair_dict = {}
+            for key in ['gene A','gene B','digenic score']:
+                gene_pair_dict[key] = row[key]
+            digipred_gene_pairs.append(gene_pair_dict)
+        
+
+
 
         case_report_template_location = os.path.dirname(os.path.realpath(__file__))
         env = Environment(loader=FileSystemLoader(case_report_template_location))
-        if len(found_graphics_files) == 3:
-            LOGGER.info("Integrating DigenicAnalysis svg graphics")
-            digenic_graphics_score_only_filename = os.path.join('.', found_graphics_files['digenic_score_only'])
-            template = env.get_template("html/DigenicInteractionsReportTemplate.html")
-            # Probably a goof - but the template file restates the full graphics filenames
-            html_out = template.render({'case': args.projectORstructures})
-            digenic_graphics_html_filename = os.path.join(collaboration_dir, 'casewide',
-                                                          'DigenicGraphics.html')  # The argument is an entire project UDN124356
-            with open(digenic_graphics_html_filename, "w") as f:
-                f.write(html_out)
-            website_filelist.append(digenic_graphics_html_filename)
-        else:
-            LOGGER.warning("Digenic Analysis svg files are missing.  Did you run DigenicAnalysis")
+        # if len(found_graphics_files) == 2:
+        #     LOGGER.info("Integrating DiGiPred svg graphics")
+        #     digenic_graphics_score_only_filename = os.path.join('.', found_graphics_files['digenic_score'])
+        #     template = env.get_template("html/DigenicInteractionsReportTemplate.html")
+        #     # Probably a goof - but the template file restates the full graphics filenames
+        #     html_out = template.render({'case': args.projectORstructures})
+        #     digenic_graphics_html_filename = os.path.join(collaboration_dir, 'casewide',
+        #         #         #         #         #         #         #   'DigenicGraphics.html')  # The argument is an entire project UDN124356
+        #     with open(digenic_graphics_html_filename, "w") as f:
+        #         # f.write(html_out)
+        #     website_filelist.append(digenic_graphics_html_filename)
+        # else:
+        #     LOGGER.warning("DigiPred svg files are missing.  Did you run DigiPred")
 
         # pprint.pformat(mutation_summaries)
         # Grab Souhrids gene interaction information
@@ -1824,17 +1896,18 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         # print html_table
         final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
                                'genome_headers' : genome_headers,
-                               'firstGeneTable': html_table_generic,
-                               'firstGeneReport': html_report_generic,
-                               'secondGeneTable': html_table_familial,
-                               'secondGeneReport': html_report_familial,
+                               # 'firstGeneTable': html_table_generic,
+                               # 'firstGeneReport': html_report_generic,
+                               # 'secondGeneTable': html_table_familial,
+                               # 'secondGeneReport': html_report_familial,
                                'case': args.projectORstructures,
                                "date": time.strftime("%Y-%m-%d"),
                                'disease1_variant_short_description': config_pathprox_dict[
                                    'disease1_variant_short_description'],
                                'disease2_variant_short_description': config_pathprox_dict[
                                    'disease2_variant_short_description'],
-                               'digenic_graphics_score_only_filename': digenic_graphics_score_only_filename
+                               'digipred_html_filename': digipred_html_filename,
+                               'digipred_gene_pairs': digipred_gene_pairs
                                }
         if LOGGER.isEnabledFor(logging.DEBUG):
             pp = pprint.PrettyPrinter(indent=1)
