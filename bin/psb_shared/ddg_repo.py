@@ -687,7 +687,7 @@ class DDG_repo():
         random_bytes_without_punctuation = base64_encoding_of_8_random_bytes.translate(
             str.maketrans('','',string.punctuation))
 
-        hostname_withoout_punctuation = socket.gethostname().translate(
+        hostname_without_punctuation = socket.gethostname().translate(
             str.maketrans('','',string.punctuation))
 
 
