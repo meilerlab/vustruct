@@ -1017,6 +1017,10 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
             # The argument is a complete workplan filename
             df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(workplan_filename)
 
+            if len(launch_filenames) == 0:
+                launcher_f.write("\n\n# No jobs were planned for %s_%s_%s\n" % (row['gene'], row['refseq'], row['mutation']))
+                continue
+
             # Very cheesy - but the idea is that we need the external launcher to use the mounted
             # Directory - NOT the container-visible directory:
             if mounted_collaboration_directory and mounted_collaboration_directory != collaboration_dir:
