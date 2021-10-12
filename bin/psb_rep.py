@@ -1831,34 +1831,32 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             LOGGER.info("Integrating DiGiPred html: %s", digipred_html_filename)
         else:
             LOGGER.warning("DigiPred %s missing.  Did you run DigiPred?", digipred_html_filename)
-            del digipred_html_filename
+            digipred_html_filename = None
 
-        digipred_csv_filename = os.path.join('casewide', 'DigiPred',
+        digipred_gene_pairs = []
+        if digipred_html_filename:
+            digipred_csv_filename = os.path.join('casewide', 'DigiPred',
                                                  '%s_all_gene_pairs_digenic_metrics.csv' % (
                                                      args.projectORstructures,))
 
-        digipred_metrics_df = pd.DataFrame()
-        if os.path.exists(os.path.join(collaboration_dir,digipred_csv_filename)):
-            LOGGER.info("Integrating DiGiPred csv: %s", digipred_csv_filename)
-            digipred_metrics_df = pd.read_csv(digipred_csv_filename,sep=',')
-            LOGGER.info("%d rows read",len(digipred_metrics_df))
-            digipred_metrics_df.sort_values(by=['digenic score'],ascending=False,inplace=True,ignore_index=True)
-        else:
-            LOGGER.warning("DigiPred %s missing.  Did you run DigiPred?", digipred_html_filename)
-            del digipred_html_filename
+            digipred_metrics_df = pd.DataFrame()
+            if os.path.exists(os.path.join(collaboration_dir,digipred_csv_filename)):
+                LOGGER.info("Integrating DiGiPred csv: %s", digipred_csv_filename)
+                digipred_metrics_df = pd.read_csv(digipred_csv_filename,sep=',')
+                LOGGER.info("%d rows read",len(digipred_metrics_df))
+                digipred_metrics_df.sort_values(by=['digenic score'],ascending=False,inplace=True,ignore_index=True)
+            else:
+                LOGGER.critical("DigiPred %s missing.  Alarming, as .html file was found", digipred_csv_filename)
+                del digipred_csv_filename
 
-        # Now prepare the entries which will go to the html table
-        # For now, max 20 or all
-        digipred_gene_pairs = []
-        max_rows = min(20,len(digipred_metrics_df))
-        for index,row in digipred_metrics_df.head(max_rows).iterrows():
-            gene_pair_dict = {}
-            for key in ['gene A','gene B','digenic score']:
-                gene_pair_dict[key] = row[key]
-            digipred_gene_pairs.append(gene_pair_dict)
-        
-
-
+            # Now prepare the entries which will go to the html table
+            # For now, max 20 or all
+            max_rows = min(20,len(digipred_metrics_df))
+            for index,row in digipred_metrics_df.head(max_rows).iterrows():
+                gene_pair_dict = {}
+                for key in ['gene A','gene B','digenic score']:
+                    gene_pair_dict[key] = row[key]
+                digipred_gene_pairs.append(gene_pair_dict)
 
         case_report_template_location = os.path.dirname(os.path.realpath(__file__))
         env = Environment(loader=FileSystemLoader(case_report_template_location))
@@ -1878,20 +1876,20 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
         # pprint.pformat(mutation_summaries)
         # Grab Souhrids gene interaction information
-        geneInteractions_generic, html_table_generic, html_report_generic, text_report_generic = \
-            gene_interaction_report(collaboration_dir, args.projectORstructures, False)
-        geneInteractions_familial, html_table_familial, html_report_familial, text_report_familial = \
-            gene_interaction_report(collaboration_dir, args.projectORstructures, True)
-        if geneInteractions_generic:
-            for genome_header in genome_headers:
-                if genome_header['Gene'] in geneInteractions_generic:
-                    genome_header['Gene Interactions Generic'] = ' '.join(
-                        geneInteractions_generic[genome_header['Gene']])
-        if geneInteractions_familial:
-            for genome_header in genome_headers:
-                if genome_header['Gene'] in geneInteractions_familial:
-                    genome_header['Gene Interactions Familial'] = ' '.join(
-                        geneInteractions_familial[genome_header['Gene']])
+        # geneInteractions_generic, html_table_generic, html_report_generic, text_report_generic = \
+        #     gene_interaction_report(collaboration_dir, args.projectORstructures, False)
+        # geneInteractions_familial, html_table_familial, html_report_familial, text_report_familial = \
+        #     gene_interaction_report(collaboration_dir, args.projectORstructures, True)
+        # if geneInteractions_generic:
+        #     for genome_header in genome_headers:
+        #         if genome_header['Gene'] in geneInteractions_generic:
+        #             genome_header['Gene Interactions Generic'] = ' '.join(
+        #                 geneInteractions_generic[genome_header['Gene']])
+        # if geneInteractions_familial:
+        #     for genome_header in genome_headers:
+        #         if genome_header['Gene'] in geneInteractions_familial:
+        #             genome_header['Gene Interactions Familial'] = ' '.join(
+        #                 geneInteractions_familial[genome_header['Gene']])
         case_report_template = env.get_template("case_report_template.html")
         # print html_table
         final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
