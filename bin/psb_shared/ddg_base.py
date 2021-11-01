@@ -18,6 +18,9 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 class DDG_base(object):
+    log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
+    date_format_string = '%H:%M:%S'
+
     def refresh_ddg_repo_and_mutations(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
         When retrieving results from the repository, one should be able to update the ddg_repo
@@ -91,7 +94,11 @@ class DDG_base(object):
 
         for mutation, mutation_resid in zip(self._mutations, mutation_resids):
             rosetta_residue_number = self._ddg_repo.residue_to_clean_xref[mutation_resid][1]
-            LOGGER.info("Res %s converted to rosetta cleaned res # %d" % (mutation_resid, rosetta_residue_number))
+            LOGGER.info("Res %s in %s converted to rosetta cleaned res # %d in %s", \
+                mutation_resid, 
+                self._ddg_repo.structure_id + '.' + self._ddg_repo.chain_id, \
+                rosetta_residue_number, \
+                self._ddg_repo._cleaned_structure_pdb_filename)
             # Add to list of rosetta mutations in form A123S
             rosetta_mutations.append(mutation[0] + str(rosetta_residue_number) + mutation[-1])
 
@@ -230,11 +237,10 @@ class DDG_base(object):
         return modbase_ok
 
 
-    @staticmethod
-    def _move_prior_file_if_exists(filename):
+    def _move_prior_file_if_exists(self,filename):
         if os.path.exists(filename):
             archive_dir = "./archive"
-            os.makedirs(archive_dir, exist_ok=True)
+            self._ddg_repo.makedirs(archive_dir, exist_ok=True)
             # append the modification time of the file to the name
             # and archive in ./archive subdir
             archive_filename = os.path.join(
@@ -244,7 +250,7 @@ class DDG_base(object):
                     "%Y%M%d%H%M%S") + "_%s" % filename
             )
             try:
-                os.replace(filename, archive_filename)
+                self._ddg_repo.os_replace(filename, archive_filename)
                 LOGGER.info("Saved prior run %s as %s" % (filename, archive_filename))
             except OSError:
                 LOGGER.exception("Failed to save prior run %s as %s: " % (filename, archive_filename))
@@ -324,30 +330,40 @@ class DDG_base(object):
         for arg_with_spaces in command_line_list:
             submitted_command_line_list.extend(arg_with_spaces.split(' '))
 
-        environment_override = None
+        environment_override = os.environ.copy()
 
         if self._ddg_repo.rosetta_ld_library_path:
-            environment_override = os.environ.copy()
             environment_override['LD_LIBRARY_PATH'] = self._ddg_repo.rosetta_ld_library_path + \
-                (environment_override['LD_LIBRARY_PATH'] if 'LD_LIBRARY_PATH' in environment_override else "")
+                ((':' + environment_override['LD_LIBRARY_PATH']) if 'LD_LIBRARY_PATH' in environment_override else "")
+
+        # We must remove all ROSETTA3* environment variables
+        rosetta3_unset_variables = {}
+        for envvar in environment_override:
+            if envvar.startswith('ROSETTA3'):
+                rosetta3_unset_variables[envvar] = environment_override[envvar]
+       
+        for rosetta3_variable in rosetta3_unset_variables:
+            environment_override.pop(rosetta3_variable)        
 
         # Archive any additional output files once we commit to re-launching
         for additional_file in additional_files_to_archive:
-            DDG_base._move_prior_file_if_exists(additional_file)
+            self._move_prior_file_if_exists(additional_file)
 
             # If there is already a file out there with exit code 0, then return the old status
 
         # For sanity, capture precicsely a reproducible shell command at work for future analysis
         commandline_record_filename = binary_program_basename + ".commandline_record.sh"
-        DDG_base._move_prior_file_if_exists(commandline_record_filename)
+        self._move_prior_file_if_exists(commandline_record_filename)
         ld_library_path_echo = None
-        with open(commandline_record_filename, 'w') as commandline_record:
+        with os.fdopen(self._ddg_repo.os_open(commandline_record_filename, 'w'),'w') as commandline_record:
             commandline_record.write("#!/bin/bash\n")
             commandline_record.write("# Record of command invocation\n")
             commandline_record.write("# %s\n" % time.ctime(time.time()))
             if self._ddg_repo.rosetta_ld_library_path:
-                ld_library_path_echo="export LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH"%self._ddg_repo.rosetta_ld_library_path
+                ld_library_path_echo="export LD_LIBRARY_PATH=%s"%environment_override['LD_LIBRARY_PATH']
                 commandline_record.write("%s\n"%ld_library_path_echo)
+            for rosetta3_variable in rosetta3_unset_variables:
+                commandline_record.write('unset %s # which at launch was=%s\n' % (rosetta3_variable,rosetta3_unset_variables[rosetta3_variable]))
             commandline_record.write(" \\\n".join(command_line_list))
             # End the command with redirects to the stderr/stdout files
             commandline_record.write(" \\\n> %s 2> %s\n" % (stdout_filename, stderr_filename))
@@ -358,6 +374,7 @@ class DDG_base(object):
         if ld_library_path_echo: # Show user that we pre-pended LD_LIBRARY_PATH with config file override
             command_echo = "%s\n%s"%(ld_library_path_echo,command_echo)
 
+        self._ddg_repo.os_run_umask_start()
         LOGGER.info("Running via commands:\n%s" % command_echo)
         # run using new API call,
         completed_process = subprocess.run(submitted_command_line_list, shell=False, text=True, env=environment_override, capture_output=True)
@@ -367,21 +384,26 @@ class DDG_base(object):
         else:
             fail_message = "%s failed with exit %d" % (binary_program_basename, completed_process.returncode)
             LOGGER.critical(fail_message)
+        self._ddg_repo.os_run_umask_end()
+
+        # Make sure all output files are of the right group
+        for the_file in os.listdir("."):
+            self._ddg_repo.set_group(the_file)
 
         # Record all stdout and stderr and exit code
-        DDG_base._move_prior_file_if_exists(stdout_filename)
-        with open(stdout_filename, 'w') as stdout_record:
+        self._move_prior_file_if_exists(stdout_filename)
+        with os.fdopen(self._ddg_repo.os_open(stdout_filename, 'w'),'w') as stdout_record:
             stdout_record.write(completed_process.stdout)  # This writes the 'str'
 
-        DDG_base._move_prior_file_if_exists(stderr_filename)
-        with open(stderr_filename, 'w') as stderr_record:
+        self._move_prior_file_if_exists(stderr_filename)
+        with  os.fdopen(self._ddg_repo.os_open(stderr_filename, 'w'),'w') as stderr_record:
             stderr_record.write(completed_process.stderr)
 
-        DDG_base._move_prior_file_if_exists(exitcd_filename)
-        with open(exitcd_filename, 'w') as exitcd_record:
+        self._move_prior_file_if_exists(exitcd_filename)
+        with  os.fdopen(self._ddg_repo.os_open(exitcd_filename, 'w'),'w') as exitcd_record:
             exitcd_record.write(str(completed_process.returncode))
         LOGGER.info(
-            "stdout/stderr/exit saved in files %s/%s/%s" % (stdout_filename, stderr_filename, exitcd_filename))
+            "stdout/stderr/exit saved in files\n %s  \n  %s\n  %s" % (os.path.abspath(stdout_filename), os.path.abspath(stderr_filename), os.path.abspath(exitcd_filename)))
 
         if fail_message:
             self._ddg_repo.psb_status_manager.sys_exit_failure(fail_message)

@@ -119,8 +119,15 @@ def monitor_one_mutation(workstatus):
     # Load the status of jobs that was created by psb_launch.py (or prior run of psb_monitor.py)
     # Load the schedule of jobs that was created by psb_launch.py (or previous run of psb_monitor.py)
     # keep_default_na causes empty strings to come is as such, and non pesky nan floats
-    df_all_jobs_status = pd.read_csv(workstatus,'\t',dtype=str,keep_default_na=False)
-    LOGGER.info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus))
+    try:
+        df_all_jobs_status = pd.read_csv(workstatus,'\t',dtype=str,keep_default_na=False)
+    except FileNotFoundError:
+        df_all_jobs_status = pd.DataFrame(columns=['uniquekey'])
+
+    if len(df_all_jobs_status) > 0:
+        LOGGER.info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus))
+    else:
+        LOGGER.info("No jobs in workstatus file %s"%workstatus)
  
     df_all_jobs_status.set_index('uniquekey',inplace=True)
     if len(df_all_jobs_status) < 1:

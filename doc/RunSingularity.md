@@ -79,7 +79,7 @@ psb_plan.py
 ```
 2) Launch the jobs
 ```
-psb_plan.py --nolaunch
+psb_launch.py --nolaunch
 ```
 
 The --nolaunch option is required because .slurm files cannot be launched (sbatch) from inside the container.  

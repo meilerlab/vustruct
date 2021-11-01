@@ -51,7 +51,7 @@ echo $genome selected with ENSEMBL_REGISTRY=$ENSEMBL_REGISTRY
 export LC_ALL="en_US.UTF-8"
 # PERL binaries, and Ensembl are NOT copied to
 # the development environment.  Not worth trouble
-PSBADMIN_PERL_ROOT=/dors/capra_lab/users/psbadmin
+PSBADMIN_PERL_ROOT=/dors/capra_lab/users/mothcw/psbadmin
 newPATH=''
 # Directories that must be added to your path
 newPATH=$PIPELINE_ROOT/anaconda3/bin

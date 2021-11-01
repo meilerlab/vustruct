@@ -60,7 +60,7 @@ psb_plan.py
 ```
 6) Launch the jobs
 ```
-psb_plan.py
+psb_launch.py
 ```
 7) Monitor progress at intervals
 ```

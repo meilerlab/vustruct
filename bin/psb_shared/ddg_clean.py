@@ -617,6 +617,8 @@ def check_ligand_has_needed_atoms(ligand: Residue):
     return passed
 
 
+"""
+Old idea from Rosetta - do not use
 def renumber_chain(pdb, chain):
     with open(pdb) as infile:
         pdblines = infile.readlines()
@@ -645,6 +647,7 @@ def renumber_chain(pdb, chain):
         outfile.write(isopdb)
         outfile.write("TER\n")
     return isopdbname
+"""
 
 
 def query_modres(aa):

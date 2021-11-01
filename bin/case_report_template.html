@@ -32,7 +32,7 @@
     </svg>
 
 
-    <link rel="stylesheet" href="html/css/psb_styles.css" />
+    <link rel="stylesheet" href="html/css/psbstyles.css" />
 
 	<!-- later
     <link rel="stylesheet" href="html/css/typography.css" />
@@ -461,38 +461,76 @@
 
     <br>
 
-{% if digenic_graphics_score_only_filename %}
+{% if digipred_html_filename %}
 <!-- then there will also be a casewide digenic graphics report -->
 
-<h2><a href="casewide/DigenicGraphics.html">Digenic Analysis Details</a></h2>
+<h3><a href="{{digipred_html_filename}}">DigiPred Analysis</a></h3>
 <hr>
 
-<embed
+<!-- <embed
     src="{{digenic_graphics_score_only_filename}}"
     alt="All gene pairs digenic metrics dig heatmap"
     width="60%" />
     <br>
+-->
     <!-- Now insert the table of all the gene reports -->
 {% endif %}
 
+{% if digipred_gene_pairs %}
+<div id="gene_pairs_div">
+<h3>Top Scoring DigiPred Gene Pairs</h3>
+<table cellspacing="1" class="tablesorter">
+   <thead>
+   <tr>
+	<th>DigiPred Score</th>
+	<th>Gene A</th>
+	<th>Gene B</th>
+   </tr>
+   </thead>
+   <tbody>
+   {% for gene_pair in digipred_gene_pairs %}
+   <tr>
+   <td>{{ gene_pair['digenic score'] }}</td>
+   <td>{{ gene_pair['gene A'] }}</td>
+   <td>{{ gene_pair['gene B'] }}</td>
+   </tr>
+   {% endfor %}
+   </tbody>
 
-    <!-- Now insert the table of all the gene reports -->
+</table>
+</div>
+
+
+
+
+{% endif %}
+
+
+{% if firstGeneTable %}
+    <!-- Now insert the table of all the gene reports - but likely no longer provided  -->
     <hr>
     <h3>Generic Gene Interactions Table</h3>
     <table class="w3-table">
     {{ firstGeneTable }} 
 	 </table>
+{% endif %}
+{% if firstGeneReport %}
     <hr>
     <h3>Generic Gene Interactions Report</h3>
     {{ firstGeneReport }} 
     <hr>
+{% endif %}
+{% if secondGeneTable %}
     <h3>Familial Gene Interactions Table</h3>
     <table class="w3-table">
     {{ secondGeneTable }} 
 	 </table>
     <hr>
+{% endif %}
+{% if secondGeneReport %}
     <h3>Familial Gene Interactions Report</h3>
     {{ secondGeneReport }} 
+{% endif %}
 	
 </div>
 </body>
