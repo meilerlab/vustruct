@@ -461,10 +461,10 @@
 
     <br>
 
-{% if digipred_html_filename %}
+{% if digepred_html_filename %}
 <!-- then there will also be a casewide digenic graphics report -->
 
-<h3><a href="{{digipred_html_filename}}">DigiPred Analysis</a></h3>
+<h3><a href="{{digepred_html_filename}}">DiGePred Analysis</a></h3>
 <hr>
 
 <!-- <embed
@@ -476,19 +476,19 @@
     <!-- Now insert the table of all the gene reports -->
 {% endif %}
 
-{% if digipred_gene_pairs %}
+{% if digepred_gene_pairs %}
 <div id="gene_pairs_div">
-<h3>Top Scoring DigiPred Gene Pairs</h3>
+<h3>Top Scoring DiGePred Gene Pairs</h3>
 <table cellspacing="1" class="tablesorter">
    <thead>
    <tr>
-	<th>DigiPred Score</th>
+	<th>DiGePred Score</th>
 	<th>Gene A</th>
 	<th>Gene B</th>
    </tr>
    </thead>
    <tbody>
-   {% for gene_pair in digipred_gene_pairs %}
+   {% for gene_pair in digepred_gene_pairs %}
    <tr>
    <td>{{ gene_pair['digenic score'] }}</td>
    <td>{{ gene_pair['gene A'] }}</td>

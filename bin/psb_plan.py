@@ -163,9 +163,9 @@ keep_pdbs = []
 if 'KeepPDBs' in config:
     keep_pdbs = dict(config.items('KeepPDBs'))['keeppdbs'].upper().split(',')
 
-digipred_program = None
+digepred_program = None
 if 'CaseWide' in config:
-    digipred_program = dict(config.items('CaseWide')).get('digipred', None)
+    digepred_program = dict(config.items('CaseWide')).get('digepred', None)
 
 from psb_shared import psb_perms
 
@@ -430,7 +430,7 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()):
     # if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
-    if "DigiPred" in flavor and job['pdbid'] == 'N/A':
+    if "DiGePred" in flavor and job['pdbid'] == 'N/A':
         job['uniquekey'] = job['flavor']
         job['outdir'] = params['mutation_dir']
     else:  # Most output directories have pdbid and chain suffixes
@@ -1991,10 +1991,10 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     return df_all_jobs, workplan_filename, ci_df, df_dropped, log_filename
 
 
-def makejob_DigiPred(params, options: str):
+def makejob_DiGePred(params, options: str):
     # Secondary structure prediction and sequence annotation
-    return makejob("DigiPred",  # Flavor
-                   digipred_program,
+    return makejob("DiGePred",  # Flavor
+                   digepred_program,
                    # something like python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/Run_DiGePred_PSB.py
                    params,  # Parameters for dataframe
                    options)  # Command line options
@@ -2050,15 +2050,15 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
               "transcript_mutation": "N/A",
               "pdb_mutation": "N/A"}
 
-    # DiGiPred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
-    if digipred_program:
-        digipred_options = "-n %s -e %s" % (args.project, original_Vanderbilt_UDN_case_xlsx_filename)
+    # DiGePred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
+    if digepred_program:
+        digepred_options = "-n %s -e %s" % (args.project, original_Vanderbilt_UDN_case_xlsx_filename)
 
         # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-        df_all_jobs = df_all_jobs.append(makejob_DigiPred(params, digipred_options), ignore_index=True)
+        df_all_jobs = df_all_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
     else:
         LOGGER.info(
-            "No digipred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
+            "No digepred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
 
     df_all_jobs.set_index('uniquekey', inplace=True);
     df_all_jobs.sort_index().to_csv(workplan_filename, sep='\t')
@@ -2085,10 +2085,10 @@ if oneMutationOnly:
     print("Full details in %s", log_filename)
 else:
     original_Vanderbilt_UDN_case_xlsx_filename = None
-    if digipred_program:
+    if digepred_program:
         original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(collaboration_dir, "%s.xlsx" % args.project)
     else:
-        LOGGER.info('No digipred entry in config file(s).  Vanderbilt-specific UDN analysis will not be performed')
+        LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific UDN analysis will not be performed')
 
     df_all_jobs = pd.DataFrame()
     if original_Vanderbilt_UDN_case_xlsx_filename and os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename):
