@@ -43,7 +43,6 @@ from psb_shared.ddg_repo import DDG_repo
 import shutil
 import numpy as np
 import pandas as pd
-import csv
 from jinja2 import Environment, FileSystemLoader
 from io import StringIO, BytesIO
 import pycurl
@@ -391,7 +390,7 @@ class CalculationResultsLoader:
             # msg = "Work status file: %s not found.  Should have been created by pipeline" % self.dropped_structures_filename
             # LOGGER.critical(msg)
             # sys.exit(msg)
-            self._dropped_structures_df = pd.read_csv(dropped_structures_filename,delimiter='\t')
+            self._dropped_structures_df = pd.read_csv(self.dropped_structures_filename,delimiter='\t')
 
         return self._dropped_structures_df
 
@@ -616,7 +615,7 @@ class CalculationResultsLoader:
                 workstatus_row['Notes'] = workstatus_row['JobState']
 
 
-    def _load_pathprox_output_json(self,pathprox_result: pd.Series) -> Dict:
+    def _load_pathprox_residues_of_interest_json(self,pathprox_result: pd.Series) -> Dict:
         """
         Supports load_structure_graphics_dicts by loading json information that was output in a specific pathprox run
         Replaces the pdbSSfilename entry with a relative path suitable for web processing.
@@ -649,6 +648,46 @@ class CalculationResultsLoader:
 
             return pathprox_output_json
 
+    def _load_pathprox_scores_all_residues_json(self, pathprox_result: pd.Series) -> Dict:
+        """
+        Supports load_structure_graphics_dicts by loading json information that was output in a specific pathprox run
+        Replaces the pdbSSfilename entry with a relative path suitable for web processing.
+        @return: pathprox_output_json dictionary
+        """
+        pathprox_output_json_filename = os.path.join(self._variant_directory_segment,
+                                                     pathprox_result['output_flavor_directory'],
+                                                     pathprox_result[
+                                                         'pathprox_prefix'] + "_renum_pathprox.json")
+
+        if not os.path.exists(pathprox_output_json_filename):
+            LOGGER.warning(
+                "Pathprox left no all-residues pathprox.json output file: %s",
+                pathprox_output_json_filename)
+            return {}
+        else:
+            with open(pathprox_output_json_filename) as json_f:
+                pathprox_output_json = json.load(json_f)
+        return pathprox_output_json
+
+    def _load_alpha_fold_metrics_all_residues_json(self, pathprox_result: pd.Series) -> Dict:
+        """
+        Supports load_structure_graphics_dicts by loading json information that was output in a specific pathprox run
+
+        @return: alpha_fold_metrics list
+        """
+        alpha_fold_metrics_json = os.path.join(self._variant_directory_segment,
+                                                     pathprox_result['output_flavor_directory'],
+                                                     pathprox_result['pathprox_prefix'] + "_alphafold_metrics.json")
+
+        if not os.path.exists(alpha_fold_metrics_json):
+            LOGGER.warning(
+                "Pathprox left no alphafold model metrics json output file: %s",
+                alpha_fold_metrics_json)
+            return {}
+        else:
+            with open(alpha_fold_metrics_json) as json_f:
+                alpha_fold_metrics = json.load(json_f)
+        return alpha_fold_metrics
 
 
     def load_structure_graphics_dicts(self):
@@ -716,6 +755,9 @@ class CalculationResultsLoader:
             structure_graphics_dict = structure.fillna('').to_dict()
             structure_graphics_dict['html_div_id'] = html_div_id_create(structure)
             structure_key = (structure.method,structure.structure_id,structure.chain_id,structure.mers)
+            alpha_fold_metrics = None
+
+
             for disease1_or_2,pathprox_results_dict_of_dfs in zip(
                     ['disease1','disease2'],
                     [self.pathprox_disease1_results_dict_of_dfs,self.pathprox_disease2_results_dict_of_dfs]):
@@ -723,8 +765,15 @@ class CalculationResultsLoader:
                 structure_graphics_dict['%s_pathogenics' % disease1_or_2] = {}
                 if structure_key in pathprox_results_dict_of_dfs:
                     pathprox_result_series_for_structure = pathprox_results_dict_of_dfs[structure_key].iloc[0]
-                    pathprox_output_json = self._load_pathprox_output_json(pathprox_result_series_for_structure)
+                    pathprox_output_json = self._load_pathprox_residues_of_interest_json(
+                        pathprox_result_series_for_structure)
 
+                    if not alpha_fold_metrics and structure.method == "alphafold":
+                        alpha_fold_metrics = self._load_alpha_fold_metrics_all_residues_json(
+                            pathprox_result_series_for_structure)
+                        if alpha_fold_metrics:
+                            structure_graphics_dict['ngl_alpha_fold_metrics'] = \
+                                '[' + ', '.join(str(alpha_fold_metric) for alpha_fold_metric in alpha_fold_metrics[1]) + ']'
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
@@ -755,6 +804,25 @@ class CalculationResultsLoader:
                     structure_graphics_dict["pathprox_%s_results" % disease1_or_2] = pathprox_result_series_for_structure.fillna("").to_dict()
                     # For final .html - we need to be specific regarding type of pathogenic.  We weren't when json file was written
                     structure_graphics_dict['%s_pathogenics' % disease1_or_2] = pathprox_output_json['pathogenics']
+
+                    if pathprox_output_json:
+                        pathprox_scores_all_residues = self._load_pathprox_scores_all_residues_json(pathprox_result_series_for_structure)
+                        if pathprox_scores_all_residues:
+                            ngl_formatted_residue_pathprox_pairs = []
+                            for chain in pathprox_scores_all_residues:
+                                for residue_no in pathprox_scores_all_residues[chain]:
+                                    ngl_formatted_residue_pathprox_pairs.append(
+                                        ("%s:%s"%(residue_no,chain),
+                                         pathprox_scores_all_residues[chain][residue_no])
+                                    )
+
+                            javascript_dict_residues_pathprox_scores = \
+                                "{" + ", ".join(["'%s': %s"%dict_key \
+                                       for dict_key in ngl_formatted_residue_pathprox_pairs]) + \
+                                "}"
+                            structure_graphics_dict['ngl_%s_pathprox_scores' % disease1_or_2] = \
+                                javascript_dict_residues_pathprox_scores
+
 
                     def pathprox_residue_list_to_ngl_format(residues_onechain, chain_id):
                         """
@@ -812,6 +880,7 @@ class CalculationResultsLoader:
                     structure_graphics_dict['ngl_%s_residue_count' % disease1_or_2], \
                     structure_graphics_dict['ngl_%s_residues' % disease1_or_2] = residues_to_ngl_CAs(
                         pathprox_output_json['pathogenics'])
+                    # structure_graphics_dict['ngl_%s_pathprox_scores' % disease1_or_2] = pathprox_scores_all_residues
 
 
 
@@ -1113,8 +1182,14 @@ class PfamDomainGraphics:
             return None
 
         domain_graphics_json = buffer.getvalue().decode('latin')
+
+
         if len(domain_graphics_json) > 3 and domain_graphics_json[0] == '[':
             domain_graphics_json = domain_graphics_json[1:-1]
+        elif domain_graphics_json[0] == '<':
+            # Sometimes we get back html in the response, to tell us that the PFAM website is down
+            LOGGER.warning("XML, not json, was returned from pfam:\n%s",domain_graphics_json)
+            return None
         LOGGER.debug("pfam sent us:\n%s",domain_graphics_json)
         return domain_graphics_json
 

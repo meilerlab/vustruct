@@ -71,8 +71,73 @@
                    chainColorIndex = (chainColorIndex + 1) % chainColors.length
                    }
 
-       })
-   }
+       })};
+
+
+	function color_chains_by_pathprox_class(disease1or2PathProxScores) {
+		let maxScore = -1.0
+		let minScore =  1.0
+		for (const [key,value] of Object.entries(disease1or2PathProxScores)) {
+   		if (value < minScore) {
+       		minScore = value;
+       		}
+   		if (value > maxScore) {
+       		maxScore = value;
+       		}
+		};
+		let scoreRange = maxScore - minScore;
+
+       var schemeId = NGL.ColormakerRegistry.addScheme(function (params) {
+           this.atomColor = function (atom) {
+               let atomScoreKey = atom.resno + ":" + atom.chainname;
+               let pathProxScore = disease1or2PathProxScores[atomScoreKey];
+
+               let final_color = 0;
+
+               if (pathProxScore < 0)
+                         {
+                         let whiteIntensity=parseInt((1.0-(pathProxScore/minScore)) * 0xFF)
+                         let blueIntensity = 0xFF
+                         final_color = (whiteIntensity << 16) |  (whiteIntensity << 8) | (blueIntensity)
+                         }
+             			else
+                         {
+                         let whiteIntensity=parseInt((1.0-(pathProxScore/maxScore)) * 0xFF)
+                         let redIntensity=0xFF
+                         final_color = (redIntensity  << 16) |  (whiteIntensity << 8) | (whiteIntensity)
+                         }
+                     return final_color;
+			   }
+		})
+
+		return schemeId;
+      };
+
+	function color_chains_by_alpha_fold_metrics(alpha_fold_metrics) {
+
+       var schemeId = NGL.ColormakerRegistry.addScheme(function (params) {
+           this.atomColor = function (atom) {
+               alpha_fold_metric = parseFloat(alpha_fold_metrics[atom.residueIndex])
+
+               let final_color = 0x000000
+
+               {# Colors from alphafold webpage. #}
+               if (alpha_fold_metric > 90.0) {# Very high (pLDDT > 90) #}
+                   final_color = 0x0053D6
+               else if (alpha_fold_metric > 70.0) {# Confident (90 > pLDDT > 70) #}
+                   final_color = 0x65CBF3
+               else if (alpha_fold_metric > 50.0) {# Low (70 > pLDDT > 50) #}
+                   final_color = 0xFFDB13
+               else
+                    final_color=0xFF7D45 {# Very low (pLDDT < 50) #}
+
+            return final_color;
+			   }
+		})
+
+		return schemeId;
+      };
+
 
 </script>
 
@@ -273,6 +338,8 @@ img {
             <th>PDB<br />Resolution</th>
             <th>Template<br>Identity</th>
             <th>Transcript<br>Identity</th>
+            <th class="sorter-false">AF Global<br>Quality</th>
+            <th class="sorter-false">AF Residue<br>Confidence</th>
             <th>Seq<br />Start</th>
             <th>Seq<br />End</th>
             <th>ddG<br />Monomer</th>
@@ -294,6 +361,10 @@ img {
         <td>{{ structure.resolution }}</td>
         <td>{{ structure.template_identity }}</td>
         <td>{{ structure.perc_identity }}</td>
+        <td>{{ structure.alphafold_global_TMscore }}</td>
+        <td>{{ structure.alphafold_residue_pLDDT }}</td>
+
+
         <td>{{ structure.trans_first_aligned }}</td>
         <td>{{ structure.trans_last_aligned }}</td>
         <td>{{ structure.ddG_monomer }}</td>
@@ -336,6 +407,9 @@ img {
 				<th class="sorter-false">PDB<br /> Resolution</th>
 				<th class="sorter-false">Template<br>Identity</th>
 				<th class="sorter-false">Transcript<br>Identity</th>
+                <th class="sorter-false">AF Global<br>Quality</th>
+                <th lass="sorter-false">AF Residue<br>Confidence</th>
+
 				<th class="sorter-false">Seq<br />Start</th>
 				<th class="sorter-false">Seq<br />End</th>
 				<th class="sorter-false">ddG<br />Monomer</th>
@@ -356,6 +430,9 @@ img {
 			<td>{{ structure.resolution }}</td>
 			<td>{{ structure.template_identity }}</td>
 			<td>{{ structure.perc_identity }}</td>
+            <td>{{ structure.alphafold_global_TMscore }}</td>
+            <td>{{ structure.alphafold_residue_pLDDT }}</td>
+
 			<td>{{ structure.trans_first_aligned }}</td>
 			<td>{{ structure.trans_last_aligned }}</td>
 			<td>{{ structure.ddG_monomer }}</td>
@@ -461,9 +538,30 @@ img {
             var neutralResidueCount = "{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}}";
             var disease1ResidueCount = "{{structure['ngl_disease1_residue_count'] if structure['ngl_disease1_residue_count']}}";
             var disease2ResidueCount = "{{structure['ngl_disease2_residue_count'] if structure['ngl_disease2_residue_count']}}";
+            var disease1PathProxScores = {% if structure['ngl_disease1_pathprox_scores'] %}
+                                         {{ structure['ngl_disease1_pathprox_scores'] }}
+                                         {% else %}
+                                         null
+                                         {% endif %};
+            var disease2PathProxScores = {% if structure['ngl_disease2_pathprox_scores'] %}
+                                         {{ structure['ngl_disease2_pathprox_scores'] }}
+                                         {% else %}
+                                         null
+                                         {% endif %};
+
+            var alphafoldMetrics = {% if structure['ngl_alpha_fold_metrics'] %}
+                                         {{ structure['ngl_alpha_fold_metrics'] }}
+                                         {% else %}
+                                         null
+                                         {% endif %};
+
             var neutralRepresentation = null;
             var disease1Representation = null;
             var disease2Representation = null;
+            var disease2PathProxScoresRepresentation = null;
+            var disease1PathProxScoresRepresentation = null;
+            var alphafoldMetricsRepresentation = null;
+
                       var stage = new NGL.Stage("viewport_{{ structure.unique_div_name }}", { backgroundColor : "white" } );
                       stage.loadFile("./{{ structure['pdbSSfilename'] }}").then(function (o) {
                       o.addRepresentation("ball+stick", { sele: variantResidues, color: "element", radius: "0.6" })
@@ -556,6 +654,96 @@ var disease2Button = createElement("input", {
 )
 addElement(disease2Button)
 }
+
+if (disease1PathProxScores && Object.keys(disease1PathProxScores).length > 0) {
+let maxScore = -1.0
+let minScore =  1.0
+for (const [key,value] of Object.entries(disease1PathProxScores)) {
+   if (value < minScore) {
+       minScore = value;
+       }
+   if (value > maxScore) {
+       maxScore = value;
+       }
+};
+let scoreRange = maxScore - minScore;
+
+let schemeId = color_chains_by_pathprox_class(disease1PathProxScores);
+
+var disease1PathProxScoresButton = createElement("input", {
+  textcolor: "Blue",
+  type: "button",
+  value: "Pathogenicity {{ config_pathprox_dict['disease1_variant_short_description'] }}",
+  onclick: function () {
+    if (disease1PathProxScoresRepresentation) {
+                 o.removeRepresentation(disease1PathProxScoresRepresentation);
+                 disease1PathProxScoresRepresentation = null;
+                 }
+    else
+        disease1PathProxScoresRepresentation = o.addRepresentation("cartoon", {color: schemeId })
+
+  }
+ }
+, { top: "-40px", display: "inline-block" }
+)
+addElement(disease1PathProxScoresButton)
+}
+if (disease2PathProxScores && Object.keys(disease2PathProxScores).length > 0) {
+let maxScore = -1.0
+let minScore =  1.0
+for (const [key,value] of Object.entries(disease2PathProxScores)) {
+   if (value < minScore) {
+       minScore = value;
+       }
+   if (value > maxScore) {
+       maxScore = value;
+       }
+};
+let scoreRange = maxScore - minScore;
+
+let schemeId = color_chains_by_pathprox_class(disease2PathProxScores);
+
+var disease2PathProxScoresButton = createElement("input", {
+  textcolor: "Blue",
+  type: "button",
+  value: "Pathogenicity {{ config_pathprox_dict['disease2_variant_short_description'] }}",
+  onclick: function () {
+    if (disease2PathProxScoresRepresentation) {
+                 o.removeRepresentation(disease2PathProxScoresRepresentation);
+                 disease2PathProxScoresRepresentation = null;
+                 }
+    else
+        disease2PathProxScoresRepresentation = o.addRepresentation("cartoon", {color: schemeId })
+
+  }
+ }
+, { top: "-40px", display: "inline-block" }
+)
+addElement(disease2PathProxScoresButton)
+}
+
+if (alphafoldMetrics && Object.keys(alphafoldMetrics).length > 0) {
+    let schemeId = color_chains_by_alpha_fold_metrics(alphafoldMetrics)
+    var alphafoldMetricsButton = createElement("input", {
+      textcolor: "Blue",
+      type: "button",
+      value: "AF",
+      onclick: function () {
+        if (alphafoldMetricsRepresentation) {
+                 o.removeRepresentation(alphafoldMetricsRepresentation);
+                 alphafoldMetricsRepresentation = null;
+                 }
+    else
+        alphafoldMetricsRepresentation = o.addRepresentation("cartoon", {color: schemeId })
+
+  }
+ }
+, { top: "-40px", display: "inline-block" }
+)
+addElement(alphafoldMetricsButton)
+}
+
+
 
 var screenshotButton = createElement("input", {
   type: "button",

@@ -462,7 +462,7 @@ class DDG_repo():
             # Take care to not create an incomplete file
 
             tempfile_name,tempfile_fd = self.mkstemp(read_or_write='w', dir=self._structure_dir)
-            with os.fdopen(tempfile_df,mode='w') as structure_configfile:
+            with os.fdopen(tempfile_fd, mode='w') as structure_configfile:
                 structure_configfile.write(
                     "# Configuration mined from original PDB file %s\n" % datetime.now)
                 structure_config_parser.write(structure_configfile)
