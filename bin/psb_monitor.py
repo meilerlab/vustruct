@@ -195,9 +195,9 @@ def monitor_one_mutation(workstatus):
             statusdir = "%s/%s/status"%(row['outdir'],row['flavor'])
             try:
                 with open("%s/progress"%statusdir) as progressfile:
-                    s = progressfile.read().replace('\n','')
-                    if s and len(s):
-                        interesting_info['jobprogress'] = s
+                    status_text = progressfile.read().replace('\n','')
+                    if status_text and len(status_text):
+                        interesting_info['jobprogress'] = status_text
                         progress_file_found = True
             except FileNotFoundError as ex:
                 pass
@@ -205,9 +205,9 @@ def monitor_one_mutation(workstatus):
             info_file_found = False
             try:
                 with open("%s/info"%statusdir) as infofile:
-                    s = infofile.read().replace('\n','')
-                    if s and len(s):
-                        interesting_info['jobinfo'] = s
+                    status_text = infofile.read().replace('\n','')
+                    if status_text and len(status_text):
+                        interesting_info['jobinfo'] = status_text
                         info_file_found = True
             except FileNotFoundError as ex:
                 pass
