@@ -843,7 +843,7 @@ class PDBMapVariantSet():
             ENST_transcripts_str = "%s_%s_%d_more_%s" % (
                 ENST_transcripts[0].id,
                 ENST_transcripts[1].id,
-                4 - len(ENST_transcripts),
+                len(ENST_transcripts) - 2,
                 ENST_transcripts[-1].id)
         else:
             for transcript in ENST_transcripts:
