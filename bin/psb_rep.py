@@ -226,7 +226,7 @@ def copy_html_css_javascript():
 # Return html long report
 # Return text that can be dumped to the log file
 def gene_interaction_report(case_root, case, CheckInheritance):
-    genepair_dict_file = os.path.join(case_root, 'casewide', 'DigiPred', '%s_all_gene_pairs_summary.json' % case)
+    genepair_dict_file = os.path.join(case_root, 'casewide', 'DiGePred', '%s_all_gene_pairs_summary.json' % case)
 
     try:
         with open(genepair_dict_file, 'r') as fd:
@@ -1888,7 +1888,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         # digenic_graphics_score_only_filename = None
         # found_graphics_files = {}
         # for digenic_graphic_type in digenic_graphics_types:
-        #     digenic_graphic_filename = os.path.join('casewide', 'DigiPred',
+        #     digenic_graphic_filename = os.path.join('casewide', 'DiGePred',
         #                                             '%s_all_gene_pairs_%s.svg' % (
         #                                             args.projectORstructures, digenic_graphic_type))
         #
@@ -1896,47 +1896,47 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         #         found_graphics_files[digenic_graphic_type] = digenic_graphic_filename
         #         website_filelist.append(os.path.join('.', digenic_graphic_filename))
 
-        # Was there a generated .html file from DiGiPred
-        digipred_html_filename = os.path.join('casewide', 'DigiPred',
+        # Was there a generated .html file from DiGePred
+        digepred_html_filename = os.path.join('casewide', 'DiGePred',
                                                  '%s_all_gene_pairs_summary.html' % (
                                                      args.projectORstructures,))
 
-        if os.path.exists(os.path.join(collaboration_dir,digipred_html_filename)):
-            website_filelist.append(digipred_html_filename)
-            LOGGER.info("Integrating DiGiPred html: %s", digipred_html_filename)
+        if os.path.exists(os.path.join(collaboration_dir,digepred_html_filename)):
+            website_filelist.append(digepred_html_filename)
+            LOGGER.info("Integrating DiGePred html: %s", digepred_html_filename)
         else:
-            LOGGER.warning("DigiPred %s missing.  Did you run DigiPred?", digipred_html_filename)
-            digipred_html_filename = None
+            LOGGER.warning("DiGePred %s missing.  Did you run DiGePred?", digepred_html_filename)
+            digepred_html_filename = None
 
-        digipred_gene_pairs = []
-        if digipred_html_filename:
-            digipred_csv_filename = os.path.join('casewide', 'DigiPred',
+        digepred_gene_pairs = []
+        if digepred_html_filename:
+            digepred_csv_filename = os.path.join('casewide', 'DiGePred',
                                                  '%s_all_gene_pairs_digenic_metrics.csv' % (
                                                      args.projectORstructures,))
 
-            digipred_metrics_df = pd.DataFrame()
-            if os.path.exists(os.path.join(collaboration_dir,digipred_csv_filename)):
-                LOGGER.info("Integrating DiGiPred csv: %s", digipred_csv_filename)
-                digipred_metrics_df = pd.read_csv(digipred_csv_filename,sep=',')
-                LOGGER.info("%d rows read",len(digipred_metrics_df))
-                digipred_metrics_df.sort_values(by=['digenic score'],ascending=False,inplace=True,ignore_index=True)
+            digepred_metrics_df = pd.DataFrame()
+            if os.path.exists(os.path.join(collaboration_dir,digepred_csv_filename)):
+                LOGGER.info("Integrating DiGePred csv: %s", digepred_csv_filename)
+                digepred_metrics_df = pd.read_csv(digepred_csv_filename,sep=',')
+                LOGGER.info("%d rows read",len(digepred_metrics_df))
+                digepred_metrics_df.sort_values(by=['digenic score'],ascending=False,inplace=True,ignore_index=True)
             else:
-                LOGGER.critical("DigiPred %s missing.  Alarming, as .html file was found", digipred_csv_filename)
-                del digipred_csv_filename
+                LOGGER.critical("DiGePred %s missing.  Alarming, as .html file was found", digepred_csv_filename)
+                del digepred_csv_filename
 
             # Now prepare the entries which will go to the html table
             # For now, max 20 or all
-            max_rows = min(20,len(digipred_metrics_df))
-            for index,row in digipred_metrics_df.head(max_rows).iterrows():
+            max_rows = min(20,len(digepred_metrics_df))
+            for index,row in digepred_metrics_df.head(max_rows).iterrows():
                 gene_pair_dict = {}
                 for key in ['gene A','gene B','digenic score']:
                     gene_pair_dict[key] = row[key]
-                digipred_gene_pairs.append(gene_pair_dict)
+                digepred_gene_pairs.append(gene_pair_dict)
 
         case_report_template_location = os.path.dirname(os.path.realpath(__file__))
         env = Environment(loader=FileSystemLoader(case_report_template_location))
         # if len(found_graphics_files) == 2:
-        #     LOGGER.info("Integrating DiGiPred svg graphics")
+        #     LOGGER.info("Integrating DiGePred svg graphics")
         #     digenic_graphics_score_only_filename = os.path.join('.', found_graphics_files['digenic_score'])
         #     template = env.get_template("html/DigenicInteractionsReportTemplate.html")
         #     # Probably a goof - but the template file restates the full graphics filenames
@@ -1947,7 +1947,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         #         # f.write(html_out)
         #     website_filelist.append(digenic_graphics_html_filename)
         # else:
-        #     LOGGER.warning("DigiPred svg files are missing.  Did you run DigiPred")
+        #     LOGGER.warning("DiGePred svg files are missing.  Did you run DiGePred")
 
         # pprint.pformat(mutation_summaries)
         # Grab Souhrids gene interaction information
@@ -1979,8 +1979,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                                    'disease1_variant_short_description'],
                                'disease2_variant_short_description': config_pathprox_dict[
                                    'disease2_variant_short_description'],
-                               'digipred_html_filename': digipred_html_filename,
-                               'digipred_gene_pairs': digipred_gene_pairs
+                               'digepred_html_filename': digepred_html_filename,
+                               'digepred_gene_pairs': digepred_gene_pairs
                                }
         if LOGGER.isEnabledFor(logging.DEBUG):
             pp = pprint.PrettyPrinter(indent=1)

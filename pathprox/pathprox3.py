@@ -225,42 +225,6 @@ from lib import PDBMapProtein
 
 # from lib.amino_acids import longer_names
 
-
-# =============================================================================#
-## Function Definitions ##
-# DO NOT CHECK THIS IN BELOW IT IS CRAP
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except:
-    capra_group = os.getegid()
-
-
-# DO NOT CHECK THIS IN ABOVE IT IS CRAP
-
-def set_capra_group_sticky(dirname):
-    try:
-        os.chown(dirname, -1, capra_group)
-    except:
-        pass
-
-    # Setting the sticky bit on directories also fantastic
-    try:
-        os.chmod(dirname,
-                 stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP | stat.S_ISGID);
-    except:
-        pass
-
-
-def makedirs_capra_lab(DEST_PATH, module_name):
-    if not os.path.exists(DEST_PATH):
-        os.makedirs(DEST_PATH)
-    try:
-        assert os.path.exists(DEST_PATH)
-    except:
-        sys_exit_failure("Fatal: Function %s failed to create destination path %s" % (module_name, DEST_PATH))
-    set_capra_group_sticky(DEST_PATH)
-
-
 def load_structure(id: str, coord_filename: str) -> Tuple[Structure, Dict]:
     tryParser36 = False
     structure = None
@@ -311,7 +275,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id, try_biounit_first, chain_to_tran
                 with gzip.open(coord_filename, 'rt') as structure_fin:
                     structure = mmCIF_parser.get_structure(pdb_id.lower(), structure_fin)
                 is_biounit = 1
-            except:
+            except FileNotFoundError:
                 LOGGER.info(
                     "The biounit file %s was not found.  Attempting non-biounit pdb" % os.path.basename(coord_filename))
         else:  # Typically, we load a biounit from PDB file - but good to have tried CIF first
@@ -320,7 +284,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id, try_biounit_first, chain_to_tran
             try:
                 structure, _ = load_structure(pdb_id, coord_filename)
                 is_biounit = 1
-            except:
+            except FileNotFoundError:
                 LOGGER.info(
                     "The biounit file %s was not found.  Attempting normal pdb" % os.path.basename(coord_filename))
 
@@ -338,7 +302,7 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id, try_biounit_first, chain_to_tran
     if not structure:
         coord_filename = os.path.join(config_dict['pdb_dir'], "structures", "divided", "pdb", pdb_id.lower()[1:3],
                                       "pdb%s.ent.gz" % pdb_id.lower())
-        LOGGER.warning("Reverting to .pdb format: %s", coord_Filename)
+        LOGGER.warning("Reverting to .pdb format: %s", coord_filename)
         structure, _ = load_structure(pdb_id, coord_filename)
         LOGGER.info("Success loading %s", coord_filename)
 
@@ -411,39 +375,40 @@ def PDBMapComplex_load_pdb_align_chains(pdb_id, try_biounit_first, chain_to_tran
     return structure, is_biounit, chain_to_transcript, chain_to_alignment
 
 
-def structure_lookup(io, sid, bio=True, chain=None):
-    """ Returns coordinate files for a PDB ID """
-    q = "SELECT DISTINCT biounit FROM Chain "
-    q += "WHERE label=%s AND structid=%s AND biounit>0 "
-    if chain:
-        q += "AND chain=%s"
-        res = [r[0] for r in io.secure_cached_query(cache_dir, q, (io.slabel, sid.upper(), chain),
-                                                    cursorclass='Cursor')]
-    else:
-        res = [r[0] for r in io.secure_cached_query(cache_dir, q, (io.slabel, sid.upper()),
-                                                    cursorclass='Cursor')]
-    if bio and res:  # Biological assemblies were requested and found
-        LOGGER.info("Using the first biological assembly for %s." % sid)
-        flist = []
-        loc = "%s/biounits/%s.pdb%d.gz"
-        for b in res:
-            f = loc % (config_dict['pdb_dir'], sid.lower(), b)
-            if not os.path.exists(f):
-                msg = "Coordinate file missing for %s[%s]\n" % (sid, 0)
-                msg += "Expected: %s\n" % f
-                raise Exception(msg)
-            flist.append((sid, b, f))
-        return flist
-    else:  # No biological assemblies were found; Using asymmetric unit
-        if bio:
-            LOGGER.info("Using the asymmetric unit for %s." % sid)
-        loc = "%s/structures/pdb%s.ent.gz"
-        f = loc % (config_dict['pdb_dir'], sid.lower())
-        if not os.path.exists(f):
-            msg = "Coordinate file missing for %s[%s]\n" % (sid, 0)
-            msg += "Expected: %s\n" % f
-            raise Exception(msg)
-        return [(sid, 0, f)]
+# Structures no longer looked up in sql like this
+# def structure_lookup(io, sid, bio=True, chain=None):
+    # """ Returns coordinate files for a PDB ID """
+    # q = "SELECT DISTINCT biounit FROM Chain "
+    # q += "WHERE label=%s AND structid=%s AND biounit>0 "
+    # if chain:
+    #     q += "AND chain=%s"
+    #     res = [r[0] for r in io.secure_cached_query(cache_dir, q, (io.slabel, sid.upper(), chain),
+    #                                                 cursorclass='Cursor')]
+    # else:
+    #     res = [r[0] for r in io.secure_cached_query(cache_dir, q, (io.slabel, sid.upper()),
+    #                                                 cursorclass='Cursor')]
+    # if bio and res:  # Biological assemblies were requested and found
+    #     LOGGER.info("Using the first biological assembly for %s." % sid)
+    #     flist = []
+    #     loc = "%s/biounits/%s.pdb%d.gz"
+    #     for b in res:
+    #         f = loc % (config_dict['pdb_dir'], sid.lower(), b)
+    #         if not os.path.exists(f):
+    #             msg = "Coordinate file missing for %s[%s]\n" % (sid, 0)
+    #             msg += "Expected: %s\n" % f
+    #             raise Exception(msg)
+    #         flist.append((sid, b, f))
+    #     return flist
+    # else:  # No biological assemblies were found; Using asymmetric unit
+    #     if bio:
+    #         LOGGER.info("Using the asymmetric unit for %s." % sid)
+    #     loc = "%s/structures/pdb%s.ent.gz"
+    #     f = loc % (config_dict['pdb_dir'], sid.lower())
+    #     if not os.path.exists(f):
+    #         msg = "Coordinate file missing for %s[%s]\n" % (sid, 0)
+    #         msg += "Expected: %s\n" % f
+    #         raise Exception(msg)
+    #     return [(sid, 0, f)]
 
 
 def swiss_lookup(io, model_id):
@@ -655,29 +620,30 @@ def query_pathogenic(io, sid, refid=None, chains=None, indb=False):
 
 
 def query_drug(io, sid, refid=None, chains=None, indb=False):
-    """ Query drug response-affecting variants from PDBMap """
-    if indb:
-        s, w = default_var_query()
-        if chains:
-            w += "AND chain in (%s) " % ','.join(["'%s'" % c for c in chains])
-        f = ("clinvar", sid)
-        c = ["unp_pos", "ref", "alt", "chain"]
-    else:
-        s, w = sequence_var_query()
-        f = ("clinvar", refid)
-        c = ["unp_pos", "ref", "alt"]
-    s += "INNER JOIN clinvar d "
-    s += "ON b.chr=d.chr and b.start=d.start "
-    d = "AND d.clnsig like '%7%'"
-    q = s + w + d
-    res = [list(r) for r in io.secure_cached_query(cache_dir, q, f, cursorclass="Cursor")]
-    # If user-specified model...
-    if not indb:
-        # Add chains IDs
-        res = [r + [c] for r in res for c in chains]
-        # # Add null pdb_pos (not yet aligned)
-        # res = [[None]+r for r in res]
-    return res
+    pass
+    ##""" Query drug response-affecting variants from PDBMap """
+    ##if indb:
+    ##    s, w = default_var_query()
+    ##    if chains:
+    ##        w += "AND chain in (%s) " % ','.join(["'%s'" % c for c in chains])
+    ##    f = ("clinvar", sid)
+    ##    c = ["unp_pos", "ref", "alt", "chain"]
+    ##else:
+    ##    s, w = sequence_var_query()
+    ##    f = ("clinvar", refid)
+    ##    c = ["unp_pos", "ref", "alt"]
+    ##s += "INNER JOIN clinvar d "
+    ##s += "ON b.chr=d.chr and b.start=d.start "
+    ##d = "AND d.clnsig like '%7%'"
+    ##q = s + w + d
+    ##res = [list(r) for r in io.secure_cached_query(cache_dir, q, f, cursorclass="Cursor")]
+    ### If user-specified model...
+    ##if not indb:
+    ##    # Add chains IDs
+    ##    res = [r + [c] for r in res for c in chains]
+    ##    # # Add null pdb_pos (not yet aligned)
+    ##    # res = [[None]+r for r in res]
+    ##return res
 
 
 def query_cosmic_obsolete_code(io, sid, refid=None, chains=None, indb=False):
@@ -1915,9 +1881,9 @@ def ripley(complex_df, permutations=99999):
     pathogenic_coordinates = complex_df.loc[complex_df["dcode"] == 1, ['x', 'y', 'z']]
     neutral_coordinates = complex_df.loc[complex_df["dcode"] == 0, ['x', 'y', 'z']]
 
-    T, KPathogenicLessKNeutral_atMaxKzIndex, \
-    K_PathogenicLessKNeutral_zscore_atMaxKzIndex, \
-    T_atMaxKzIndex, \
+    T, KPathogenicLessKNeutral_atMaxKzIndex,\
+    K_PathogenicLessKNeutral_zscore_atMaxKzIndex,\
+    T_atMaxKzIndex,\
     K_PathogenicLessKNeutral_pvalue_atMaxKzIndex = biD(pathogenic_coordinates, neutral_coordinates, permutations,
                                                        "pathogenic-neutral")
 
@@ -1945,7 +1911,7 @@ def move_to_outdir(outdir):
             outdir += "_%s" % timestamp
     LOGGER.info("Output directory has been updated to %s" % outdir)
     cwd = os.getcwd()
-    makedirs_capra_lab(outdir, 'move_to_outdir')
+    psb_capra_group.makedirs_capra_lab(outdir, 'move_to_outdir')
 
     # Write current version of this script to output directory
     shutil.copy(__file__.rstrip('c'), outdir)
@@ -1966,20 +1932,20 @@ def write_input_variants_to_chimera_attributes(dcode_filtered_df: pd.DataFrame,
     if len(dcode_filtered_df) < 1:  # Don't write anything if no rows in the dataframe
         return
 
-    with open("%s_%s.attr" % (args.label, variant_type), 'w') as fout:
-        fout.write("attribute: %s\n" % attribute_text)
-        fout.write("match mode: 1-to-1\n")
-        fout.write("recipient: residues\n")
+    with open("%s_%s.attr" % (args.label, variant_type), 'w') as _fout:
+        _fout.write("attribute: %s\n" % attribute_text)
+        _fout.write("match mode: 1-to-1\n")
+        _fout.write("recipient: residues\n")
         for i, row in dcode_filtered_df.iterrows():
-            fout.write("\t:%s.%s\t%.3f\n" % (
+            _fout.write("\t:%s.%s\t%.3f\n" % (
             format_resid(row["resid"]), row["chain"], 1.0 if not third_column else row[third_column]))
 
-    with open("%s_renum_%s.attr" % (args.label, variant_type), 'w') as fout:
-        fout.write("attribute: %s\n" % attribute_text)
-        fout.write("match mode: 1-to-1\n")
-        fout.write("recipient: residues\n")
+    with open("%s_renum_%s.attr" % (args.label, variant_type), 'w') as _fout:
+        _fout.write("attribute: %s\n" % attribute_text)
+        _fout.write("match mode: 1-to-1\n")
+        _fout.write("recipient: residues\n")
         for i, row in dcode_filtered_df.iterrows():
-            fout.write(
+            _fout.write(
                 "\t:%s.%s\t%.3f\n" % (row["unp_pos"], row["chain"], 1.0 if not third_column else row[third_column]))
 
 
@@ -2088,7 +2054,20 @@ if __name__ == "__main__":
 
     statusdir = os.path.join(args.outdir, "status")
     LOGGER.info("Job status directory: %s" % statusdir)
-    makedirs_capra_lab(statusdir, "Main statusdir creation")
+    psb_capra_group.makedirs_capra_lab(statusdir, "Main statusdir creation")
+
+    def sys_exit_failure(info):
+        __info_update(info)
+        new_progress_filename = os.path.join(statusdir, "progress.new")
+        with open(new_progress_filename, 'w') as new_progress_f:
+            new_progress_f.write("%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
+        os.rename(new_progress_filename, '%s/progress' % statusdir)
+        # Mark this job as failed
+        fail_filename = os.path.join(statusdir, "FAILED")
+        open(fail_filename, 'w').close()
+        LOGGER.critical("Creating FAILURE file %s" % fail_filename)
+        sys.exit(info)
+
 
     # Remove any prior statusdir contents
     for the_file in os.listdir(statusdir):
@@ -2104,31 +2083,20 @@ if __name__ == "__main__":
 
     def __info_update(info):
         new_info_filename = os.path.join(statusdir, "info.new")
-        with open(new_info_filename, 'w') as f:
-            f.write(info + '\n')
+        with open(new_info_filename, 'w') as new_info_f:
+            new_info_f.write(info + '\n')
         final_info_filename = os.path.join(statusdir, "info")
         os.rename(new_info_filename, final_info_filename)
-        LOGGER.info("%s now contains: %s" % (final_info_filename, info))
+        LOGGER.info("%s now contains: %s", final_info_filename, info)
 
 
-    def sys_exit_failure(info):
-        __info_update(info)
-        new_progress_filename = os.path.join(statusdir, "progress.new")
-        with open(new_progress_filename, 'w') as f:
-            f.write("%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
-        os.rename(new_progress_filename, '%s/progress' % statusdir)
-        # Mark this job as failed
-        fail_filename = os.path.join(statusdir, "FAILED")
-        open(fail_filename, 'w').close()
-        LOGGER.critical("Creating FAILURE file %s" % fail_filename)
-        sys.exit(info)
 
 
     def statusdir_info(info):
         __info_update(info)
         new_progress_filename = os.path.join(statusdir, "progress.new")
-        with open(new_progress_filename, 'w') as f:
-            f.write("%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
+        with open(new_progress_filename, 'w') as new_progress_f:
+            new_progress_f.write("%s: %s\n" % (__file__, inspect.currentframe().f_back.f_lineno))
         os.rename(new_progress_filename, '%s/progress' % statusdir)
         return info
 
@@ -2242,9 +2210,9 @@ if __name__ == "__main__":
                     transcript = PDBMapTranscriptFasta(fasta)
                     LOGGER.info("Successful load of fasta transcript %s" % fasta)
                 else:
-                    exitmsg = "Command line argument %s is invalid" % arg
-                    LOGGER.critical(exitmsg)
-                sys_exit_failure(exitmsg)
+                    exit_message:str = "Command line argument %s is invalid" % arg
+                    LOGGER.critical(exit_message)
+                    sys_exit_failure(exit_message)
 
         if transcript:
             """alignment = PDBMapAlignment()
@@ -2671,6 +2639,11 @@ if __name__ == "__main__":
                     gnomad_variant_df = pdbmap_gnomad.retrieve_gnomad_missense_variants(enst_transcript,
                                                                                         output_directory=args.outdir)
 
+                    if gnomad_variant_df is None:
+                        LOGGER.warning("No Gnomad variants loaded for %s", enst_transcript.id)
+                        continue
+
+
                     for index, row in gnomad_variant_df.iterrows():
                         if row['maf'] >= 1E-5:  # Sorry to hard code - but this is a gnomad thing
                             _variant_set._variants.append([
@@ -2803,8 +2776,8 @@ if __name__ == "__main__":
     def unp_pos_if_aligned(chain_id, res_id):
         if chain_id not in chain_to_alignment:
             return None
-        alignment = chain_to_alignment[chain_id]
-        if res_id not in alignment.resid_to_seq:
+        _alignment = chain_to_alignment[chain_id]
+        if res_id not in _alignment.resid_to_seq:
             return None
         return int(alignment.resid_to_seq[res_id])
 
@@ -3050,19 +3023,19 @@ if __name__ == "__main__":
         pK = pKz = pKt = nK = nKz = nKt = qK = qKz = qKt = D = Dz = Dt = np.nan
         args.radius = "NW"
 
-    LOGGER.info("Phase 3 - Perform Pathprox cross-validation and report performance");
+    LOGGER.info("Phase 3 - Perform Pathprox cross-validation and report performance")
     # Run the PathProx cross-validation and report performance
     pathogenic_coordinates = complex_df.loc[complex_df["dcode"] == 1, ['x', 'y', 'z']]  # Pathogenic
     neutral_coordinates = complex_df.loc[complex_df["dcode"] == 0, ['x', 'y', 'z']]  # Neutral
     if not args.no_blosum:
-        LOGGER.info("Integrating blosum-100 weights for all pathogenic and neutral residue");
+        LOGGER.info("Integrating blosum-100 weights for all pathogenic and neutral residues")
         pathogenic_blosum100_weights = complex_df.loc[complex_df["dcode"] == 1, "blosum100"]
         neutral_blosum100_weights = complex_df.loc[complex_df["dcode"] == 0, "blosum100"]
 
     # Determine the radius or NeighborWeight parameters
     if args.radius == "NW":
         nwlb, nwub = args.nwlb, args.nwub
-        LOGGER.info("args.radius='NW'.  NeighborWeight bounds set to args.nwlb=%f,args.nwub=%f", args.nwlb, args.nwub);
+        LOGGER.info("args.radius='NW'.  NeighborWeight bounds set to args.nwlb=%f,args.nwub=%f", args.nwlb, args.nwub)
     elif args.radius == "K":
         nwlb = nwub = pKt
         LOGGER.info(
