@@ -28,10 +28,7 @@ import subprocess as sp
 from multiprocessing import cpu_count
 import pandas as pd
 import numpy as np
-from Bio.PDB.PDBIO import PDBIO
-from Bio.PDB.PDBParser import PDBParser
-from warnings import filterwarnings,resetwarnings
-from Bio.PDB.PDBExceptions import PDBConstructionWarning
+# from warnings import filterwarnings,resetwarnings
 from lib import PDBMapVEP
 # from lib import PDBMapVCF
 from lib import PDBMapProtein
@@ -104,7 +101,7 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
 df.to_csv(args.vcffile.split('.')[0]+'_missense.csv_withduplicates',sep=',')
 
 df_without_duplicates = df.drop_duplicates(['gene','unp','refseq','mutation'])
-df = df.set_index(['gene','unp','refseq','mutation'])
+df = df.set_index(['gene','unp','refseq','mutation']).sort_index()
 for index,row in df_without_duplicates.iterrows():
     variant_index = (row['gene'],row['unp'],row['refseq'],row['mutation'])
     rows_with_various_transcripts = df.loc[variant_index]
