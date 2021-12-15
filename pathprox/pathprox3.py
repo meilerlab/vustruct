@@ -2144,25 +2144,6 @@ if __name__ == "__main__":
     LOGGER.info("Configuration File parameters:\n%s" % pprint.pformat(config_dict_shroud_password))
     # LOGGER.info("PathProx parameters:\n%s"%pprint.pformat(pathprox_config_dict))
 
-    ## if args.sqlcache:
-    ##   cache_dir = args.sqlcache
-    ## else:
-    ##   cache_dir = os.path.join(config_dict['output_rootdir'],config_dict['collaboration'],"sqlcache")
-
-    ## # We must take care with the sql_cache because several processes can simultaneously attempt to make it!
-    ## if not os.path.exists(cache_dir):
-    ##   try:
-    ##     os.makedirs(cache_dir)
-    ##   except:
-    ##     pass
-    ##   try:
-    ##     assert os.path.exists(cache_dir)
-    ##   except:
-    ##     sys_exit_failure("Fatal: Can't create sqlcache at destination path %s" %cache_dir)
-    ## set_capra_group_sticky(cache_dir)
-
-    ## LOGGER.info("SQL cache directory: %s"%cache_dir)
-
     structure = None
     chain_to_alignment = {}
     chain_to_transcript = {}
@@ -2301,6 +2282,9 @@ if __name__ == "__main__":
     if args.usermodel or args.swiss or args.modbase or args.alphafold:
         alignment = PDBMapAlignment()
         for chain_letter in chain_to_transcript:
+            # For swiss models, the '_' chain is always for HETATM or RNA/DNA ligand type entries - SKIP!
+            if args.swiss and chain_letter == '_':
+                continue
             alignment = PDBMapAlignment()
             (success, message) = alignment.align_trivial(chain_to_transcript[chain_letter], structure,
                                                          chain_id=chain_letter)
@@ -2779,7 +2763,7 @@ if __name__ == "__main__":
         _alignment = chain_to_alignment[chain_id]
         if res_id not in _alignment.resid_to_seq:
             return None
-        return int(alignment.resid_to_seq[res_id])
+        return int(_alignment.resid_to_seq[res_id])
 
 
     # In one iteration through the entire structure, we create a ne dataframe consisting of
@@ -3177,23 +3161,23 @@ if __name__ == "__main__":
     # Report PathProx/constraint scores for candidate variants
     if args.variants and args.quantitative:
         LOGGER.info("Quantitative constraint scores for candidate missense variants:")
-        LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "qtprox"]].sort_values( \
+        LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "qtprox"]].sort_values( \
             by=["qtprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
             index=False))
     elif args.variants:
         if sufficient_neutral_variants:
             LOGGER.info("Neutral constraint scores for candidate missense variants:")
-            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "neutcon"]].sort_values( \
+            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "neutcon"]].sort_values( \
                 by=["neutcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
                 index=False))
         if sufficient_pathogenic_variants:
             LOGGER.info("Pathogenic constraint scores for candidate missense variants:")
-            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "pathcon"]].sort_values( \
+            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathcon"]].sort_values( \
                 by=["pathcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
                 index=False))
         if sufficient_neutral_variants and sufficient_pathogenic_variants:  # meaning, we had BOTH enough pathogenic and enough neutrals
             LOGGER.info("PathProx scores for candidate missense variants:")
-            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "pathprox"]].sort_values( \
+            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathprox"]].sort_values( \
                 by=["pathprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
                 index=False))
         else:
@@ -3274,19 +3258,19 @@ if __name__ == "__main__":
         vus_strs = vus_df["ref"].str.cat([vus_df["unp_pos"].astype(str), vus_df["alt"]])
         # PathProx scores
         if sufficient_pathogenic_variants and sufficient_neutral_variants:
-            pp_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "pathprox"]].sort_values( \
+            pp_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathprox"]].sort_values( \
                 by=["pathprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean)
             head.extend(["%s_pathprox" % m for m in vus_strs])
             vals.extend(list(pp_vus["pathprox"].values))
         # Pathogenic constraint scores
         if sufficient_pathogenic_variants:
-            pc_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "pathcon"]].sort_values( \
+            pc_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathcon"]].sort_values( \
                 by=["pathcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean)
             head.extend(["%s_pathcon" % m for m in vus_strs])
             vals.extend(list(pc_vus["pathcon"].values))
         # Neutral constraint scores
         if sufficient_neutral_variants:
-            nc_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "ref", "alt", "neutcon"]].sort_values( \
+            nc_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "neutcon"]].sort_values( \
                 by=["neutcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean)
             head.extend(["%s_neutcon" % m for m in vus_strs])
             vals.extend(list(nc_vus["neutcon"].values))
