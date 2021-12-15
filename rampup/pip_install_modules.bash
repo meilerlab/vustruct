@@ -21,6 +21,7 @@ pip install WeasyPrint
 
 echo 'CAUTION.  Installation of PyVCF at this point in container construction'
 echo 'May cause problems with python "import vcf" from container'
+echo 'We are using a local PyVCF Python3 copy in pdbmap until figured out'
 # pip install PyVCF
 
 # Newer versions of networkx have incompatible data file formats
