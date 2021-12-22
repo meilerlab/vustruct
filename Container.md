@@ -68,7 +68,7 @@ $ cd /home/yourlocalusername/psbadmin
 $ source build_docker_images.bash
 ```
 
-In the docker instance in which you are working, are many other things that you _might_ do.  Notably, if you get a build up of lots of dead images clogging local storage, you can do ```docker prune -a``` to clear disk space.
+In the docker instance in which you are working, are many other things that you _might_ do.  Notably, if you get a build up of lots of dead images clogging local storage, you can do ```docker image prune -a``` to clear disk space.
 
 7) You must push your docker image to the dockerhub repo before it can be integrated into singularity
 ```
