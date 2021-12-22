@@ -72,7 +72,7 @@ In the docker instance in which you are working, are many other things that you 
 
 7) You must push your docker image to the dockerhub repo before it can be integrated into singularity
 ```
-docker push chrismoth/image_phase9:tagname
+docker image push chrismoth/image_phase9
 ```
 
 8) Finally, to build the singularity image from the docker image:  
