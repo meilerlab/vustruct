@@ -65,7 +65,7 @@ $ git status # << Check that you are on the branch, typically master, you expect
 + Start the docker daemon and run the script to create the image layers:
 ```$ systemctl start docker
 $ cd /home/yourlocalusername/psbadmin
-$ source build_docker_images.bashhttps://www.netflix.com/title/80208910
+$ source build_docker_images.bash
 ```
 
 In the docker instance in which you are working, are many other things that you _might_ do.  Notably, if you get a build up of lots of dead images clogging local storage, you can do ```docker prune -a``` to clear disk space.
