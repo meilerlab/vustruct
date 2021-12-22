@@ -15,9 +15,6 @@ ARG Anaconda3_release=Anaconda3-2021.11-Linux-x86_64.sh
 # with additional ENV here
 ENV PATH="/opt/conda/bin:$PATH"
 
-#Grab anaconda python and install needed python modules
-#we install PyVCF because it weirdly solves downstream package problems
-#to do that now
 RUN echo $Anaconda3_release && \
   echo 'PATH=/opt/conda/bin:${PATH}' >> /etc/environment && \
   echo 'PATH="/opt/conda/bin:$PATH"' > /etc/profile.d/pipeline_setpath0.sh && \
@@ -35,8 +32,7 @@ RUN echo $Anaconda3_release && \
   rm ~/anaconda.sh && \
   ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
   pip install --upgrade setuptools \
-  pip install --upgrade pip \
-  pip install PyVCF
+  pip install --upgrade pip
 
 
 
