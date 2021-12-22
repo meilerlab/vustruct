@@ -7,7 +7,7 @@ FROM centos:7
 
 # This large .sh file must be preloaded before attempting the build
 # Be sure to update line below with latest filename from anaconda
-ARG Anaconda3_release=Anaconda3-2021.05-Linux-x86_64.sh
+ARG Anaconda3_release=Anaconda3-2021.11-Linux-x86_64.sh
 
 # The Anaconda3_...sh installer will modify the root .profile
 # to include PATH=/opt/conda/bin.  HOWEVER, we ususally run
