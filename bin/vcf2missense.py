@@ -104,7 +104,7 @@ df_without_duplicates = df.drop_duplicates(['gene','unp','refseq','mutation'])
 df = df.set_index(['gene','unp','refseq','mutation']).sort_index()
 for index,row in df_without_duplicates.iterrows():
     variant_index = (row['gene'],row['unp'],row['refseq'],row['mutation'])
-    rows_with_various_transcripts = df.loc[variant_index]
+    rows_with_various_transcripts = df.loc[[variant_index]]
     transcript_list = rows_with_various_transcripts['transcript'].tolist()
     # print("for variant_index %s rows are %s"%(str(variant_index),str(rows_with_various_transcripts)))
     # import pdb; pdb.set_trace()
