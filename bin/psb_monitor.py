@@ -110,7 +110,7 @@ if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
 #  logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
 #  sys.exit(1)
 
-def monitor_one_mutation(workstatus):
+def monitor_one_mutation(workstatus_filename: str):
     slurmInfoColumns = (['scontrolTimestamp','JobState','ExitCode','RunTime','TimeLimit',
                                    'SubmitTime','EligibleTime','StartTime','EndTime',
                                    'NodeList','BatchHost','NumNodes','NumCPUs','NumTasks','StdErr','StdOut','StdIn'])
@@ -120,18 +120,23 @@ def monitor_one_mutation(workstatus):
     # Load the schedule of jobs that was created by psb_launch.py (or previous run of psb_monitor.py)
     # keep_default_na causes empty strings to come is as such, and non pesky nan floats
     try:
-        df_all_jobs_status = pd.read_csv(workstatus,'\t',dtype=str,keep_default_na=False)
+        df_all_jobs_status = pd.read_csv(workstatus_filename,delimiter='\t',dtype=str,keep_default_na=False)
     except FileNotFoundError:
         df_all_jobs_status = pd.DataFrame(columns=['uniquekey'])
 
     if len(df_all_jobs_status) > 0:
-        LOGGER.info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus))
+        LOGGER.info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus_filename))
     else:
-        LOGGER.info("No jobs in workstatus file %s"%workstatus)
+        LOGGER.info("No jobs in workstatus file %s"%workstatus_filename)
  
     df_all_jobs_status.set_index('uniquekey',inplace=True)
     if len(df_all_jobs_status) < 1:
-        LOGGER.warning("No rows in work status file %s.  No jobs to monitor."%workstatus)
+        workstatus_filename_dirname = os.path.basename(os.path.dirname(os.path.normpath(workstatus_filename)))
+        workstatus_file_basename = os.path.basename(workstatus_filename)
+        message_text = "No rows(jobs) to monitor found in file %s."%os.path.join(
+            workstatus_filename_dirname,workstatus_file_basename)
+        print(message_text)
+        LOGGER.info(message_text)
         return pd.DataFrame()
 
     df_all_jobs_original_status = df_all_jobs_status.copy()
@@ -254,7 +259,7 @@ def monitor_one_mutation(workstatus):
         info_as_series = pd.Series(data=interesting_info)
         df_job_updates = df_job_updates.append(info_as_series,ignore_index=True)
     
-    previous_workstatus_filename = workstatus + ".previous"
+    previous_workstatus_filename = workstatus_filename + ".previous"
     # print "Renaming current status file to %s"%previous_workstatus_filename
     try:
         os.remove(previous_workstatus_filename)
@@ -289,28 +294,28 @@ def monitor_one_mutation(workstatus):
             # This happens out to right of earlier printing...
             print("   All %d jobs completed successfully"%len(df_all_jobs_status))
             return
-        if "casewide" in workstatus:
+        if "casewide" in workstatus_filename:
             print("     No updates to status of casewide jobs")
         else:
             print("     No updates to status of jobs for this mutation")
     else:
-        os.rename(workstatus,previous_workstatus_filename)
+        os.rename(workstatus_filename,previous_workstatus_filename)
     
-        print("\nRecording all updates to %s"%workstatus)
+        print("\nRecording all updates to %s"%workstatus_filename)
         try:
-            df_all_jobs_status.to_csv(workstatus,sep='\t',index=True)
+            df_all_jobs_status.to_csv(workstatus_filename,sep='\t',index=True)
         except Exception as ex:
             # If we cannot save the new csv file, then we must (attempt to!) restore the old one!
-            os.remove(workstatus)
-            os.rename(workstatus,previous_workstatus_filename)
-            LOGGER.exception("Serious failure saving new updated file %s.  Prior file restored"%workstatus)
+            os.remove(workstatus_filename)
+            os.rename(workstatus_filename,previous_workstatus_filename)
+            LOGGER.exception("Serious failure saving new updated file %s.  Prior file restored"%workstatus_filename)
             sys.exit(1)
     
     if len(df_incomplete) == 0:
         print("All %d jobs completed successfully"%len(df_all_jobs_status))
     else:
-        print("%d of %d jobs still incomplete:"%(len(df_incomplete),len(df_all_jobs_status)))
-        print("%15s:%-20s  %s"%('Jobid','Flavor',"Info"))
+        print("%2d of %2d jobs still incomplete:"%(len(df_incomplete),len(df_all_jobs_status)))
+        print("%15s:%-25.25s  %s"%('Jobid','Flavor',"Info"))
         for index,row in df_incomplete.iterrows():
             infostring = ""
             if 'jobinfo' in row and len(row['jobinfo']) > 1:
@@ -318,7 +323,7 @@ def monitor_one_mutation(workstatus):
             elif 'JobState' in row and len(row['JobState']) > 1:
                 infostring = row['JobState']
     
-            print("%15s:%-20s    %s"%(row['jobid'],index,infostring))
+            print("%15s:%-20s  %-20ss"%(row['jobid'],index,infostring))
     
 # Main logic here.  A period in the argument means the user wants to launch one mutation only,
 # directly from a single mutation output file of psb_plan.py
@@ -332,7 +337,7 @@ else:
     df_all_mutations.fillna('NA',inplace=True)
     for index,row in df_all_mutations.iterrows():
         # print without a newline - monitor_one_mutation will add one
-        print("%d of %d: %-10s %-10s %-6s"%(index+1,len(df_all_mutations),row['gene'],row['refseq'],row['mutation']), end=' ')
+        print("%d of %d: %-10.10s %-14.14s %-6.6s"%(index+1,len(df_all_mutations),row['gene'],row['refseq'],row['mutation']), end=' ')
         if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
             row['refseq'] = 'NA'
         mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
