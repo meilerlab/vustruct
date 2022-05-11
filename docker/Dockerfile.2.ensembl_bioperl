@@ -25,7 +25,7 @@ RUN   echo 'PATH=/ensembl/ensembl-git-tools/bin:${PATH}' >> /etc/environment && 
   git clone -b release-1-6-924 --depth 1 https://github.com/bioperl/bioperl-live.git && \
   git clone https://github.com/Ensembl/ensembl-git-tools.git && \
   git ensembl --clone api && \
-  git ensembl --checkout --branch release/100 api && \
+  git ensembl --checkout --branch release/105 api && \
   git clone https://github.com/Ensembl/ensembl-vep.git && \
   cd ensembl-vep && \
   git checkout release/105 && \
