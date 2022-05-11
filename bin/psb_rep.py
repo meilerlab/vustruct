@@ -92,7 +92,6 @@ sys.stderr.write("Log file for entire case is %s\n" % root_dir_log_filename)
 # This list omits the intermediate files left behind in the calculation
 website_filelist = ['html/']
 
-
 # from subprocess import Popen, PIPE
 from weasyprint import HTML
 
@@ -107,13 +106,13 @@ cmdline_parser.add_argument("projectORstructures", type=str,
                             default=os.path.basename(os.getcwd()), nargs='?')
 cmdline_parser.add_argument("workstatus", nargs='?', type=str,
                             help="Blank for all mutations, or specific output file from psb_monitor.py\n" +
-                                "Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv")
+                                 "Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv")
 args, remaining_argv = cmdline_parser.parse_known_args()
 
 # A period in the argument means the user wants to monitor one mutation only,
 # directly from a single mutation output file of psb_launch.py
 oneMutationOnly = (
-            '.' in args.projectORstructures and os.path.isfile(args.projectORstructures) and args.workstatus != None)
+        '.' in args.projectORstructures and os.path.isfile(args.projectORstructures) and args.workstatus != None)
 infoLogging = False
 
 if args.debug:
@@ -184,7 +183,8 @@ def copy_html_css_javascript():
 
     try:
         shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(src, dest)
+        # Save some space by not coping the data from nglviewer
+        shutil.copytree(src, dest, ignore = shutil.ignore_patterns('*/nglview/data/*'))
     except Exception as e:
         LOGGER.exception(e)
         sys.exit(1)
@@ -200,7 +200,7 @@ def copy_html_css_javascript():
         # print '\n'.join(src_file_list)
     else:
         LOGGER.critical("FAILURE to cp html support files (%d source files,%d dest files)" % (
-        len(src_file_list), len(dest_file_list)))
+            len(src_file_list), len(dest_file_list)))
         sys.exit(1)
 
     # Now give read access to everyone, read-write to group, execute on directories
@@ -220,6 +220,7 @@ def copy_html_css_javascript():
             fname = os.path.join(root, file)
             os.chmod(fname, 0o664)
             os.chown(os.path.join(fname), -1, capra_group)
+
 
 # Return a dictionary of "generic Interactions" that can flow into the summary report
 # Return an html table that can be placed at end of summary report
@@ -311,10 +312,10 @@ def html_div_id_create(row_or_dict) -> str:
         string.punctuation)  # for each punctuation character as key, the value is None
 
     return str("%s%s%s" % (row_or_dict.structure_id.strip(),
-                row_or_dict.chain_id.strip(),
-                '' if str(row_or_dict.mers.strip()) == 'monomer' else str(row_or_dict.mers.strip()))).translate(
-    str.maketrans(map_punct_to_None))
-
+                           row_or_dict.chain_id.strip(),
+                           '' if str(row_or_dict.mers.strip()) == 'monomer' else str(
+                               row_or_dict.mers.strip()))).translate(
+        str.maketrans(map_punct_to_None))
 
 
 # This complex routine gathers PathProx, and ddG results from the pipeline run, where available
@@ -327,27 +328,31 @@ class CalculationResultsLoader:
     Once loaded, other processes will inject these data into web pages.
     """
 
-    def _makefilename(self,filename_segment: str ) -> str:
+    def _makefilename(self, filename_segment: str) -> str:
         """
         @param filename_segment: "workstatus", "structure_report", or "dropped_structures"
         @return: os.path.join(collaboration_dir,filename_segment)
         """
 
         # Example 'workstatus' becomes $UDN/variant_directory/gene_refseq_variant_workstatus.csv
-        return os.path.join(self._variant_directory_fullpath, # #UDN/variant_directory
-                            "%s_%s.csv"%(self._variant_directory_segment,filename_segment))
+        return os.path.join(self._variant_directory_fullpath,  # #UDN/variant_directory
+                            "%s_%s.csv" % (self._variant_directory_segment, filename_segment))
 
-    @property # The name of the file listing all creations, created by psb_plan.py
-    def workplan_filename(self) ->str:  return self._makefilename("workplan")
+    @property  # The name of the file listing all creations, created by psb_plan.py
+    def workplan_filename(self) -> str:
+        return self._makefilename("workplan")
 
-    @property # The filename created by psbb_launch.py, updated by psb_monitor.py:= workplan rows + job statuses
-    def workstatus_filename(self) ->str:  return self._makefilename("workstatus")
+    @property  # The filename created by psbb_launch.py, updated by psb_monitor.py:= workplan rows + job statuses
+    def workstatus_filename(self) -> str:
+        return self._makefilename("workstatus")
 
-    @property # The original listing of covering pdbs and models created by psb_plan.py
-    def structure_report_filename(self) ->str: return self._makefilename("structure_report")
+    @property  # The original listing of covering pdbs and models created by psb_plan.py
+    def structure_report_filename(self) -> str:
+        return self._makefilename("structure_report")
 
-    @property # The original listing of sub-optimal pdbs and models created by psb_plan.py
-    def dropped_structures_filename(self) ->str: return self._makefilename("dropped_structures")
+    @property  # The original listing of sub-optimal pdbs and models created by psb_plan.py
+    def dropped_structures_filename(self) -> str:
+        return self._makefilename("dropped_structures")
 
     @property
     def workplan_df(self) -> pd.DataFrame:
@@ -370,13 +375,14 @@ class CalculationResultsLoader:
 
         if self._workstatus_df is not None:
             return self._workstatus_df
-        
+
         if not os.path.exists(self.workstatus_filename):
-            msg="Work status file: %s not found.  Should have been created by psb_monitor.py"%self.workstatus_filename
+            msg = "Work status file: %s not found.  Should have been created by psb_monitor.py" % self.workstatus_filename
             LOGGER.critical(msg)
             sys.exit(msg)
-            
-        self._workstatus_df = pd.read_csv(self.workstatus_filename,delimiter='\t',keep_default_na=False, na_filter=False, dtype=str)
+
+        self._workstatus_df = pd.read_csv(self.workstatus_filename, delimiter='\t', keep_default_na=False,
+                                          na_filter=False, dtype=str)
         return self._workstatus_df
 
     @property
@@ -390,7 +396,7 @@ class CalculationResultsLoader:
             # msg = "Work status file: %s not found.  Should have been created by pipeline" % self.dropped_structures_filename
             # LOGGER.critical(msg)
             # sys.exit(msg)
-            self._dropped_structures_df = pd.read_csv(self.dropped_structures_filename,delimiter='\t')
+            self._dropped_structures_df = pd.read_csv(self.dropped_structures_filename, delimiter='\t')
 
         return self._dropped_structures_df
 
@@ -404,11 +410,11 @@ class CalculationResultsLoader:
             LOGGER.critical(msg)
             sys.exit(msg)
 
-        self._structure_report_df = pd.read_csv(self.structure_report_filename,delimiter='\t')
+        self._structure_report_df = pd.read_csv(self.structure_report_filename, delimiter='\t')
         return self._structure_report_df
 
-    def load_Pathprox_results_dataframe(self,workplan_df_row: pd.Series,disease_1_or_2: str) -> (pd.Series,str):
-        disease_variant_set_sql_label = config_pathprox_dict['%s_variant_sql_label'%disease_1_or_2]
+    def load_Pathprox_results_dataframe(self, workplan_df_row: pd.Series, disease_1_or_2: str) -> (pd.Series, str):
+        disease_variant_set_sql_label = config_pathprox_dict['%s_variant_sql_label' % disease_1_or_2]
         # variant_short_description = config_pathprox_dict['%s_variant_short_description'%disease_1_or_2]
 
         # Define directory prefixes
@@ -416,17 +422,18 @@ class CalculationResultsLoader:
         output_flavor_directory = os.path.join(os.path.basename(workplan_df_row['outdir']), workplan_df_row['flavor'])
 
         pathprox_prefix = "%s_%s_%s_%s_D" % (
-                workplan_df_row['pdbid'],
-                workplan_df_row['chain'],
-                disease_variant_set_sql_label,
-                config_pathprox_dict['neutral_variant_sql_label'])
+            workplan_df_row['pdbid'],
+            workplan_df_row['chain'],
+            disease_variant_set_sql_label,
+            config_pathprox_dict['neutral_variant_sql_label'])
 
         # Load the Pathprox summary of results for this mutation
-        pathprox_summary_filename = os.path.join(self._variant_directory_fullpath,output_flavor_directory,"%s_summary.csv"%pathprox_prefix)
+        pathprox_summary_filename = os.path.join(self._variant_directory_fullpath, output_flavor_directory,
+                                                 "%s_summary.csv" % pathprox_prefix)
         try:
             pathprox_summary_df = pd.read_csv(pathprox_summary_filename, sep='\t')
         except FileNotFoundError:
-            return None,"PathProx summary file not found: %s"%pathprox_summary_filename
+            return None, "PathProx summary file not found: %s" % pathprox_summary_filename
 
         # Stuff the filesystem locations in the dataframe, so we don't have to recompute them later
         # when we grab graphics files, and variant json files, from these areas
@@ -441,8 +448,8 @@ class CalculationResultsLoader:
         pathprox_neutral_png_dict = {
             # Pathprox creates some legacy static png files using chimera_headless which we want on our
             # final report.  These *_png keynames will be rolled up at the end into the website .tar file.
-            "variant_unknown_significance_png":         "structure.png",
-            "neutral_variants_png":                     "neutral.png",
+            "variant_unknown_significance_png": "structure.png",
+            "neutral_variants_png": "neutral.png",
             # Pathprox creates a variety of plots that describe important details about the calculation
 
             "neutral_K_plot_png": "neutral_K_plot.png",  # Most discriminating K plot, was _K before
@@ -456,7 +463,7 @@ class CalculationResultsLoader:
             # Load the PathProx Mapping and Performance for the pathogenic calculations
             "pp_plot_png": "pathprox.png",
             "roc_plot_png": "pathprox_roc.png",
-            "pr_plot_png" : "pathprox_pr.png",
+            "pr_plot_png": "pathprox_pr.png",
 
             "pathogenic_K_plot_png": "pathogenic_K_plot.png"  # Most discriminating K plot, was _K before
 
@@ -466,32 +473,28 @@ class CalculationResultsLoader:
         if disease_1_or_2 == 'disease1':
             pathprox_png_dict.update(pathprox_neutral_png_dict)
 
-        LOGGER.debug("Retrieving pathprox image pngs from %s"%os.path.join(self._variant_directory_segment,
-                                                                      output_flavor_directory))
+        LOGGER.debug("Retrieving pathprox image pngs from %s" % os.path.join(self._variant_directory_segment,
+                                                                             output_flavor_directory))
 
-        pathprox_png_filename_dict = dict.fromkeys(pathprox_png_dict.keys(),'')
+        pathprox_png_filename_dict = dict.fromkeys(pathprox_png_dict.keys(), '')
 
-        for pathprox_png_key,pathprox_png_filename_ending in pathprox_png_dict.items():
+        for pathprox_png_key, pathprox_png_filename_ending in pathprox_png_dict.items():
             # We can save some space by NOT loading the neutral png files for the second disease.
             # These are the same as the first one, and it saves space to skip them
-            png_filename = os.path.join(self._variant_directory_segment,output_flavor_directory,"%s_%s"%(pathprox_prefix,pathprox_png_filename_ending))
+            png_filename = os.path.join(self._variant_directory_segment, output_flavor_directory,
+                                        "%s_%s" % (pathprox_prefix, pathprox_png_filename_ending))
             if os.path.exists(png_filename):
-                LOGGER.debug("Pathprox putput png file %s found"%png_filename)
+                LOGGER.debug("Pathprox putput png file %s found" % png_filename)
                 # The actual filename in the final web html will be relative to the isoform_variant directory
-                pathprox_png_filename_dict[pathprox_png_key] = os.path.join(output_flavor_directory,os.path.basename(png_filename))
+                pathprox_png_filename_dict[pathprox_png_key] = os.path.join(output_flavor_directory,
+                                                                            os.path.basename(png_filename))
             else:
                 # This is not a problem - just means pathprox did not do this particular calculation
-                LOGGER.debug("Pathprox putput png file %s not found"%png_filename)
+                LOGGER.debug("Pathprox putput png file %s not found" % png_filename)
 
-
-        pathprox_png_filename_pd = pd.DataFrame(pathprox_png_filename_dict,index=[0])
+        pathprox_png_filename_pd = pd.DataFrame(pathprox_png_filename_dict, index=[0])
 
         pathprox_summary_df = pathprox_summary_df.join(pathprox_png_filename_pd)
-
-
-
-
-
 
         # An odd thing about the pathprox output .csv file is that some columns are named with the mutation
         # So, Let's create alias columns with standard names
@@ -499,13 +502,13 @@ class CalculationResultsLoader:
         #      pathprox_summary_df['neutcon'] = pathprox_summary_df['M123V_neutcont']
         #      pathprox_summary_df['pathcon'] = pathprox_summary_df['M123V_pathcon']
         mutation = workplan_df_row.mutation
-        for score_string in ['pathprox','neutcon','pathcon']:
+        for score_string in ['pathprox', 'neutcon', 'pathcon']:
             pathprox_summary_df[score_string] = np.nan
-            if "%s_%s"%(mutation,score_string) in pathprox_summary_df.columns:
-                pathprox_summary_df[score_string] = pathprox_summary_df["%s_%s"%(mutation,score_string)]
-        return pathprox_summary_df,None
+            if "%s_%s" % (mutation, score_string) in pathprox_summary_df.columns:
+                pathprox_summary_df[score_string] = pathprox_summary_df["%s_%s" % (mutation, score_string)]
+        return pathprox_summary_df, None
 
-    def load_ddG_results_dataframe(self,workplan_df_row: pd.Series,calculation_flavor: str) -> (pd.DataFrame,str):
+    def load_ddG_results_dataframe(self, workplan_df_row: pd.Series, calculation_flavor: str) -> (pd.DataFrame, str):
         ddg_repo = DDG_repo(config_dict['ddg_config'],
                             calculation_flavor=calculation_flavor)
 
@@ -524,16 +527,17 @@ class CalculationResultsLoader:
 
         variant = workplan_df_row['pdbmut']
         ddg_repo.set_variant(variant)
-        ddg_monomer_or_cartesian = DDG_monomer(ddg_repo, variant) if calculation_flavor == 'ddG_monomer' else DDG_cartesian(ddg_repo,variant)
+        ddg_monomer_or_cartesian = DDG_monomer(ddg_repo,
+                                               variant) if calculation_flavor == 'ddG_monomer' else DDG_cartesian(
+            ddg_repo, variant)
 
         ddg_results_df = ddg_monomer_or_cartesian.retrieve_result()
         if ddg_results_df is None:
-            msg='No %s results found for %s.%s:%s' % (calculation_flavor,structure_id, chain_id, variant)
+            msg = 'No %s results found for %s.%s:%s' % (calculation_flavor, structure_id, chain_id, variant)
             LOGGER.warning(msg)
             return None, msg
 
         return ddg_results_df, None
-
 
     def load_dataframes(self):
         """
@@ -548,20 +552,22 @@ class CalculationResultsLoader:
         @return:
         """
 
-        structure_report_df_indexed = self.structure_report_df.set_index(['method','structure_id','chain_id','mers'],drop=False)
-        workstatus_df_indexed = self.workstatus_df.set_index(['uniquekey'],drop=False)
-        for workplan_uniquekey,workplan_row in self.workplan_df.set_index(['uniquekey'],drop=False).iterrows():
+        structure_report_df_indexed = self.structure_report_df.set_index(['method', 'structure_id', 'chain_id', 'mers'],
+                                                                         drop=False)
+        workstatus_df_indexed = self.workstatus_df.set_index(['uniquekey'], drop=False)
+        for workplan_uniquekey, workplan_row in self.workplan_df.set_index(['uniquekey'], drop=False).iterrows():
             try:
                 workstatus_row = workstatus_df_indexed.loc[workplan_uniquekey]
             except KeyError:
-                LOGGER.critical("psb_launch.py did not create status record for Calculation %s"%workplan_uniquekey)
+                LOGGER.critical("psb_launch.py did not create status record for Calculation %s" % workplan_uniquekey)
                 workstatus_row = workplan_row.copy()
                 workstatus_row['Notes'] = "Not Launched"
                 workstatus_row['ExitCode'] = ''
 
             if workstatus_row['ExitCode'] == '0':
                 # Excellent go harvest raw outputs to later combine into reports
-                method_pdbid_chain_mers_tuple = (workstatus_row['method'], workstatus_row['pdbid'], workstatus_row['chain'], workstatus_row['mers'])
+                method_pdbid_chain_mers_tuple = (
+                workstatus_row['method'], workstatus_row['pdbid'], workstatus_row['chain'], workstatus_row['mers'])
 
                 # Today, Sequence Annotation results are not included in web outputs
                 if workstatus_row['flavor'] == 'SequenceAnnotation':
@@ -570,30 +576,33 @@ class CalculationResultsLoader:
                 try:
                     structure_row = structure_report_df_indexed.loc[method_pdbid_chain_mers_tuple]
                 except KeyError:
-                    msg= "Structure %s referenced from job is not in the structure file"%str(method_pdbid_chain_mers_tuple)
+                    msg = "Structure %s referenced from job is not in the structure file" % str(
+                        method_pdbid_chain_mers_tuple)
                     LOGGER.critical(msg)
                     sys.exit(msg)
 
                 if workstatus_row['flavor'].endswith(config_pathprox_dict['disease1_variant_sql_label']):
-                    pathprox_disease1_results_df,msg = self.load_Pathprox_results_dataframe(
-                        workstatus_row,'disease1')
+                    pathprox_disease1_results_df, msg = self.load_Pathprox_results_dataframe(
+                        workstatus_row, 'disease1')
                     if pathprox_disease1_results_df is None:
                         workstatus_row['Notes'] = msg
                     else:
-                        self.pathprox_disease1_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = pathprox_disease1_results_df
+                        self.pathprox_disease1_results_dict_of_dfs[
+                            method_pdbid_chain_mers_tuple] = pathprox_disease1_results_df
 
                 elif workstatus_row['flavor'].endswith(config_pathprox_dict['disease2_variant_sql_label']):
-                    pathprox_disease2_results_df,msg = self.load_Pathprox_results_dataframe(
-                        workstatus_row,'disease2')
+                    pathprox_disease2_results_df, msg = self.load_Pathprox_results_dataframe(
+                        workstatus_row, 'disease2')
                     if pathprox_disease2_results_df is None:
                         workstatus_row['Notes'] = msg
                     else:
                         # structure_row['disease2_pathprox'] = pathprox_disease2_results_df['pathprox']
                         # structure_row['disease2_pr_aoc'] = pathprox_disease2_results_df['pr_auc']
-                        self.pathprox_disease2_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = pathprox_disease2_results_df
+                        self.pathprox_disease2_results_dict_of_dfs[
+                            method_pdbid_chain_mers_tuple] = pathprox_disease2_results_df
 
                 elif workstatus_row['flavor'] in ['ddG_monomer', 'ddG_cartesian']:
-                    ddg_results_df,msg = self.load_ddG_results_dataframe(workstatus_row,workstatus_row['flavor'])
+                    ddg_results_df, msg = self.load_ddG_results_dataframe(workstatus_row, workstatus_row['flavor'])
                     if ddg_results_df is None:
                         workstatus_row['Notes'] = msg
                     else:
@@ -603,10 +612,11 @@ class CalculationResultsLoader:
                         else:
                             self.ddG_cartesian_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = ddg_results_df
                 else:
-                    die_msg = "flavor in workstatus row is neither %s nor %s nor ddG_monomer not ddG_cartesian - cannot continue:\n%s"%(
-                              config_pathprox_dict['disease1_variant_sql_label'],
-                              config_pathprox_dict['disease2_variant_sql_label'],
-                              str(workstatus_row))
+                    die_msg = "flavor %s in workstatus row is neither %s nor %s nor ddG_monomer not ddG_cartesian - cannot continue:\n%s" % (
+                        workstatus_row['flavor'],
+                        config_pathprox_dict['disease1_variant_sql_label'],
+                        config_pathprox_dict['disease2_variant_sql_label'],
+                        str(workstatus_row))
                     LOGGER.critical(die_msg)
                     sys.exit(die_msg)
 
@@ -614,16 +624,15 @@ class CalculationResultsLoader:
             else:
                 workstatus_row['Notes'] = workstatus_row['JobState']
 
-
-    def _load_pathprox_residues_of_interest_json(self,pathprox_result: pd.Series) -> Dict:
+    def _load_pathprox_residues_of_interest_json(self, pathprox_result: pd.Series) -> Dict:
         """
         Supports load_structure_graphics_dicts by loading json information that was output in a specific pathprox run
         Replaces the pdbSSfilename entry with a relative path suitable for web processing.
         @return: pathprox_output_json dictionary
         """
         pathprox_output_json_filename = os.path.join(self._variant_directory_segment,
-                                     pathprox_result['output_flavor_directory'],
-                                     pathprox_result['pathprox_prefix'] + "_ResiduesOfInterest.json")
+                                                     pathprox_result['output_flavor_directory'],
+                                                     pathprox_result['pathprox_prefix'] + "_ResiduesOfInterest.json")
         if not os.path.exists(pathprox_output_json_filename):
             LOGGER.warning(
                 "Pathprox left no %s file\nwhich would have contained variants and a PDB filename",
@@ -632,6 +641,7 @@ class CalculationResultsLoader:
         else:
             with open(pathprox_output_json_filename) as json_f:
                 pathprox_output_json = json.load(json_f)
+
             # if 'cifSSfilename' in pathprox_output_json:
             #    cifSSbasename = os.path.basename(pathprox_output_json['cifSSfilename'])
             #    cifSSdirname = os.path.realpath(os.path.dirname(pathprox_output_json['cifSSfilename']))
@@ -676,8 +686,8 @@ class CalculationResultsLoader:
         @return: alpha_fold_metrics list
         """
         alpha_fold_metrics_json = os.path.join(self._variant_directory_segment,
-                                                     pathprox_result['output_flavor_directory'],
-                                                     pathprox_result['pathprox_prefix'] + "_alphafold_metrics.json")
+                                               pathprox_result['output_flavor_directory'],
+                                               pathprox_result['pathprox_prefix'] + "_alphafold_metrics.json")
 
         if not os.path.exists(alpha_fold_metrics_json):
             LOGGER.warning(
@@ -688,7 +698,6 @@ class CalculationResultsLoader:
             with open(alpha_fold_metrics_json) as json_f:
                 alpha_fold_metrics = json.load(json_f)
         return alpha_fold_metrics
-
 
     def load_structure_graphics_dicts(self):
         """
@@ -746,21 +755,20 @@ class CalculationResultsLoader:
                 'disease1_pr_auc': 3,
                 'disease2_pathprox': 2,
                 'disease2_pr_auc': 3
-             }
+            }
         )
 
         # Combine all the dataframes into a structure_graphics_dict with "root" elements
         # that dereference specific dictionary sets.
-        for index,structure in structure_report_df_appended.iterrows():
+        for index, structure in structure_report_df_appended.iterrows():
             structure_graphics_dict = structure.fillna('').to_dict()
             structure_graphics_dict['html_div_id'] = html_div_id_create(structure)
-            structure_key = (structure.method,structure.structure_id,structure.chain_id,structure.mers)
+            structure_key = (structure.method, structure.structure_id, structure.chain_id, structure.mers)
             alpha_fold_metrics = None
 
-
-            for disease1_or_2,pathprox_results_dict_of_dfs in zip(
-                    ['disease1','disease2'],
-                    [self.pathprox_disease1_results_dict_of_dfs,self.pathprox_disease2_results_dict_of_dfs]):
+            for disease1_or_2, pathprox_results_dict_of_dfs in zip(
+                    ['disease1', 'disease2'],
+                    [self.pathprox_disease1_results_dict_of_dfs, self.pathprox_disease2_results_dict_of_dfs]):
                 structure_graphics_dict["pathprox_%s_results" % disease1_or_2] = {}
                 structure_graphics_dict['%s_pathogenics' % disease1_or_2] = {}
                 if structure_key in pathprox_results_dict_of_dfs:
@@ -773,20 +781,21 @@ class CalculationResultsLoader:
                             pathprox_result_series_for_structure)
                         if alpha_fold_metrics:
                             structure_graphics_dict['ngl_alpha_fold_metrics'] = \
-                                '[' + ', '.join(str(alpha_fold_metric) for alpha_fold_metric in alpha_fold_metrics[1]) + ']'
+                                '[' + ', '.join(
+                                    str(alpha_fold_metric) for alpha_fold_metric in alpha_fold_metrics[1]) + ']'
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
 
                         structure_graphics_dict['pdbSSfilename'] = os.path.join(
-                                     # self._variant_directory_segment,
-                                     pathprox_result_series_for_structure['output_flavor_directory'],
-                                     pdbSSbasename)
+                            # self._variant_directory_segment,
+                            pathprox_result_series_for_structure['output_flavor_directory'],
+                            pdbSSbasename)
 
                         website_filelist.append(
-                            os.path.join(self._variant_directory_fullpath,structure_graphics_dict['pdbSSfilename']))
+                            os.path.join(self._variant_directory_fullpath, structure_graphics_dict['pdbSSfilename']))
 
-                                            # This only works if we are running the report in the same directory system in
+                        # This only works if we are running the report in the same directory system in
                         # which we ran the report - which is lousy for development
                         # pdbSSdirname = os.path.realpath(os.path.dirname(pathprox_output_json['pdbSSfilename']))
                         # structure_graphics_dict['pdbSSfilename'] = os.path.join(
@@ -801,28 +810,30 @@ class CalculationResultsLoader:
                                     self._variant_directory_fullpath,
                                     pathprox_result_series_for_structure[pathprox_results_key]))
 
-                    structure_graphics_dict["pathprox_%s_results" % disease1_or_2] = pathprox_result_series_for_structure.fillna("").to_dict()
+                    structure_graphics_dict[
+                        "pathprox_%s_results" % disease1_or_2] = pathprox_result_series_for_structure.fillna(
+                        "").to_dict()
                     # For final .html - we need to be specific regarding type of pathogenic.  We weren't when json file was written
                     structure_graphics_dict['%s_pathogenics' % disease1_or_2] = pathprox_output_json['pathogenics']
 
                     if pathprox_output_json:
-                        pathprox_scores_all_residues = self._load_pathprox_scores_all_residues_json(pathprox_result_series_for_structure)
+                        pathprox_scores_all_residues = self._load_pathprox_scores_all_residues_json(
+                            pathprox_result_series_for_structure)
                         if pathprox_scores_all_residues:
                             ngl_formatted_residue_pathprox_pairs = []
                             for chain in pathprox_scores_all_residues:
                                 for residue_no in pathprox_scores_all_residues[chain]:
                                     ngl_formatted_residue_pathprox_pairs.append(
-                                        ("%s:%s"%(residue_no,chain),
+                                        ("%s:%s" % (residue_no, chain),
                                          pathprox_scores_all_residues[chain][residue_no])
                                     )
 
                             javascript_dict_residues_pathprox_scores = \
-                                "{" + ", ".join(["'%s': %s"%dict_key \
-                                       for dict_key in ngl_formatted_residue_pathprox_pairs]) + \
+                                "{" + ", ".join(["'%s': %s" % dict_key \
+                                                 for dict_key in ngl_formatted_residue_pathprox_pairs]) + \
                                 "}"
                             structure_graphics_dict['ngl_%s_pathprox_scores' % disease1_or_2] = \
                                 javascript_dict_residues_pathprox_scores
-
 
                     def pathprox_residue_list_to_ngl_format(residues_onechain, chain_id):
                         """
@@ -873,24 +884,24 @@ class CalculationResultsLoader:
                         return ngl_res_count, "(" + ngl_res_string + ") and .CA" if ngl_res_string else ngl_res_string
 
                     structure_graphics_dict['unique_div_name'] = pathprox_output_json['unique_div_name']
-                    structure_graphics_dict['ngl_variant_residue_count'], structure_graphics_dict['ngl_variant_residues'] = residues_to_ngl(
+                    structure_graphics_dict['ngl_variant_residue_count'], structure_graphics_dict[
+                        'ngl_variant_residues'] = residues_to_ngl(
                         pathprox_output_json['variants'])
-                    structure_graphics_dict['ngl_neutral_residue_count'], structure_graphics_dict['ngl_neutral_residues'] = residues_to_ngl_CAs(
+                    structure_graphics_dict['ngl_neutral_residue_count'], structure_graphics_dict[
+                        'ngl_neutral_residues'] = residues_to_ngl_CAs(
                         pathprox_output_json['neutrals'])
                     structure_graphics_dict['ngl_%s_residue_count' % disease1_or_2], \
                     structure_graphics_dict['ngl_%s_residues' % disease1_or_2] = residues_to_ngl_CAs(
                         pathprox_output_json['pathogenics'])
                     # structure_graphics_dict['ngl_%s_pathprox_scores' % disease1_or_2] = pathprox_scores_all_residues
 
-
-
             self.structure_graphics_dicts.append(structure_graphics_dict)
 
     @staticmethod
-    def collaboration_dir_variant_directory_segment(variant_directory_segment:str):
+    def collaboration_dir_variant_directory_segment(variant_directory_segment: str):
         return os.path.join(collaboration_dir, variant_directory_segment)
 
-    def __init__(self,variant_directory_segment:str, parent_report_row:Dict = None):
+    def __init__(self, variant_directory_segment: str, parent_report_row: Dict = None):
         """
         @param variant_directory_segment, usually str of form "GENE_refseq_A123B"
         @param workstatus_filename:       Filename of status of all calculations, previously updated by psb_monitor.py,
@@ -901,7 +912,8 @@ class CalculationResultsLoader:
         Load all the calculation results from the filesystem, making them available as dataframes and dictionaries
         indexed by (method_structureid_chain_mers)
         """
-        if not os.path.exists(CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)):
+        if not os.path.exists(
+                CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)):
             LOGGER.critical(
                 "The  variant directory %s has not been created by the pipeline under %s.",
                 variant_directory_segment, collaboration_dir)
@@ -914,7 +926,7 @@ class CalculationResultsLoader:
         # to stop other things from leaking out as issues.
         self._variant_directory_fullpath = os.path.join(collaboration_dir, self._variant_directory_segment)
 
-        if not os.path.exists(os.path.join(collaboration_dir,variant_directory_segment)):
+        if not os.path.exists(os.path.join(collaboration_dir, variant_directory_segment)):
             LOGGER.critical(
                 "The  variant directory %s has not been created by the pipeline under %s.",
                 variant_directory, collaboration_dir)
@@ -923,10 +935,10 @@ class CalculationResultsLoader:
         # These dataframes are raw loads of .csv files created by the psb_plan.py and psb_monitor.py
         # over-arching pipeline control programs.  These are accessed via @properties of the same name
         # which lack the initial underscore.
-        self._workplan_df = None                # Original list of jobs to be run, created by psb_plan.py
-        self._workstatus_df = None              # pdb_monintor.py updates workplan rows with exit codes to create this
-        self._structure_report_df = None        # Original list of structures on which calculations are planned run
-        self._dropped_structures_df = None      # Original list of structures rejected by psb_plan.py
+        self._workplan_df = None  # Original list of jobs to be run, created by psb_plan.py
+        self._workstatus_df = None  # pdb_monintor.py updates workplan rows with exit codes to create this
+        self._structure_report_df = None  # Original list of structures on which calculations are planned run
+        self._dropped_structures_df = None  # Original list of structures rejected by psb_plan.py
 
         # We build up dictionaries of dataframes, which link each 3D structure to the raw dataframes of computed
         # results for that structure
@@ -944,11 +956,11 @@ class CalculationResultsLoader:
             self._workstatus_filename_exists = True
 
         if not self._workstatus_filename_exists:
-           if len(self.workplan_df) > 0:
-              LOGGER.critical("No workstatus file (%s) found.  However, %d jobs should have been launched.",\
-                  len(self.workplan_df))
-           else:
-              LOGGER.info("No work was planned for this variant")
+            if len(self.workplan_df) > 0:
+                LOGGER.critical("No workstatus file (%s) found.  However, %d jobs should have been launched.", \
+                                len(self.workplan_df))
+            else:
+                LOGGER.info("No work was planned for this variant")
 
         # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
         if self._workstatus_filename_exists:
@@ -957,11 +969,11 @@ class CalculationResultsLoader:
             # Assert that we have a 'unp' in the workstatus dataframe, else
             # really the pipelien must halt altogether... at this juncture
             if 'unp' not in self._info_dict:
-                msg = "No 'unp' column found in %s.  The report generator cannot continue"%(
+                msg = "No 'unp' column found in %s.  The report generator cannot continue" % (
                     self.workplan_filename)
                 LOGGER.critical(msg)
                 sys.exit(msg)
-        else: # Since we don't have any rows in the workstatus file, just use the information from the main page report
+        else:  # Since we don't have any rows in the workstatus file, just use the information from the main page report
             self._info_dict = parent_report_row
 
         self._unp_transcript = PDBMapTranscriptUniprot(self.unp)
@@ -988,11 +1000,12 @@ class CalculationResultsLoader:
         return ""
 
     def _load_ddG_details(self):
-        self.workstatus_df = pd.read_csv(self.workstatus_filename, '\t', keep_default_na=False, na_filter=False, dtype=str)
+        self.workstatus_df = pd.read_csv(self.workstatus_filename, '\t', keep_default_na=False, na_filter=False,
+                                         dtype=str)
         msg = "%d rows read from work status file %s" % (len(self.workstatus_df), self.workstatus_filename)
         if len(self.workstatus_df) < 1:
             LOGGER.critical(msg)
-            return None;
+            return None
         else:
             if not infoLogging:
                 print(msg)
@@ -1044,7 +1057,7 @@ class CalculationResultsLoader:
         are readily loadable
         """
 
-        for index,row in self.workstatus_df.iterrows():
+        for index, row in self.workstatus_df.iterrows():
             # We now set about loading pathprox, ddG, etc calculation
             # results from the file system.
             # Each calculation is loaded into its own dataframe
@@ -1055,8 +1068,6 @@ class CalculationResultsLoader:
             # mutation/pdbid/chain/
             # COSMIC dict/Clinvar dict/ddg Dict are dictionaries which have the entire rows
             # From the completed job status
-
-
 
             struct_dict = {}
             for index, row in df_complete_jobs.iterrows():
@@ -1088,7 +1099,8 @@ class CalculationResultsLoader:
 
 def _initialize_local_logging_in_variant_directory(variant_directory: str):
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory), "psb_rep.log")
+    log_filename = os.path.join(CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory),
+                                "psb_rep.log")
 
     if oneMutationOnly:
         sys.stderr.write("psb_rep log file is %s\n" % log_filename)
@@ -1097,7 +1109,7 @@ def _initialize_local_logging_in_variant_directory(variant_directory: str):
     _need_roll = os.path.isfile(log_filename)
     local_fh = RotatingFileHandler(log_filename, backupCount=7)
     formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                              datefmt="%H:%M:%S")
+                                  datefmt="%H:%M:%S")
     local_fh.setFormatter(formatter)
     if args.debug:
         infoLogging = True
@@ -1109,14 +1121,13 @@ def _initialize_local_logging_in_variant_directory(variant_directory: str):
     if _need_roll:
         local_fh.doRollover()
 
-    return local_fh # Be sure to _end_local_logging(local_fh) on this later
+    return local_fh  # Be sure to _end_local_logging(local_fh) on this later
 
 
 def _end_local_logging(local_fh: RotatingFileHandler):
     local_fh.flush()
     local_fh.close()
     LOGGER.removeHandler(local_fh)
-
 
 
 class PfamDomainGraphics:
@@ -1132,7 +1143,7 @@ class PfamDomainGraphics:
     http://pfam.xfam.org/protein/P45381/
     """
 
-    def __init__(self,uniprot_id,variant):
+    def __init__(self, uniprot_id, variant):
         """
         Download (or build) a PFAM-graphics-library-compatiable dictionary of predicted protein domain
         annotations, so that pipeline case users can see a linear graphic layout of each protein
@@ -1145,7 +1156,7 @@ class PfamDomainGraphics:
 
         assert self.unp is not None
 
-    def _fetch_canonical_pfam_graphic_json_from_xfam(self,timeout_seconds = 60) -> str:
+    def _fetch_canonical_pfam_graphic_json_from_xfam(self, timeout_seconds=60) -> str:
         """
         Fetch a canonical PFAM graphic JSON string from the internet, using curl, for the
         unp passed to the class constructor.
@@ -1157,10 +1168,11 @@ class PfamDomainGraphics:
         """
 
         # xfam lacks graphics URLs for non-canonical isoforms.  We assemble those ourselves, elsewhere.
-        canonical_pfam_xfam_url = 'http://pfam.xfam.org/protein/{0}/graphic'.format(self.unp.split(' ')[0].split('-')[0])
+        canonical_pfam_xfam_url = 'http://pfam.xfam.org/protein/{0}/graphic'.format(
+            self.unp.split(' ')[0].split('-')[0])
 
         LOGGER.debug("Attempting curl connection to %s to fetch canonical pfam graphics.  Timeout=%d\n",
-                     canonical_pfam_xfam_url,timeout_seconds)
+                     canonical_pfam_xfam_url, timeout_seconds)
         buffer = BytesIO()
 
         try:
@@ -1183,17 +1195,16 @@ class PfamDomainGraphics:
 
         domain_graphics_json = buffer.getvalue().decode('latin')
 
-
         if len(domain_graphics_json) > 3 and domain_graphics_json[0] == '[':
             domain_graphics_json = domain_graphics_json[1:-1]
         elif domain_graphics_json[0] == '<':
             # Sometimes we get back html in the response, to tell us that the PFAM website is down
-            LOGGER.warning("XML, not json, was returned from pfam:\n%s",domain_graphics_json)
+            LOGGER.warning("XML, not json, was returned from pfam:\n%s", domain_graphics_json)
             return None
-        LOGGER.debug("pfam sent us:\n%s",domain_graphics_json)
+        LOGGER.debug("pfam sent us:\n%s", domain_graphics_json)
         return domain_graphics_json
 
-    def create_graphics_legend_and_graphics_dict(self) -> (str,Dict):
+    def create_graphics_legend_and_graphics_dict(self) -> (str, Dict):
         """
         From self.unp, create a graphics Legend, initialize self._domain_graphics_dict.
         This involves opening a large xml file, and either getting the JSON from the internet, or constructing it manually
@@ -1225,9 +1236,9 @@ class PfamDomainGraphics:
 
         domain_graphics_dict = json.loads(domain_graphics_json)
 
-        return domain_graphics_legend,domain_graphics_dict
+        return domain_graphics_legend, domain_graphics_dict
 
-    def add_our_variant_to_graphics_dict(self,domain_graphics_dict: Dict) -> Dict:
+    def add_our_variant_to_graphics_dict(self, domain_graphics_dict: Dict) -> Dict:
         """
         Specifically add _our_ variant of interest to the pfam graphics, as a table entry, and as a diamond
 
@@ -1236,27 +1247,26 @@ class PfamDomainGraphics:
         # Add our variant point of interest to the PFAM-like domain graphics.
         # as a simple diamond in the graphics, and an entry in the table.
         variant_site_markup_dict = {'colour': '#e469fe', \
-                            'display': True, \
-                            'headStyle': 'diamond', \
-                            'lineColour': '#333333', \
-                            'metadata': {'database': 'UDN Case', \
-                                         'description': '%s' % self.variant, \
-                                         'start': self.variant[1:-1], \
-                                         'type': 'Mutation'}, \
-                            'residue': 'X', \
-                            'start': self.variant[1:-1], \
-                            'type': 'UDN Mutation site', \
-                            'v_align': 'top'}
+                                    'display': True, \
+                                    'headStyle': 'diamond', \
+                                    'lineColour': '#333333', \
+                                    'metadata': {'database': 'UDN Case', \
+                                                 'description': '%s' % self.variant, \
+                                                 'start': self.variant[1:-1], \
+                                                 'type': 'Mutation'}, \
+                                    'residue': 'X', \
+                                    'start': self.variant[1:-1], \
+                                    'type': 'UDN Mutation site', \
+                                    'v_align': 'top'}
 
         # Grab any _existing_ markups in our domain graphics.
         # Else default to an empty list.  Add _our_ variant markup to that list of markups.
         domain_graphics_dict['markups'] = domain_graphics_dict.get('markups', []) + [variant_site_markup_dict]
 
-
         # Now repackage in a list, so the "domain_graphics_json" is back to original form....
         return domain_graphics_dict
 
-    def update_graphics_dict_hrefs_to_point_to_pfam(selfself, domain_graphics_dict: Dict) ->Dict:
+    def update_graphics_dict_hrefs_to_point_to_pfam(selfself, domain_graphics_dict: Dict) -> Dict:
         """
         Downloaded href's embedded in the graphics dictionary assume that the domains are described locally.
         We must convert them to point to pages on the UK webserver.
@@ -1271,9 +1281,7 @@ class PfamDomainGraphics:
 
         return domain_graphics_dict
 
-
-
-    def create_pfam_html(self,doman_graphics_legend: str,domain_graphics_dict: Dict) -> str:
+    def create_pfam_html(self, doman_graphics_legend: str, domain_graphics_dict: Dict) -> str:
         """
         @param doman_graphics_legend: 
         @param domain_graphics_json: 
@@ -1324,7 +1332,7 @@ class PfamDomainGraphics:
                 region_text = 'Text Missing'
 
             if 'href' in region:
-                domain_table_entry = "<a href=" +  region['href'] + ">" + region_text + "</a>"
+                domain_table_entry = "<a href=" + region['href'] + ">" + region_text + "</a>"
             else:
                 domain_table_entry = region_text
             table_rows.append({
@@ -1356,8 +1364,7 @@ class PfamDomainGraphics:
         return PfamResultTableHTML
 
 
-
-def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_row: Dict) -> Dict:
+def report_one_variant_one_isoform(variant_directory_segment: str, parent_report_row: Dict) -> Dict:
     """
     Generate extensive structure analysis report .html for a single variant of a single transcript by
     reading all PathPRox/ddG/etc calculations into dataframes, transforming the data a bit, and then
@@ -1377,10 +1384,11 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
     """
 
     # Start logging - after which logging entries are mirrored to variant_directory/psb_rep.log
-    variant_directory_fullpath = CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)
+    variant_directory_fullpath = CalculationResultsLoader.collaboration_dir_variant_directory_segment(
+        variant_directory_segment)
     local_logger_fh = _initialize_local_logging_in_variant_directory(variant_directory_fullpath)
 
-    calculation_results_loader = CalculationResultsLoader(variant_directory_segment,parent_report_row)
+    calculation_results_loader = CalculationResultsLoader(variant_directory_segment, parent_report_row)
     calculation_results_loader.load_dataframes()
     calculation_results_loader.load_structure_graphics_dicts()
 
@@ -1391,18 +1399,19 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
     # Load the template psb_report.html that is hear
     env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
     variant_isoform_template = env.get_template("psb_report.html")
+    structure_iframe_template = env.get_template("html/structureIframeTemplate.html")
 
     calculation_results_loader_as_dict = {key: value for key, value in vars(calculation_results_loader).items() \
-     if not (key.startswith('_'))}  # -> don't exclude callable, you lose properties callable(value)))},
+                                          if not (
+            key.startswith('_'))}  # -> don't exclude callable, you lose properties callable(value)))},
 
-    for attribute in ['project','gene','unp','variant','unp_transcript']:
-        calculation_results_loader_as_dict[attribute] = getattr(calculation_results_loader,attribute)
+    for attribute in ['project', 'gene', 'unp', 'variant', 'unp_transcript']:
+        calculation_results_loader_as_dict[attribute] = getattr(calculation_results_loader, attribute)
 
     # Generate the htrml for the doman graphics
     pfamGraphicsIframe_fname = "%s_%s_PfamGraphicsIframe.html" % (
         calculation_results_loader.unp,
         calculation_results_loader.variant)
-
 
     template_render_dict = {
         # Convert calculation_results to a dictionary because it is infinitely more compatable with
@@ -1415,26 +1424,39 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
         'config_pathprox_dict': config_pathprox_dict
     }
 
+    # Write out the individual structure.html files
+    # website_filelist.append('color_chains_consecutively.js')
+    for structure_graphics_dict in calculation_results_loader_as_dict['structure_graphics_dicts']:
+        LOGGER.info("Creating NGL Viewer for %s", structure_graphics_dict['html_div_id'])
+        structureIframe_out = structure_iframe_template.render(
+            {'structure': structure_graphics_dict,
+             'config_pathprox_dict': config_pathprox_dict}
+        )
+        structureIframe_base_filename = os.path.join(variant_directory_segment,
+                                                     "%s_viewer.html" % structure_graphics_dict['html_div_id'])
+        website_filelist.append(structureIframe_base_filename)
+        with open(structureIframe_base_filename, "w") as html_f:
+            html_f.write(structureIframe_out)
 
     if LOGGER.isEnabledFor(logging.DEBUG):
         pp = pprint.PrettyPrinter(indent=1)
-        LOGGER.debug("Dictionary to render:\n%s"%pp.pformat(template_render_dict))
+        LOGGER.debug("Dictionary to render:\n%s" % pp.pformat(template_render_dict))
 
     variant_report_html_out = variant_isoform_template.render(template_render_dict)
 
     variant_report_base_filename = os.path.join(variant_directory_segment,
-                                             "%s_report" % (variant_directory_segment))
+                                                "%s_report" % (variant_directory_segment))
 
     variant_isoform_summary['html_filename'] = variant_report_base_filename + ".html"
     website_filelist.append(variant_isoform_summary['html_filename'])
     with open(variant_isoform_summary['html_filename'], "w") as html_f:
         html_f.write(variant_report_html_out)
 
-    pfg = PfamDomainGraphics(calculation_results_loader.unp,calculation_results_loader.variant)
-    pfam_graphics_legend,pfam_domain_graphics_dict = pfg.create_graphics_legend_and_graphics_dict()
+    pfg = PfamDomainGraphics(calculation_results_loader.unp, calculation_results_loader.variant)
+    pfam_graphics_legend, pfam_domain_graphics_dict = pfg.create_graphics_legend_and_graphics_dict()
     pfam_domain_graphics_dict = pfg.add_our_variant_to_graphics_dict(pfam_domain_graphics_dict)
     pfam_domain_graphics_dict = pfg.update_graphics_dict_hrefs_to_point_to_pfam(pfam_domain_graphics_dict)
-    template_render_dict["PfamResultTableHTML"] = pfg.create_pfam_html(pfam_graphics_legend,pfam_domain_graphics_dict)
+    template_render_dict["PfamResultTableHTML"] = pfg.create_pfam_html(pfam_graphics_legend, pfam_domain_graphics_dict)
 
     # Encapsulate in a list
     template_render_dict["DomainGraphicsJSON"] = '[' + json.dumps(pfam_domain_graphics_dict) + ']'
@@ -1447,7 +1469,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
     pfamGraphicsIframe_fname_with_directory = os.path.join(variant_directory_segment, pfamGraphicsIframe_fname)
     website_filelist.append(pfamGraphicsIframe_fname_with_directory)
     with open(pfamGraphicsIframe_fname_with_directory, "w") as html_f:
-            html_f.write(pfam_graphics_html_full_iframe)
+        html_f.write(pfam_graphics_html_full_iframe)
 
     # With the report fully written to disk, now populate summary details for return to caller.
     variant_isoform_summary['AA_seq'] = calculation_results_loader.unp_transcript.aa_seq
@@ -1467,13 +1489,13 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
 
     if calculation_results_loader.ddG_monomer_results_dict_of_dfs:
         ddG_list = [calculation_results_loader.ddG_monomer_results_dict_of_dfs[ddg_results_key].ddG \
-             for ddg_results_key in calculation_results_loader.ddG_monomer_results_dict_of_dfs]
+                    for ddg_results_key in calculation_results_loader.ddG_monomer_results_dict_of_dfs]
         variant_isoform_summary['ddG Monomer Max'] = max(ddG_list)
         variant_isoform_summary['ddG Monomer Min'] = min(ddG_list)
 
     if calculation_results_loader.ddG_cartesian_results_dict_of_dfs:
         ddG_list = [calculation_results_loader.ddG_cartesian_results_dict_of_dfs[ddg_results_key].total \
-             for ddg_results_key in calculation_results_loader.ddG_cartesian_results_dict_of_dfs]
+                    for ddg_results_key in calculation_results_loader.ddG_cartesian_results_dict_of_dfs]
         variant_isoform_summary['ddG Cartesian Max'] = max(ddG_list)
         variant_isoform_summary['ddG Cartesian Min'] = min(ddG_list)
 
@@ -1481,19 +1503,20 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
         return None if np.isnan(x) else x
 
     if calculation_results_loader.pathprox_disease1_results_dict_of_dfs:
-        pathprox_list = [calculation_results_loader.pathprox_disease1_results_dict_of_dfs[pathprox_results_key].iloc[0].pathprox \
+        pathprox_list = [
+            calculation_results_loader.pathprox_disease1_results_dict_of_dfs[pathprox_results_key].iloc[0].pathprox \
             for pathprox_results_key in calculation_results_loader.pathprox_disease1_results_dict_of_dfs]
         # Get rid of Nans
         variant_isoform_summary['disease1_pp Max'] = nan_to_None(np.nanmax(np.array(pathprox_list)))
         variant_isoform_summary['disease1_pp Min'] = nan_to_None(np.nanmin(np.array(pathprox_list)))
 
     if calculation_results_loader.pathprox_disease2_results_dict_of_dfs:
-        pathprox_list = [calculation_results_loader.pathprox_disease2_results_dict_of_dfs[pathprox_results_key].iloc[0].pathprox \
+        pathprox_list = [
+            calculation_results_loader.pathprox_disease2_results_dict_of_dfs[pathprox_results_key].iloc[0].pathprox \
             for pathprox_results_key in calculation_results_loader.pathprox_disease2_results_dict_of_dfs]
 
         variant_isoform_summary['disease2_pp Max'] = nan_to_None(np.nanmax(np.array(pathprox_list)))
         variant_isoform_summary['disease2_pp Min'] = nan_to_None(np.nanmin(np.array(pathprox_list)))
-
 
     return variant_isoform_summary
 
@@ -1511,7 +1534,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
 
     save_cwd = os.getcwd();
     os.chdir(variant_report_directory);
-    
+
     # WE ARE NOW OPERATING FROM ..../UDN/CaseName target directory
     LOGGER.info("Now working in %s", variant_report_directory)
 
@@ -1528,7 +1551,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
         pdf_fname = base_fname % "pdf"
         wkhtmltopdf_fname = base_fname % "wkhtml.pdf"
         print("\nWriting final reports to %s directory:\n  %s\n  %s\n  %s\n  %s\n" % (
-        variant_report_directory, pdf_fname, wkhtmltopdf_fname, html_fname, pfamGraphicsIframe_fname))
+            variant_report_directory, pdf_fname, wkhtmltopdf_fname, html_fname, pfamGraphicsIframe_fname))
 
         LOGGER.warning("Temporarily disabling all logging prior to calling weasyprint write_pdf()")
 
@@ -1562,7 +1585,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
         # ContentNotFound really just info - not warning
         if (process.returncode != 0) and ("Exit with code 1 due to network error: ContentNotFoundError" not in err):
             print("Unable to complete %s exitstatus=%d due to error %s\n  output: %s\n" % (
-            str(wkhtml_command_list), process.returncode, err_legit, output))
+                str(wkhtml_command_list), process.returncode, err_legit, output))
             LOGGER.warning("wkhtmltopdf stderr:\n%s", err_legit)
         else:
             LOGGER.info("wkhtmltopdf stderr:\n%s", err_legit)
@@ -1574,6 +1597,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str,parent_report_
     gathered_info['variant_report_directory'] = os.path.basename(variant_report_directory)
     gathered_info['html_fname'] = html_fname
     return gathered_info  # End of function report_one_variant_one_isoform()
+
 
 # =============================================================================
 # Main logic here.  A period in the argument means the user wants to launch one mutation only,
@@ -1623,13 +1647,13 @@ else:
 
     slurm_array = []
 
-
     # Determine the formatting style of the main case page.
     # If CHROMs and POSs are availabine in the source data, THEN we create a heirarchical grouping above the
     # individual transcript processing.
     genome_variants = defaultdict(list)
     # mutation_summaries = [] # Used to populate old format report, one line per gene
-    genome_headers = []     # Used for new format report, with one line per gene, expandable to transcript isoforms
+    genome_headers = []  # Used for new format report, with one line per gene, expandable to transcript isoforms
+
 
     def fetch_gene_id(uniprot_id: str):
 
@@ -1647,24 +1671,25 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             else:
                 return row[0].strip()
 
-    if set(['chrom','pos','change']).issubset(df_all_mutations.columns) and not args.slurm:
+
+    if set(['chrom', 'pos', 'change']).issubset(df_all_mutations.columns) and not args.slurm:
         for index, row in df_all_mutations.iterrows():
             chrom_pos_change = (row['chrom'], row['pos'], row['change'])
-            LOGGER.info("%s",chrom_pos_change)
-            genome_variants[chrom_pos_change].append((index,row))
+            LOGGER.info("%s", chrom_pos_change)
+            genome_variants[chrom_pos_change].append((index, row))
 
         for chrom_pos_change in genome_variants:
             # Crude - but get at the original missense row
             # under which our protein transcript isoform are grouped
             first_row = genome_variants[chrom_pos_change][0][1]
-            msg = "Reporting on: %s %s"%(first_row['gene'],chrom_pos_change)
+            msg = "Reporting on: %s %s" % (first_row['gene'], chrom_pos_change)
             if not infoLogging:
                 print(msg)
             LOGGER.info(msg)
             genome_header = {
-                'Gene':  first_row['gene'],
+                'Gene': first_row['gene'],
                 'Chrom': first_row['chrom'],
-                'Pos':   first_row['pos'],
+                'Pos': first_row['pos'],
                 'Change': first_row['change'],
                 'disease1_pp Min': None,
                 'disease1_pp Max': None,
@@ -1676,19 +1701,21 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             }
 
             variant_isoform_summaries = []
-            for index,genome_variant_row in genome_variants[chrom_pos_change]:
+            for index, genome_variant_row in genome_variants[chrom_pos_change]:
                 msg = "%s %-10s %-10s %-6s" % (
-                    "      ",genome_variant_row['refseq'], genome_variant_row['mutation'], genome_variant_row['unp'])
+                    "      ", genome_variant_row['refseq'], genome_variant_row['mutation'], genome_variant_row['unp'])
                 if not infoLogging:
                     print(msg)
                 LOGGER.info(msg)
-                variant_directory = "%s_%s_%s" % (genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
+                variant_directory = "%s_%s_%s" % (
+                genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
                 variant_isoform_summary = report_one_variant_one_isoform(variant_directory, genome_variant_row)
                 if variant_isoform_summary:
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
                         msg = "%s %s %s report saved to %s" % (
-                                genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'], variant_isoform_summary['html_filename'])
+                            genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'],
+                            variant_isoform_summary['html_filename'])
                         if not infoLogging:
                             print(msg)
                         LOGGER.info(msg)
@@ -1705,7 +1732,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     variant_isoform_summaries.append(variant_isoform_summary)
                 else:
                     msg = "Due to lack of pathprox or ddG outputs, %s %s %s has no html (or pdf) report" % (
-                         genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
+                        genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
                     if not infoLogging:
                         print(msg)
                     LOGGER.info(msg)
@@ -1714,53 +1741,73 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             # Go to SQL to get the Gene ID for this gene.....
             genome_header['gene_id'] = variant_isoform_summary['gene_id']
 
-            genome_header['ddG Monomer Min'] = min([variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary['ddG Monomer Min'] is not None],
-                                           default=None)
-            genome_header['ddG Monomer Max'] = max([variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary['ddG Monomer Max'] is not None],
-                                           default=None)
+            genome_header['ddG Monomer Min'] = min(
+                [variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary[
+                     'ddG Monomer Min'] is not None],
+                default=None)
+            genome_header['ddG Monomer Max'] = max(
+                [variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary[
+                     'ddG Monomer Max'] is not None],
+                default=None)
 
-            genome_header['ddG Cartesian Min'] = min([variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary['ddG Cartesian Min'] is not None],
-                                           default=None)
-            genome_header['ddG Cartesian Max'] = max([variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary['ddG Cartesian Max'] is not None],
-                                           default=None)
+            genome_header['ddG Cartesian Min'] = min(
+                [variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary[
+                     'ddG Cartesian Min'] is not None],
+                default=None)
+            genome_header['ddG Cartesian Max'] = max(
+                [variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary[
+                     'ddG Cartesian Max'] is not None],
+                default=None)
 
-            genome_header['AA_Len Min'] = min([variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
-                                           default=None)
+            genome_header['AA_Len Min'] = min(
+                [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
+                default=None)
 
-            genome_header['AA_Len Max'] = max([variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
-                                           default=None)
+            genome_header['AA_Len Max'] = max(
+                [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
+                default=None)
 
-            genome_header['disease1_pp Min'] = min([variant_isoform_summary['disease1_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'disease1_pp Min' in variant_isoform_summary and variant_isoform_summary['disease1_pp Min'] is not None],
-                                           default=None)
-            genome_header['disease1_pp Max'] = max([variant_isoform_summary['disease1_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'disease1_pp Max' in variant_isoform_summary and variant_isoform_summary['disease1_pp Max'] is not None],
-                                           default=None)
+            genome_header['disease1_pp Min'] = min(
+                [variant_isoform_summary['disease1_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'disease1_pp Min' in variant_isoform_summary and variant_isoform_summary[
+                     'disease1_pp Min'] is not None],
+                default=None)
+            genome_header['disease1_pp Max'] = max(
+                [variant_isoform_summary['disease1_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'disease1_pp Max' in variant_isoform_summary and variant_isoform_summary[
+                     'disease1_pp Max'] is not None],
+                default=None)
 
-            genome_header['disease2_pp Min'] = min([variant_isoform_summary['disease2_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'disease2_pp Min' in variant_isoform_summary and variant_isoform_summary['disease2_pp Min'] is not None],
-                                           default=None)
-            genome_header['disease2_pp Max'] = max([variant_isoform_summary['disease2_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'disease2_pp Max' in variant_isoform_summary and variant_isoform_summary['disease2_pp Max'] is not None],
-                                           default=None)
+            genome_header['disease2_pp Min'] = min(
+                [variant_isoform_summary['disease2_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'disease2_pp Min' in variant_isoform_summary and variant_isoform_summary[
+                     'disease2_pp Min'] is not None],
+                default=None)
+            genome_header['disease2_pp Max'] = max(
+                [variant_isoform_summary['disease2_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'disease2_pp Max' in variant_isoform_summary and variant_isoform_summary[
+                     'disease2_pp Max'] is not None],
+                default=None)
 
-            genome_header['Error'] = max([variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
-                                            if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
-                                           default=None)
+            genome_header['Error'] = max(
+                [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
+                 if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
+                default=None)
 
             genome_headers.append(genome_header)
 
-    else: # There are no chrom positions in this case.  Use the old format
-        variant_isoform_summaries = [] # One line per variant
+    else:  # There are no chrom positions in this case.  Use the old format
+        variant_isoform_summaries = []  # One line per variant
         for index, variant_row in df_all_mutations.iterrows():
             msg = "%s %-10s %-10s %-6s" % (
-            "Generating slurm entry for" if args.slurm else "Reporting on", variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
+                "Generating slurm entry for" if args.slurm else "Reporting on", variant_row['gene'],
+                variant_row['refseq'], variant_row['mutation'])
             if not infoLogging:
                 print(msg)
             LOGGER.info(msg)
@@ -1771,15 +1818,16 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
             if args.slurm:
                 slurm_array.append("./psb_rep.py -c %s -u %s %s %s" % (
-                args.config, args.userconfig, structure_report_filename, workstatus_filename))
+                    args.config, args.userconfig, structure_report_filename, workstatus_filename))
             else:
                 variant_directory = "%s_%s_%s" % (variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
-                variant_isoform_summary = report_one_variant_one_isoform(variant_directory,variant_row)
+                variant_isoform_summary = report_one_variant_one_isoform(variant_directory, variant_row)
                 if variant_isoform_summary:
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
                         msg = "%s %s %s report saved to %s" % (
-                                variant_row['gene'], variant_row['refseq'], variant_row['mutation'], variant_isoform_summary['html_filename'])
+                            variant_row['gene'], variant_row['refseq'], variant_row['mutation'],
+                            variant_isoform_summary['html_filename'])
                         if not infoLogging:
                             print(msg)
                         LOGGER.info(msg)
@@ -1791,7 +1839,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     variant_isoform_summaries.append(variant_isoform_summary)
                 else:
                     msg = "Due to lack of pathprox or ddG outputs, %s %s %s has no html (or pdf) report" % (
-                    variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
+                        variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
                     if not infoLogging:
                         print(msg)
                     LOGGER.info(msg)
@@ -1898,10 +1946,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
         # Was there a generated .html file from DiGePred
         digepred_html_filename = os.path.join('casewide', 'DiGePred',
-                                                 '%s_all_gene_pairs_summary.html' % (
-                                                     args.projectORstructures,))
+                                              '%s_all_gene_pairs_summary.html' % (
+                                                  args.projectORstructures,))
 
-        if os.path.exists(os.path.join(collaboration_dir,digepred_html_filename)):
+        if os.path.exists(os.path.join(collaboration_dir, digepred_html_filename)):
             website_filelist.append(digepred_html_filename)
             LOGGER.info("Integrating DiGePred html: %s", digepred_html_filename)
         else:
@@ -1915,21 +1963,21 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                                                      args.projectORstructures,))
 
             digepred_metrics_df = pd.DataFrame()
-            if os.path.exists(os.path.join(collaboration_dir,digepred_csv_filename)):
+            if os.path.exists(os.path.join(collaboration_dir, digepred_csv_filename)):
                 LOGGER.info("Integrating DiGePred csv: %s", digepred_csv_filename)
-                digepred_metrics_df = pd.read_csv(digepred_csv_filename,sep=',')
-                LOGGER.info("%d rows read",len(digepred_metrics_df))
-                digepred_metrics_df.sort_values(by=['digenic score'],ascending=False,inplace=True,ignore_index=True)
+                digepred_metrics_df = pd.read_csv(digepred_csv_filename, sep=',')
+                LOGGER.info("%d rows read", len(digepred_metrics_df))
+                digepred_metrics_df.sort_values(by=['digenic score'], ascending=False, inplace=True, ignore_index=True)
             else:
                 LOGGER.critical("DiGePred %s missing.  Alarming, as .html file was found", digepred_csv_filename)
                 del digepred_csv_filename
 
             # Now prepare the entries which will go to the html table
             # For now, max 20 or all
-            max_rows = min(20,len(digepred_metrics_df))
-            for index,row in digepred_metrics_df.head(max_rows).iterrows():
+            max_rows = min(20, len(digepred_metrics_df))
+            for index, row in digepred_metrics_df.head(max_rows).iterrows():
                 gene_pair_dict = {}
-                for key in ['gene A','gene B','digenic score']:
+                for key in ['gene A', 'gene B', 'digenic score']:
                     gene_pair_dict[key] = row[key]
                 digepred_gene_pairs.append(gene_pair_dict)
 
@@ -1968,7 +2016,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         case_report_template = env.get_template("case_report_template.html")
         # print html_table
         final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
-                               'genome_headers' : genome_headers,
+                               'genome_headers': genome_headers,
                                # 'firstGeneTable': html_table_generic,
                                # 'firstGeneReport': html_report_generic,
                                # 'secondGeneTable': html_table_familial,
@@ -2037,10 +2085,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
         website_tar_filename = "%s.tar.gz" % args.projectORstructures
         tar_maker = 'rm -f %s; cd ..; tar cvzf %s --files-from %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -' % (
-        website_tar_filename,
-        os.path.join(args.projectORstructures, website_tar_filename),
-        os.path.join(args.projectORstructures, website_filelist_filename),
-        os.path.join(args.projectORstructures, website_tar_filename))
+            website_tar_filename,
+            os.path.join(args.projectORstructures, website_tar_filename),
+            os.path.join(args.projectORstructures, website_filelist_filename),
+            os.path.join(args.projectORstructures, website_tar_filename))
         LOGGER.info("Executing: %s", tar_maker)
         subprocess.call(tar_maker, shell=True)
 
