@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>NGL - webapp</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <link rel="stylesheet" href="../html/nglviewer/examples/css/font-awesome.min.css" />
+  <link rel="stylesheet" href="../html/nglviewer/examples/css/main.css" />
+  <link rel="subresource" href="../html/nglviewer/examples/css/light.css" />
+  <link rel="subresource" href="../html/nglviewer/examples/css/dark.css" />
+</head>
+<body>
+  <!-- NGL -->
+  <script type="text/javascript" src="../html/nglviewer/examples/dist/ngl.js"></script>
+
+  <!-- UI -->
+  <script src="../html/nglviewer/examples/js/lib/signals.min.js"></script>
+  <script src="../html/nglviewer/examples/js/lib/tether.min.js"></script>
+  <script src="../html/nglviewer/examples/js/lib/colorpicker.min.js"></script>
+  <script src="../html/nglviewer/examples/js/ui/ui.js"></script>
+  <script src="../html/nglviewer/examples/js/ui/ui.extra.js"></script>
+  <script src="../html/nglviewer/examples/js/ui/ui.ngl.js"></script>
+  <script src="../html/nglviewer/examples/js/psb_gui.js"></script>
+
+  <!-- Pipeline UI Functions -->
+  <script type="text/javascript" src="../html/nglviewer/color_chains_consecutively.js"></script>
+
+  <script>
+     const vustruct_info = {
+        variantResidues: "{{structure['ngl_variant_residues']}}",
+        neutralResidues: "{{structure['ngl_neutral_residues'] if structure['ngl_neutral_residues']}}",
+        disease1Residues: "{{structure['ngl_disease1_residues'] if structure['ngl_disease1_residues']}}",
+        disease2Residues: "{{structure['ngl_disease2_residues'] if structure['ngl_disease2_residues']}}",
+        neutralResidueCount: "{{structure['ngl_neutral_residue_count'] if structure['ngl_neutral_residue_count']}}",
+        disease1ResidueCount: "{{structure['ngl_disease1_residue_count'] if structure['ngl_disease1_residue_count']}}",
+        disease2ResidueCount: "{{structure['ngl_disease2_residue_count'] if structure['ngl_disease2_residue_count']}}",
+        disease1PathProxScores: {% if structure['ngl_disease1_pathprox_scores'] %}
+                                     {{ structure['ngl_disease1_pathprox_scores'] }}
+                                     {% else %}
+                                     null
+                                     {% endif %},
+        disease2PathProxScores: {% if structure['ngl_disease2_pathprox_scores'] %}
+                                     {{ structure['ngl_disease2_pathprox_scores'] }}
+                                     {% else %}
+                                     null
+                                     {% endif %},
+
+        alphafoldMetrics: {% if structure['ngl_alpha_fold_metrics'] %}
+                                     {{ structure['ngl_alpha_fold_metrics'] }}
+                                     {% else %}
+                                     null
+                                     {% endif %},
+
+        neutral_variant_short_description: "{{ config_pathprox_dict['neutral_variant_short_description'] }}",
+        disease1_variant_short_description: "{{ config_pathprox_dict['disease1_variant_short_description'] }}",
+        disease2_variant_short_description: "{{ config_pathprox_dict['disease2_variant_short_description'] }}"
+     }
+  </script>
+
+  <script>
+    NGL.cssDirectory = "../html/nglviewer/examples/css/"
+    // NGL.documentationUrl = "../build/docs/"
+    // NGL.examplesListUrl = "../build/scriptsList.json"
+    // NGL.examplesScriptUrl = "./scripts/"
+
+    // Datasources
+    // NGL.DatasourceRegistry.add("data", new NGL.StaticDatasource("../data/"))
+    // var mdsrv = NGL.getQuery("mdsrv")
+    // if (mdsrv) {
+      // var mdsrvDatasource = new NGL.MdsrvDatasource(mdsrv)
+      // NGL.DatasourceRegistry.add("file", mdsrvDatasource)
+      // NGL.setListingDatasource(mdsrvDatasource)
+      // NGL.setTrajectoryDatasource(mdsrvDatasource)
+    // }
+
+    var stage
+    document.addEventListener("DOMContentLoaded", function () {
+
+
+
+
+      stage = new NGL.Stage()
+      // stage.pipeline_info = pipeline_info()
+
+        // Monkey patch some vustruct pipeline specific dictionaries
+        // that will be read at UI rendering time as the user makes choices
+        // The monkey patch must be at stage level because the
+        // components (3d display struct) are asynchronously inited.
+        stage.vustruct_info = vustruct_info
+        // At first, no neutral or disease spheres are shown on the structure
+        // These get initialized as users make menu choices
+        stage.vustruct_representations = {
+            'neutralSpheres': null,
+            'disease1Spheres': null,
+            'disease2Spheres': null,
+            'chainColorsRepresentations': []
+            }
+
+      stage.loadFile("./{{ structure['pdbSSfilename'] }}").then(function (_structure_component) {
+            // Show the VUS clearly.
+            _structure_component.addRepresentation("ball+stick",
+                { sele: stage.vustruct_info.variantResidues, color: "element",
+                    radius: "0.6" })
+            // Clearly color any HETATMs floating around
+            _structure_component.addRepresentation("licorice", { sele: "hetero", color: "element", radius: "0.4" })
+            var chainColorIndex = 0;
+            stage.vustruct_representations.chainColorsRepresentations =
+                  color_chains_consecutively(_structure_component, chainColorIndex);
+            <!-- stage.setSize("80%","50%") -->
+            stage.vustruct_component = _structure_component
+            stage.autoView()
+         });
+
+      NGL.StageWidget(stage)
+
+      /* var load = NGL.getQuery("load")
+      if (load) stage.loadFile(load, {defaultRepresentation: true})
+
+      var script = NGL.getQuery("script")
+      if (script) stage.loadScript("./scripts/" + script + ".js")
+
+      var struc = NGL.getQuery("struc")
+      var traj = NGL.getQuery("traj")
+      if (struc) {
+        stage.loadFile(struc, {
+          defaultRepresentation: true
+        }).then(function(o) {
+          if (traj) o.addTrajectory(traj)
+        })
+      }
+     */
+    })
+  </script>
+</body>
+</html>
