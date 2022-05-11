@@ -22,6 +22,7 @@ RUN echo $Anaconda3_release && \
   yum -y install make && \
   yum -y install which && \
   yum -y install gcc && \
+  yum -y install zip && \
   yum -y install epel-release && \
   yum -y install htslib-tools && \
   yum -y install mysql-devel && \
