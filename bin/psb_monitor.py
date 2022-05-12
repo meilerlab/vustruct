@@ -260,7 +260,7 @@ def monitor_one_mutation(workstatus_filename: str):
         # deprecated -> df_job_updates = df_job_updates.append(info_as_series,ignore_index=True)
         df_job_updates = pd.concat([df_job_updates,pd.DataFrame(info_as_series).transpose()],ignore_index=True)
 
-     
+
     previous_workstatus_filename = workstatus_filename + ".previous"
     # print "Renaming current status file to %s"%previous_workstatus_filename
     try:
