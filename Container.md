@@ -59,7 +59,7 @@ $ cd pdbmap
 $ git status # << Check that you are on the branch, typically master, you expect
 ```
 
-3) Copy [headless chimera](https://www.cgl.ucsf.edu/chimera/download.html) file chimera-1.15-linux_x86_64_osmesa.bin from ucsf chimera legacy site to ~/psbadmin  Do NOT "run the file" to install it.
+3) Copy [headless chimera](https://www.cgl.ucsf.edu/chimera/download.html) file chimera-1.16-linux_x86_64_osmesa.bin from ucsf chimera legacy site to ~/psbadmin  Do NOT "run the file" to install it.
 4) The rosetta builds are quite large, and scripts are provided here to transfer only needed excerpts.  Edit ONLY the ROSETTA_MAIN_SOURCE= variable in the scripts ~/psbadmin/docker/xfer_rosetta{3.7,3.13}/.bash to copy these rosetta excerpts to ~/psbadmin/rosetta{3.7,3.13}/main  Run both these scripts, and watch for any warnings over libraries not found.
 5) Logout and login as root.  You are now ready to build the docker container:
 + Start the docker daemon and run the script to create the image layers:
