@@ -39,5 +39,5 @@ RUN  \
   ln -s /psbadmin/rosetta3.13/main/source/build/external/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   ln -s /psbadmin/rosetta3.13/main/source/build/src/release/linux/3.10/64/x86/gcc/4.8/default/* . && \
   cd /psbadmin && \
-  rm -f --verbose '/psbadmin/chimera-1.15-linux_x86_64_osmesa.bin'
+  rm -f --verbose '/psbadmin/chimera-1.16-linux_x86_64_osmesa.bin'
 CMD [ "/bin/bash" ]
