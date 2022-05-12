@@ -667,7 +667,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
             self.chain_id = None  # The .cif chain letter A/B/C.... possibly #s and lower letters for large cryoEM
             self.biounit = None  # Boolean to record whether a biounit file is available
             self.method = None  # X-RAY...  CRYO-EM, etc
-            self.resolution = None  # Resolution in Angtroms, method-specific.  Also resolution of model templates, if available
+            self.resolution = np.NaN  # Resolution in Angtroms, method-specific.  Also resolution of model templates, if available
             self.deposition_date = None  # YYYY-MM-DD format
             self.biounit_chains = None  # count of chains in the biounit
             self.nresidues = None  # Number of residues in the biounit or structure
@@ -912,7 +912,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     # Now that we have all the candidate pdbs and biounits in memory.....
     # Create the dataframe that we will use to pick the 'best' pdb(s) for pipeline analysis
     df_columns = vars(ChainInfo()).keys()
-    ci_pdbs_df = pd.DataFrame(columns=df_columns).astype({'biounit': bool})
+    ci_pdbs_df = pd.DataFrame(columns=df_columns).astype({'biounit': bool, 'resolution': np.float64})
     ci_modbase_swiss_df = ci_pdbs_df.copy(deep=True)
     ci_usermodel_df = ci_pdbs_df.copy(deep=True)
     ci_alphafold_df = ci_pdbs_df.copy(deep=True)  # Alphafold models demand different treatment from modbase/swiss
@@ -1315,7 +1315,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                 LOGGER.warning("Deposition date %s apparently not YYYY-MM-DD", raw_deposition_date)
 
         resolution_keys = []
-        ci.resolution = None  # Not applicable is correct for NMR structures
+        ci.resolution = np.NaN  # Not applicable is correct for NMR structures
         if ci.method == 'X-RAY DIFFRACTION':
             resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
             ci.method = 'X-RAY'
