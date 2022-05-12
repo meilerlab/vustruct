@@ -257,8 +257,10 @@ def monitor_one_mutation(workstatus_filename: str):
         # Or by our monitoring of "our" jobs, update the dataframe with all news on
         # progress of the jobs 
         info_as_series = pd.Series(data=interesting_info)
-        df_job_updates = df_job_updates.append(info_as_series,ignore_index=True)
-    
+        # deprecated -> df_job_updates = df_job_updates.append(info_as_series,ignore_index=True)
+        df_job_updates = pd.concat([df_job_updates,pd.DataFrame(info_as_series).transpose()],ignore_index=True)
+
+     
     previous_workstatus_filename = workstatus_filename + ".previous"
     # print "Renaming current status file to %s"%previous_workstatus_filename
     try:
