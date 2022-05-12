@@ -23,6 +23,7 @@ RUN echo $Anaconda3_release && \
   yum -y install which && \
   yum -y install gcc && \
   yum -y install zip && \
+  yum -y install pango && \
   yum -y install epel-release && \
   yum -y install htslib-tools && \
   yum -y install mysql-devel && \
@@ -31,9 +32,9 @@ RUN echo $Anaconda3_release && \
   wget --quiet https://repo.anaconda.com/archive/$Anaconda3_release -O ~/anaconda.sh && \
   /bin/bash ~/anaconda.sh -b -p /opt/conda && \
   rm ~/anaconda.sh && \
-  ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-  pip install --upgrade setuptools \
-  pip install --upgrade pip
+  ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh 
+  # pip install --upgrade setuptools \
+  # pip install --upgrade pip
 
 
 
