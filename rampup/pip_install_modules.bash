@@ -4,8 +4,8 @@
 # Anaconda base install
 
 # To avoid LOTS of trouble:
-pip install --upgrade setuptools
-pip install --upgrade pip
+# pip install --upgrade setuptools
+# pip install --upgrade pip
 
 # As of March 2019 python 3, pandas seems to have been loaded by default
 # pip install pandas
