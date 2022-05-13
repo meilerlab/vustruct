@@ -20,11 +20,9 @@ __pycache__/
 .Python
 # build/ Actually, we have build directories in 2 javascript libs that we want to check in
 develop-eggs/
-dist/
 [dD]ownloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
