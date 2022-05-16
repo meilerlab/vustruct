@@ -1399,7 +1399,7 @@ def permute(y, N):
         yield np.random.permutation(y)
 
 
-def Kest(D, y, T=[], P=99999):
+def Kest(D, y, T=[], P=999):
     """ Ripley's K-Function Estimator for Spatial Cluster Analysis (w/ Positional Constraints) (w/o Edge Correction)
 
   Parameters:
@@ -1547,7 +1547,7 @@ def pstats(Pmat):
       [Kpathogenic(t) - Kneutral(t)] matrix
 
       The First column of the matrix must contain the observation.
-      Remaining (99999 etc) columns are the permutations
+      Remaining (999 etc) columns are the permutations
  """
     o = Pmat[0]  # observed [Kpathogenic(t) - Kneutral(t)] matrix
 
@@ -1691,7 +1691,7 @@ def saveDplot(T, D, Dz, lce, hce, label="", weights=False):
     plt.close(fig)
 
 
-def uniK_calc_and_plot(D, y, P=99999, label="", weights=False):
+def uniK_calc_and_plot(D, y, P=999, label="", weights=False):
     """ Univariate (i.e. neutral or pathogenic) K(t)
   calculation, with plot, and final return of K statistics
   of highest Z score.
@@ -1746,7 +1746,7 @@ def uniK_calc_and_plot(D, y, P=99999, label="", weights=False):
     return T, K_ofMaxKz, Kz_ofMaxKz, T_ofMaxKz, P_ofMaxKz
 
 
-def biD(pathogenicCoordinates, neutralCoordinates, P=99999, label=""):
+def biD(pathogenicCoordinates, neutralCoordinates, P=999, label=""):
     """Compute Pathogenic less Neutral Bivariate D
   This is empirical null is calculated, via P permutations
   Arguments:
@@ -1843,7 +1843,7 @@ def biD(pathogenicCoordinates, neutralCoordinates, P=99999, label=""):
            K_PlN_pvalues[maxMagnitudeKzIndex]
 
 
-def ripley(complex_df, permutations=99999):
+def ripley(complex_df, permutations=999):
     """ Handles Ripley's univariate K and bivariate D
       analyses using variant pathogenic and neutral
       labels and a constructed inter-residue distance matrix
@@ -2027,7 +2027,7 @@ if __name__ == "__main__":
                                 help="Upper bound on the NeighborWeight function")
     cmdline_parser.add_argument("--ripley", action='store_true', default=False,
                                 help="Perform univariate K and bivariate D analyses. True by default if '--radius=K' or '--radius=D'.")
-    cmdline_parser.add_argument("--permutations", type=int, default=99999,
+    cmdline_parser.add_argument("--permutations", type=int, default=999,
                                 help="Number of permutations for Ripley's K/D analyses")
 
     # Output parameters
@@ -3159,27 +3159,31 @@ if __name__ == "__main__":
     complex_df.to_csv(args.label + "_complex_df.csv", sep='\t', header=True, index=False)
 
     # Report PathProx/constraint scores for candidate variants
+    def log_constraint_score_for_pathogenic_variants(score_type: str) -> str:
+        # Logging of the scores is useful for analysis.  But, we take means at each position
+        # which is likely overkill....
+        candidates_only_df = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", score_type]]
+        sorted_candidates_only_df = candidates_only_df.sort_values(
+            by=[score_type, "unp_pos"], ascending=[False, True])
+
+        grouped_candidate_means = sorted_candidates_only_df.groupby(["unp_pos"]).mean()
+        return grouped_candidate_means.to_string(index=False)
+
     if args.variants and args.quantitative:
         LOGGER.info("Quantitative constraint scores for candidate missense variants:")
-        LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "qtprox"]].sort_values( \
-            by=["qtprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
-            index=False))
+        LOGGER.info(log_constraint_score_for_pathogenic_variants('qtprox'))
     elif args.variants:
         if sufficient_neutral_variants:
             LOGGER.info("Neutral constraint scores for candidate missense variants:")
-            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "neutcon"]].sort_values( \
-                by=["neutcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
-                index=False))
+            LOGGER.info(log_constraint_score_for_pathogenic_variants('neutcon'))
+
         if sufficient_pathogenic_variants:
             LOGGER.info("Pathogenic constraint scores for candidate missense variants:")
-            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathcon"]].sort_values( \
-                by=["pathcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
-                index=False))
+            LOGGER.info(log_constraint_score_for_pathogenic_variants('pathcon'))
+
         if sufficient_neutral_variants and sufficient_pathogenic_variants:  # meaning, we had BOTH enough pathogenic and enough neutrals
             LOGGER.info("PathProx scores for candidate missense variants:")
-            LOGGER.info(complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathprox"]].sort_values( \
-                by=["pathprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean).to_string(
-                index=False))
+            LOGGER.info(log_constraint_score_for_pathogenic_variants('pathprox'))
         else:
             LOGGER.warning("Pathprox scores not output due to insufficient neutral AND pathogenic variants")
 
@@ -3259,19 +3263,19 @@ if __name__ == "__main__":
         # PathProx scores
         if sufficient_pathogenic_variants and sufficient_neutral_variants:
             pp_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathprox"]].sort_values( \
-                by=["pathprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean)
+                by=["pathprox", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).mean()
             head.extend(["%s_pathprox" % m for m in vus_strs])
             vals.extend(list(pp_vus["pathprox"].values))
         # Pathogenic constraint scores
         if sufficient_pathogenic_variants:
             pc_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "pathcon"]].sort_values( \
-                by=["pathcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean)
+                by=["pathcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).mean()
             head.extend(["%s_pathcon" % m for m in vus_strs])
             vals.extend(list(pc_vus["pathcon"].values))
         # Neutral constraint scores
         if sufficient_neutral_variants:
             nc_vus = complex_df.loc[complex_df["dcode"] < 0, ["unp_pos", "neutcon"]].sort_values( \
-                by=["neutcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).apply(np.mean)
+                by=["neutcon", "unp_pos"], ascending=[False, True]).groupby(["unp_pos"]).mean()
             head.extend(["%s_neutcon" % m for m in vus_strs])
             vals.extend(list(nc_vus["neutcon"].values))
 
