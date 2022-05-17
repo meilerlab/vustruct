@@ -412,8 +412,8 @@ if csv_rows:
                     refseq = refseq[0]
                 else:
                     refseq = "NA"
-                df_missense_grch38 = df_missense_grch38.append(
-                    {'gene': CSQ['SYMBOL'],
+                new_missense_row_from_vep = {
+                     'gene': CSQ['SYMBOL'],
                      'chrom': vcf_record.CHROM,
                      'pos': vcf_record.POS,
                      'change': "%s/%s"%(
@@ -423,8 +423,9 @@ if csv_rows:
                      'unp': unp,
                      'refseq': refseq,
                      'mutation': "%s%s%s"%(CSQ['Ref_AminoAcid'],CSQ['Protein_position'],CSQ['Alt_AminoAcid'])
-                    },ignore_index=True)
-        
+                    }
+                # deprecated: df_missense_grch38 = df_missense_grch38.append(new_missense_row_from_vep,ignore_index=True)
+                df_missense_grch38 = pd.concat([df_missense_grch38,pd.DataFrame.from_dict([new_missense_row_from_vep])],ignore_index=True)
         try:
             df_missense_grch38.to_csv(missense_csv_filename+".with_VEP_duplicates", header=True, encoding='ascii', sep=',')
 
@@ -453,13 +454,15 @@ if csv_rows:
 
     for original_lineno,row in original_df.iterrows():
         # LOGGER.info("Original: %d %s"%(original_lineno,row))
-        # import pdb; pdb.set_trace()
         # This below DEFINITELY broken
         if original_lineno not in df_with_original_lineno.index: # Then we have lost this element and need to add it back
             # import pdb; pdb.set_trace()
             # OLD idea from liftover days df_with_original_lineno = df_with_original_lineno.append(row.drop(['genome','change']).append(pd.Series([original_lineno],index=['original_lineno'])),ignore_index = True)
             # Now the dataframe has all the fields so we can just add them all
-            df_with_original_lineno = df_with_original_lineno.append(row,ignore_index = True)
+            # deprecated df_with_original_lineno = df_with_original_lineno.append(row,ignore_index = True)
+            LOGGER.info("VEP did not compute an acceptable missense variant.  Adding back original row %s" % (
+                str(pd.DataFrame([row]))))
+            df_with_original_lineno = pd.concat([df_with_original_lineno,pd.DataFrame([row])],ignore_index = False)
 
 
     # Index our dataframe by original_lineno and drop that column.  Then append the unp column to the index (but keep unp column)

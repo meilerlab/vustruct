@@ -345,7 +345,8 @@ def repr_subset(ci_df_excerpt):
         # if ( (template_pdb and (not template_pdb in template_set)) or
         #     (not cov or len(set(s_cov).intersection(cov))/float(len(s_cov))<0.1)):
         if True:
-            nr_cov = nr_cov.append(row)
+            # deprecated nr_cov = nr_cov.append(row)
+            nr_cov = pd.concat([nr_cov,pd.DataFrame([row])],ignore_index=True)
             # Add the sequence range to the cumulative coverage
             cov |= set(s_cov)
             template_set |= {template_pdb}
@@ -401,7 +402,7 @@ JOB_DF_COLUMNS = [
     'uniquekey', 'unp', 'userconfig']
 
 
-def makejob(flavor, command, params, options: str, cwd=os.getcwd()):
+def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series:
     job = {}
     job['flavor'] = flavor
     job['config'] = args.config
@@ -501,7 +502,7 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
                     'structure_id']  # <- Pathprox will make label from this and --chain
             else:
                 structure_designation = "--%s=%s " % ("biounit" if multimer else "pdb", params['structure_id'].lower())
-            j = makejob(pathprox_flavor, "pathprox3.py", params,
+            pathprox_job_series = makejob(pathprox_flavor, "pathprox3.py", params,
                         ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_mutation)s' " +
                          "--chain%(chain)sunp='%(unp)s' " +
                          structure_designation +
@@ -511,7 +512,8 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
                          (("--permutations=%s " % params[
                              'pathprox_permutations']) if 'pathprox_permutations' in params else '') +
                          "--overwrite") % params + params_transcript)
-            pathprox_jobs_to_run_df = pathprox_jobs_to_run_df.append(j, ignore_index=True)
+            # deprecated: pathprox_jobs_to_run_df = pathprox_jobs_to_run_df.append(pathprox_job_series, ignore_index=True)
+            pathprox_jobs_to_run_df = pd.concat([pathprox_jobs_to_run_df,pd.DataFrame([pathprox_job_series])], ignore_index=True)
 
     return pathprox_jobs_to_run_df
 
@@ -794,7 +796,8 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                 'trans_first_aligned': pcc['min_unp_start'],
                 'trans_last_aligned': pcc['max_unp_end']}
             LOGGER.debug("%d not covered by %s" % (trans_mut_pos, str(drop_info)))
-            pdbs_not_covering_df = pdbs_not_covering_df.append(drop_info, ignore_index=True)
+            # deprecated: pdbs_not_covering_df = pdbs_not_covering_df.append(drop_info, ignore_index=True)
+            pdbs_not_covering_df = pd.concat([pdbs_not_covering_df,pd.DataFrame([drop_info])], ignore_index=True)
         else:
             pdb_chain_entry = (pcc['pdbid'], pcc['mapping_pdb_chain'], pcc['min_unp_start'], pcc['max_unp_end'])
             LOGGER.debug("Retaining pdb %s" % str(pdb_chain_entry))
@@ -940,7 +943,8 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                 'trans_first_aligned': swiss_info['start'],
                 'trans_last_aligned': swiss_info['end']}
             LOGGER.debug("%d not covered by %s" % (trans_mut_pos, str(drop_info)))
-            swiss_not_covering_df = swiss_not_covering_df.append(drop_info, ignore_index=True)
+            # deprecated: swiss_not_covering_df = swiss_not_covering_df.append(drop_info, ignore_index=True)
+            swiss_not_covering_df = pd.concat([swiss_not_covering_df,pd.DataFrame([drop_info])], ignore_index=True)
             continue
 
         # We've got a swiss model that likely covers the residue of interest.  Press on!
@@ -1002,12 +1006,14 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         ci.method = 'swiss'
         ci.set_alignment_profile(alignment, swiss_structure)
 
-        ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci), ignore_index=True)
+        # deprecated: ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci), ignore_index=True)
+        ci_modbase_swiss_df = pd.concat([ci_modbase_swiss_df,pd.DataFrame([vars(ci)])], ignore_index=True)
         if chain_count > 1:
             LOGGER.info("Adding swiss model as %d-mer" % chain_count)
             ci.biounit_chains = chain_count
             ci.mers = ci.mers_string(ci.biounit_chains)
-            ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci), ignore_index=True)
+            # deprecated: ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci), ignore_index=True)
+            ci_modbase_swiss_df = pd.concat([ci_modbase_swiss_df,pd.DataFrame([vars(ci)])], ignore_index=True)
 
     if mutation:
         LOGGER.info("Swiss Models Covering %s%d: %d    Not Covering: %d" % (
@@ -1132,12 +1138,14 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                 'trans_first_aligned': modbase_summary['target_beg'],
                 'trans_last_aligned': modbase_summary['target_end']}
             LOGGER.debug("%d not covered by %s" % (trans_mut_pos, str(drop_info)))
-            modbase_not_covering_df = modbase_not_covering_df.append(drop_info, ignore_index=True)
+            #deprecated: modbase_not_covering_df = modbase_not_covering_df.append(drop_info, ignore_index=True)
+            modbase_not_covering_df = pd.concat([modbase_not_covering_df,pd.DataFrame([drop_info])], ignore_index=True)
             continue
 
         ci = chain_info_from_modbase_summary(modbase_2020, modbase_summary)
         if ci is not None:
-            ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci), ignore_index=True)
+            # deprecated: ci_modbase_swiss_df = ci_modbase_swiss_df.append(vars(ci), ignore_index=True)
+            ci_modbase_swiss_df = pd.concat([ci_modbase_swiss_df,pd.DataFrame([vars(ci)])], ignore_index=True)
 
     #
     # Look for an F1 alphafold model in the filesystem.  Integrate it if we can.
@@ -1247,7 +1255,8 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         LOGGER.info("*** Attempting to add alphafold model for canonical unp %s ***", unp)
         ci = chain_info_from_alphafold(unp)
         if ci is not None:
-            ci_alphafold_df = ci_alphafold_df.append(vars(ci), ignore_index=True)
+            # deprecated: ci_alphafold_df = ci_alphafold_df.append(vars(ci), ignore_index=True)
+            ci_alphafold_df = pd.concat([ci_alphafold_df,pd.DataFrame([vars(ci)])], ignore_index=True)
 
     ################################################################
     # Load relevant Modbase2016  AND Modbase2013 for consideration # 
@@ -1387,14 +1396,16 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 
         ci.set_alignment_profile(alignment, structure)
 
-        ci_pdbs_df = ci_pdbs_df.append(vars(ci), ignore_index=True)
+        # deprecated: ci_pdbs_df = ci_pdbs_df.append(vars(ci), ignore_index=True)
+        ci_pdbs_df = pd.concat([ci_pdbs_df,pd.DataFrame([vars(ci)])], ignore_index=True)
 
         # If this is a multi-chain structure, add a row to process as complex
         if ci.biounit_chains > 1 and ci.structure_id not in full_complexes:
             full_complexes.add(ci.structure_id)
             ci.mers = ci.mers_string(ci.biounit_chains)
             full_complex = True
-            ci_pdbs_df = ci_pdbs_df.append(vars(ci), ignore_index=True)
+            # deprecated: ci_pdbs_df = ci_pdbs_df.append(vars(ci), ignore_index=True)
+            ci_pdbs_df = pd.concat([ci_pdbs_df,pd.DataFrame([vars(ci)])], ignore_index=True)
 
     # ci_pdbs_df.to_csv('/tmp/ci_pdbs_df.tsv',sep='\t',index=True)
     #    # alignments_dict[(pdb_id,ci.chain_id)] = alignment
@@ -1463,7 +1474,8 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
             dropped_model = ci_df.iloc[k].copy()
 
             dropped_model['drop_reason'] = reason
-            df_dropped = df_dropped.append(dropped_model)
+            # deprecated: df_dropped = df_dropped.append(dropped_model)
+            df_dropped = pd.concat([df_dropped,pd.DataFrame([dropped_model])],ignore_index=True)
 
             # Remove model from set to process
             ci_df.drop(ci_df.index[k], inplace=True)
@@ -1664,7 +1676,8 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                 LOGGER.info("Dropping of row %d because %s %s" % (k, ci_df.loc[k]['structure_id'], reason))
             dropped_models = ci_df.loc[droplist].copy()
             dropped_models['drop_reason'] = reason
-            df_dropped = df_dropped.append(dropped_models)
+            # deprecated: df_dropped = df_dropped.append(dropped_models)
+            df_dropped = pd.concat([df_dropped,dropped_models],ignore_index=True)
             ci_df.drop(droplist, inplace=True)
 
         models_sub10_seq_identity = ci_df.index[
@@ -1851,6 +1864,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         if ci.ddg_quality:
             LOGGER.info("DDG monomer and DDG cartesian will be attempted for usermodel %s" % ci.structure_id)
 
+        import pdb; pdb.set_trace()
         ci_usermodel_df = ci_usermodel_df.append(vars(ci), ignore_index=True)
 
         # Make the user model to go first in all processing and reports
@@ -1928,8 +1942,10 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                             mutation[-1])
                     LOGGER.info("ddG calculations will be run at %s of %s" % (
                     _params['pdb_mutation'], _params['struct_filename']))
-                    df_all_jobs = df_all_jobs.append(makejob_ddg_monomer(_params, ), ignore_index=True)
-                    df_all_jobs = df_all_jobs.append(makejob_ddg_cartesian(_params, ), ignore_index=True)
+                    # deprecated: df_all_jobs = df_all_jobs.append(makejob_ddg_monomer(_params, ), ignore_index=True)
+                    # deprecated: df_all_jobs = df_all_jobs.append(makejob_ddg_cartesian(_params, ), ignore_index=True)
+                    df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ddg_monomer(_params, )])], ignore_index=True)
+                    df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ddg_cartesian(_params, )])], ignore_index=True)
 
         # Launch sequence and spatial jobs on a minimally overlapping subset of structures
         # These are the pathprox jobs, which take a lot longer
@@ -1960,11 +1976,13 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         # Where we can Send pathprox all the multimeric biounit complex as one flavor pathprox job
         # Certainly send pathprox all chains for single-chain processing, even if redundant to multimer
         df_pathprox_single_chain_jobs = makejobs_pathprox_df(params, ci_df[ci_df['mers'] == 'monomer'], multimer=False)
-        df_all_jobs = df_all_jobs.append(df_pathprox_single_chain_jobs)
+        # deprecated: df_all_jobs = df_all_jobs.append(df_pathprox_single_chain_jobs)
+        df_all_jobs = pd.concat([df_all_jobs,df_pathprox_single_chain_jobs],ignore_index = True)
         del df_pathprox_single_chain_jobs
 
         df_pathprox_biounit_jobs = makejobs_pathprox_df(params, ci_df[ci_df['mers'] != 'monomer'], multimer=True)
-        df_all_jobs = df_all_jobs.append(df_pathprox_biounit_jobs)
+        # deprecated: df_all_jobs = df_all_jobs.append(df_pathprox_biounit_jobs)
+        df_all_jobs = pd.concat([df_all_jobs,df_pathprox_biounit_jobs],ignore_index = True)
         del df_pathprox_biounit_jobs
 
     # whether we had some structures or not, we have our completed workplan to save - and then exit
@@ -2055,7 +2073,8 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
         digepred_options = "-n %s -e %s" % (args.project, original_Vanderbilt_UDN_case_xlsx_filename)
 
         # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-        df_all_jobs = df_all_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
+        # depcreated: df_all_jobs = df_all_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
+        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_DiGePred(params, digepred_options)])], ignore_index=True)
     else:
         LOGGER.info(
             "No digepred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
@@ -2219,7 +2238,8 @@ else:
         ui_final['dropped'] = len(df_dropped)
         ui_final['jobs'] = len(df_all_jobs)
         ui_final['planfile'] = os.path.join(mutation_dir, filename)
-        ui_final_table = ui_final_table.append(ui_final, ignore_index=True)
+        # deprecated: ui_final_table = ui_final_table.append(ui_final, ignore_index=True)
+        ui_final_table = pd.concat([ui_final_table,pd.DataFrame([ui_final])], ignore_index=True)
 
     myLeftJustifiedGene = lambda x: '%-8s' % x
     myLeftJustifiedRefseq = lambda x: '%-14s' % x
