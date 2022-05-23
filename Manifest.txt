@@ -104,9 +104,9 @@ I performed these commands to load ENSEMBL compatible PERL5 into the /dors/capra
 Your commands will differ as perl versions shift around
 
 $ cd /dors/capra_lab/users/psbadmin/
-$ wget https://www.cpan.org/src/5.0/perl-5.34.0.tar.gz
-$ tar -xzf perl-5.34.0.tar.gz
-$ cd perl.5.34.0
+$ wget https://www.cpan.org/src/5.0/perl-5.35.0.tar.gz
+$ tar -xzf perl-5.35.0.tar.gz
+$ cd perl.5.35.0
 
 # Get rid of the annoying PERL5LIB set by anaconda's conda init
 # as we do NOT want ANY of our fresh PERL getting tangled up with this
