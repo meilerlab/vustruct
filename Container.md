@@ -72,11 +72,12 @@ In the docker instance in which you are working, are many other things that you 
 
 7) You must push your docker image to the dockerhub repo before it can be integrated into singularity
 ```
-docker image push chrismoth/image_phase9
+$ docker login
+$ docker image push chrismoth/image_phase9
 ```
 
 8) Finally, to build the singularity image from the docker image:  
-```source build_singularity.bash```
+```$ source build_singularity.bash```
 
 Now place image_phase9.simg in the UDN case root directory.  Typically,  
 ``` $ singularity shell ./image_phase9.simg ```  
