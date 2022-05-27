@@ -91,7 +91,21 @@ our compute cluster may not offer without 'root' access, we will load up our own
 6a)
 
 Double-check the (relatively flexible) PERL5 version requirements of the Ensembl Library.  
-Then, follow exactly the wget DOWNLOAD instruction only - and use other info for inspiration at the site which
+
+There are presently 3 ways to get a suitable PERL environment for running the Ensembl PERL API in the  VUStruct pipeline in development mode.
+
+1) As "root", run the yum and cpanm command lines in docker/Dockerfile.1.perl.  This will add necessary 
+2) If you lack root access, but are using the Vanderbilt accre cluster, this "module load" seems to prepare the environment fine and provides a PERL5 version with mysql access.
+
+$ module load BioPerl/1.7.1
+
+3) You can attempt to build PERL from C source code.  Those instructions are complex and error prone on clusters which may pack needed C libraries.  
+
+Once you have completed one of the 3 PERL installation options, skip down to 6b) below to load the ensembl PERL API and BioPerl that it needs
+
+Instructions for 3) above follow, before 6b)
+
+3) continued...  To build your own PERL from C source, follow exactly the wget DOWNLOAD instruction only - and use other info for inspiration at the site which
 is the center of the PERL universe:
 
 https://www.cpan.org/src/README.html
