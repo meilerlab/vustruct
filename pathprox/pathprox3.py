@@ -2120,7 +2120,7 @@ if __name__ == "__main__":
                              "sprot",
                              "swiss_dir",
                              "swiss_summary",
-                             "vep", "vep_cache_dir", "vep_assembly"]
+                             "vep", "vep_cache_dir", "vep_assembly", "vep_db_version"]
 
     config, config_dict = psb_config.read_config_files(args, required_config_items)
     PDBMapSQLdb.set_access_dictionary(config_dict)
