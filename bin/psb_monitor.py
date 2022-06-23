@@ -325,7 +325,7 @@ def monitor_one_mutation(workstatus_filename: str):
             elif 'JobState' in row and len(row['JobState']) > 1:
                 infostring = row['JobState']
     
-            print("%15s:%-20s  %-20ss"%(row['jobid'],index,infostring))
+            print("%15s:%-20s  %-20s"%(row['jobid'],index,infostring))
     
 # Main logic here.  A period in the argument means the user wants to launch one mutation only,
 # directly from a single mutation output file of psb_plan.py
