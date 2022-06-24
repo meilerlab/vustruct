@@ -1864,7 +1864,6 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         if ci.ddg_quality:
             LOGGER.info("DDG monomer and DDG cartesian will be attempted for usermodel %s" % ci.structure_id)
 
-        import pdb; pdb.set_trace()
         ci_usermodel_df = ci_usermodel_df.append(vars(ci), ignore_index=True)
 
         # Make the user model to go first in all processing and reports
