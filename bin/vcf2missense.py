@@ -150,7 +150,7 @@ if args.liftover:
 
 vcf_reader =  pdbmap_vep.vcf_reader_from_file_supplemented_with_vep_outputs(vcf_input_filename)
 
-df = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
+raw_missense_df = pd.DataFrame(columns=['gene','chrom','pos','change','transcript','unp','refseq','mutation'])
 
 for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
     for CSQ in vcf_record.CSQ:
@@ -159,7 +159,8 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             unp = unp[0]
         refseq = "NA"
         if not unp:
-            LOGGER.warning("No uniprot ID for Ensembl transcript %s"%CSQ['Feature'])
+            LOGGER.warning("%-10s No uniprot ID for Ensembl transcript %s",
+                           CSQ['SYMBOL'] + ':' if CSQ['SYMBOL'] else '', CSQ['Feature'])
             continue
         if unp:
             refseq = PDBMapProtein.unp2refseqNT(unp)
@@ -175,24 +176,27 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             [{'gene': CSQ['SYMBOL'],
              'chrom': vcf_record.CHROM,
              'pos': vcf_record.POS,
+             'change': vcf_record.REF + '/' + vcf_record.ALT[0].sequence,
              'transcript': CSQ['Feature'],
              'unp': unp,
              'refseq': refseq,
              'mutation': variant_aa
              }]
             )
-        df = pd.concat([df,next_df_row],ignore_index=True)
+        raw_missense_df = pd.concat([raw_missense_df,next_df_row],ignore_index=True)
 
-df.to_csv(args.vcffile.split('.')[0]+'_missense.csv_withduplicates',sep=',')
-df_without_duplicates = df.drop_duplicates(['gene','unp','refseq','mutation'])
-df = df.set_index(['gene','unp','refseq','mutation']).sort_index()
+raw_missense_df.to_csv(args.vcffile.split('.')[0]+'_missense.csv_withduplicates',sep=',')
+df_without_duplicates = raw_missense_df.drop_duplicates(['gene','unp','refseq','mutation'])
+raw_missense_df = raw_missense_df.set_index(['gene','unp','refseq','mutation']).sort_index()
 for index,row in df_without_duplicates.iterrows():
     variant_index = (row['gene'],row['unp'],row['refseq'],row['mutation'])
-    rows_with_various_transcripts = df.loc[[variant_index]]
+    rows_with_various_transcripts = raw_missense_df.loc[[variant_index]]
     transcript_list = rows_with_various_transcripts['transcript'].tolist()
     # print("for variant_index %s rows are %s"%(str(variant_index),str(rows_with_various_transcripts)))
     # import pdb; pdb.set_trace()
     df_without_duplicates.at[index,'transcript'] = ';'.join(transcript_list)
 
-df_without_duplicates.to_csv(args.vcffile.split('.')[0]+'_missense.csv',sep=',')
+final_missense_filename = args.vcffile.split('.')[0]+'_missense.csv'
+df_without_duplicates.to_csv(final_missense_filename,sep=',')
 # df = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
+LOGGER.info("%d rows written to %s" , len(df_without_duplicates) , final_missense_filename)
