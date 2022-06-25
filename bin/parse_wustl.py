@@ -337,7 +337,7 @@ with open(final_vcf_filename,'w') as f_vcf:
 
     f_vcf.write('#') # To left of CHROM on header line we need a #
     genomic_vcf_df.to_csv(f_vcf,index=False,sep='\t')
-print("%d rows written to %s" % (len(final_df), final_vcf_filename))
+print("%d rows written to %s" % (len(genomic_vcf_df), final_vcf_filename))
 
 
 sys.exit(0)
