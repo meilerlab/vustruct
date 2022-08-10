@@ -699,6 +699,27 @@ class CalculationResultsLoader:
                 alpha_fold_metrics = json.load(json_f)
         return alpha_fold_metrics
 
+    def _load_cosmis_json(self, pathprox_result: pd.Series) -> Dict:
+        """
+        Supports load_structure_graphics_dicts by loading cosmis scores for each chain left from the pathprox runs
+
+        @return: COSMIS json file.  Dictionary per chain, with then values per residue.
+        """
+        cosmis_scores_json_filename = os.path.join(self._variant_directory_segment,
+                                               pathprox_result['output_flavor_directory'],
+                                               pathprox_result['pathprox_prefix'] + "_cosmis.json")
+
+        if not os.path.exists(cosmis_scores_json_filename):
+            LOGGER.warning(
+                "Pathprox left no COSMIS json output file: %s",
+                cosmis_scores_json_filename)
+            return {}
+        else:
+            with open(cosmis_scores_json_filename) as json_f:
+                cosmis_scores = json.load(json_f)
+        return cosmis_scores
+
+
     def load_structure_graphics_dicts(self):
         """
             self.structure_graphics_dicts will be populated in same structure sequence as self.structure_report_df
@@ -765,6 +786,7 @@ class CalculationResultsLoader:
             structure_graphics_dict['html_div_id'] = html_div_id_create(structure)
             structure_key = (structure.method, structure.structure_id, structure.chain_id, structure.mers)
             alpha_fold_metrics = None
+            cosmis_scores = None
 
             for disease1_or_2, pathprox_results_dict_of_dfs in zip(
                     ['disease1', 'disease2'],
@@ -783,6 +805,30 @@ class CalculationResultsLoader:
                             structure_graphics_dict['ngl_alpha_fold_metrics'] = \
                                 '[' + ', '.join(
                                     str(alpha_fold_metric) for alpha_fold_metric in alpha_fold_metrics[1]) + ']'
+
+                    if not cosmis_scores:
+                        cosmis_scores = self._load_cosmis_json(pathprox_result_series_for_structure)
+                        if cosmis_scores:
+                            ngl_formatted_residue_cosmis_pairs = []
+                            for chain in cosmis_scores:
+                                for residue_no in cosmis_scores[chain]:
+                                    ngl_formatted_residue_cosmis_pairs.append(
+                                        ("%s:%s" %
+                                            (residue_no, chain),
+                                            cosmis_scores[chain][residue_no]['score'])
+                                    )
+
+                            # Now create the final javascript-compatible version of this...
+                            javascript_dict_residues_cosmis_scores = \
+                                "{" + ", ".join(["'%s': %s" % dict_key \
+                                                 for dict_key in ngl_formatted_residue_cosmis_pairs]) + \
+                                "}"
+
+                            # Add the Cosmis score json format to the dictionary seen in the django template.
+                            structure_graphics_dict['ngl_cosmis_scores'] = \
+                                javascript_dict_residues_cosmis_scores
+
+
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
