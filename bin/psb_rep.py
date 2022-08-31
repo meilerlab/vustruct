@@ -58,6 +58,10 @@ from lib import PDBMapTranscriptEnsembl
 from collections import defaultdict
 
 from typing import Dict
+# from subprocess import Popen, PIPE
+# from weasyprint import HTML
+
+from psb_shared import psb_config
 
 print("4 of 4  %s Pipeline report generator.  -h for detailed help" % __file__)
 
@@ -92,11 +96,6 @@ sys.stderr.write("Log file for entire case is %s\n" % root_dir_log_filename)
 # This list omits the intermediate files left behind in the calculation
 website_filelist = ['html/']
 
-# from subprocess import Popen, PIPE
-from weasyprint import HTML
-
-from psb_shared import psb_config
-
 cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)))
 
 cmdline_parser.add_argument("-s", "--slurm",
@@ -112,7 +111,7 @@ args, remaining_argv = cmdline_parser.parse_known_args()
 # A period in the argument means the user wants to monitor one mutation only,
 # directly from a single mutation output file of psb_launch.py
 oneMutationOnly = (
-        '.' in args.projectORstructures and os.path.isfile(args.projectORstructures) and args.workstatus != None)
+        '.' in args.projectORstructures and os.path.isfile(args.projectORstructures) and args.workstatus is not None)
 infoLogging = False
 
 if args.debug:
@@ -184,7 +183,7 @@ def copy_html_css_javascript():
     try:
         shutil.rmtree(dest, ignore_errors=True)
         # Save some space by not coping the data from nglviewer
-        shutil.copytree(src, dest, ignore = shutil.ignore_patterns('*/nglview/data/*'))
+        shutil.copytree(src, dest, ignore=shutil.ignore_patterns('*/nglview/data/*'))
     except Exception as e:
         LOGGER.exception(e)
         sys.exit(1)
@@ -232,7 +231,7 @@ def gene_interaction_report(case_root, case, CheckInheritance):
     try:
         with open(genepair_dict_file, 'r') as fd:
             genepair_dict = json.load(fd)
-    except:
+    except FileNotFoundError:
         LOGGER.exception("Cannot open %s.  Did you run Souhrid's analysis scripts?" % genepair_dict_file)
         return None, None, None, None
 
@@ -328,6 +327,106 @@ class CalculationResultsLoader:
     Once loaded, other processes will inject these data into web pages.
     """
 
+    def __init__(self, variant_directory_segment: str, parent_report_row: Dict = None):
+        """
+        @param variant_directory_segment, usually str of form "GENE_refseq_A123B"
+        @param workstatus_filename:       Filename of status of all calculations, previously updated by psb_monitor.py,
+        @param parent_report_row: In the event that no calculations were launched for the variant, then
+           the unp from the parent row (on the main page report) populates variables so a minimal report can be
+           completed
+
+        Load all the calculation results from the filesystem, making them available as dataframes and dictionaries
+        indexed by (method_structureid_chain_mers)
+        """
+        if not os.path.exists(
+                CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)):
+            LOGGER.critical(
+                "The  variant directory %s has not been created by the pipeline under %s.",
+                variant_directory_segment, collaboration_dir)
+            sys.exit(1)
+
+        self._variant_directory_segment = variant_directory
+
+        # This "full path" can be a spectacularly long entity - and
+        # We probably need to force execution of psb_rep.py with UDN/UDN123456 as the current working directory
+        # to stop other things from leaking out as issues.
+        self._variant_directory_fullpath = os.path.join(collaboration_dir, self._variant_directory_segment)
+
+        if not os.path.exists(os.path.join(collaboration_dir, variant_directory_segment)):
+            LOGGER.critical(
+                "The  variant directory %s has not been created by the pipeline under %s.",
+                variant_directory, collaboration_dir)
+            sys.exit(1)
+
+        # These dataframes are raw loads of .csv files created by the psb_plan.py and psb_monitor.py
+        # over-arching pipeline control programs.  These are accessed via @properties of the same name
+        # which lack the initial underscore.
+        self._workplan_df = None  # Original list of jobs to be run, created by psb_plan.py
+        self._workstatus_df = None  # pdb_monintor.py updates workplan rows with exit codes to create this
+        self._structure_report_df = None  # Original list of structures on which calculations are planned run
+        self._dropped_structures_df = None  # Original list of structures rejected by psb_plan.py
+
+        # We build up dictionaries of dataframes, which link each 3D structure to the raw dataframes of computed
+        # results for that structure
+        self.ddG_monomer_results_dict_of_dfs = {}
+        self.ddG_cartesian_results_dict_of_dfs = {}
+        self.pathprox_disease1_results_dict_of_dfs = {}
+        self.pathprox_disease2_results_dict_of_dfs = {}
+
+        self.cosmis_results_dict = {}
+
+        # Once the above raw dataframes are loaded, we iterate through the outputs and gather
+        # filenames for display images, PDBs to display in the NGL viewer, as well as variant lists.
+        self.structure_graphics_dicts = []
+
+        self._workstatus_filename_exists = False
+        if os.path.exists(self.workstatus_filename):
+            self._workstatus_filename_exists = True
+
+        if not self._workstatus_filename_exists:
+            if len(self.workplan_df) > 0:
+                LOGGER.critical("No workstatus file (%s) found.  However, %d jobs should have been launched.", \
+                                len(self.workplan_df))
+            else:
+                LOGGER.info("No work was planned for this variant")
+
+        # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
+        if self._workstatus_filename_exists:
+            self._info_dict = self.workplan_df.iloc[0]
+
+            # Assert that we have a 'unp' in the workstatus dataframe, else
+            # really the pipelien must halt altogether... at this juncture
+            if 'unp' not in self._info_dict:
+                msg = "No 'unp' column found in %s.  The report generator cannot continue" % (
+                    self.workplan_filename)
+                LOGGER.critical(msg)
+                sys.exit(msg)
+        else:  # Since we don't have any rows in the workstatus file, just use the information from the main page report
+            self._info_dict = parent_report_row
+
+        self._unp_transcript = PDBMapTranscriptUniprot(self.unp)
+
+    @property
+    def project(self):
+        if 'project' in self._info_dict:
+            return self._info_dict['project']
+        return args.projectORstructures
+
+    # What fun - define read-only @property class members with one-line anonymous functions
+    unp = property(lambda self: self._info_dict['unp'])
+    gene = property(lambda self: self._info_dict['gene'])
+    mutation = property(lambda self: self._info_dict['mutation'])
+    # Try to move to "Variant" to describe that which was previously a mutation
+    variant = property(lambda self: self._info_dict['mutation'])
+    unp_transcript = property(lambda self: self._unp_transcript)
+
+    @property
+    def notes(self):
+        """
+        @return: A string that might contain an overall condition, like no successful calculations
+        """
+        return ""
+
     def _makefilename(self, filename_segment: str) -> str:
         """
         @param filename_segment: "workstatus", "structure_report", or "dropped_structures"
@@ -377,7 +476,8 @@ class CalculationResultsLoader:
             return self._workstatus_df
 
         if not os.path.exists(self.workstatus_filename):
-            msg = "Work status file: %s not found.  Should have been created by psb_monitor.py" % self.workstatus_filename
+            msg = "Work status file: %s not found.  Should have been created by psb_monitor.py" % \
+                  self.workstatus_filename
             LOGGER.critical(msg)
             sys.exit(msg)
 
@@ -393,7 +493,8 @@ class CalculationResultsLoader:
         if not os.path.exists(self.dropped_structures_filename):
             self._dropped_structures_df = pd.DataFrame()
         else:
-            # msg = "Work status file: %s not found.  Should have been created by pipeline" % self.dropped_structures_filename
+            # msg = "Work status file: %s not found.  Should have been created by pipeline" % \
+            # self.dropped_structures_filename
             # LOGGER.critical(msg)
             # sys.exit(msg)
             self._dropped_structures_df = pd.read_csv(self.dropped_structures_filename, delimiter='\t')
@@ -567,7 +668,7 @@ class CalculationResultsLoader:
             if workstatus_row['ExitCode'] == '0':
                 # Excellent go harvest raw outputs to later combine into reports
                 method_pdbid_chain_mers_tuple = (
-                workstatus_row['method'], workstatus_row['pdbid'], workstatus_row['chain'], workstatus_row['mers'])
+                    workstatus_row['method'], workstatus_row['pdbid'], workstatus_row['chain'], workstatus_row['mers'])
 
                 # Today, Sequence Annotation results are not included in web outputs
                 if workstatus_row['flavor'] == 'SequenceAnnotation':
@@ -706,8 +807,8 @@ class CalculationResultsLoader:
         @return: COSMIS json file.  Dictionary per chain, with then values per residue.
         """
         cosmis_scores_json_filename = os.path.join(self._variant_directory_segment,
-                                               pathprox_result['output_flavor_directory'],
-                                               pathprox_result['pathprox_prefix'] + "_cosmis.json")
+                                                   pathprox_result['output_flavor_directory'],
+                                                   pathprox_result['pathprox_prefix'] + "_cosmis.json")
 
         if not os.path.exists(cosmis_scores_json_filename):
             LOGGER.warning(
@@ -718,7 +819,6 @@ class CalculationResultsLoader:
             with open(cosmis_scores_json_filename) as json_f:
                 cosmis_scores = json.load(json_f)
         return cosmis_scores
-
 
     def load_structure_graphics_dicts(self):
         """
@@ -797,6 +897,8 @@ class CalculationResultsLoader:
                     pathprox_result_series_for_structure = pathprox_results_dict_of_dfs[structure_key].iloc[0]
                     pathprox_output_json = self._load_pathprox_residues_of_interest_json(
                         pathprox_result_series_for_structure)
+                    vus_chain = next(iter(pathprox_output_json['variants']))
+                    vus_residue = pathprox_output_json['variants'][vus_chain][0]
 
                     if not alpha_fold_metrics and structure.method == "alphafold":
                         alpha_fold_metrics = self._load_alpha_fold_metrics_all_residues_json(
@@ -814,8 +916,8 @@ class CalculationResultsLoader:
                                 for residue_no in cosmis_scores[chain]:
                                     ngl_formatted_residue_cosmis_pairs.append(
                                         ("%s:%s" %
-                                            (residue_no, chain),
-                                            cosmis_scores[chain][residue_no]['score'])
+                                         (residue_no, chain),
+                                         cosmis_scores[chain][residue_no]['score'])
                                     )
 
                             # Now create the final javascript-compatible version of this...
@@ -827,8 +929,7 @@ class CalculationResultsLoader:
                             # Add the Cosmis score json format to the dictionary seen in the django template.
                             structure_graphics_dict['ngl_cosmis_scores'] = \
                                 javascript_dict_residues_cosmis_scores
-
-
+                        self.cosmis_results_dict = cosmis_scores[vus_chain][str(vus_residue)]
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
@@ -946,104 +1047,6 @@ class CalculationResultsLoader:
     @staticmethod
     def collaboration_dir_variant_directory_segment(variant_directory_segment: str):
         return os.path.join(collaboration_dir, variant_directory_segment)
-
-    def __init__(self, variant_directory_segment: str, parent_report_row: Dict = None):
-        """
-        @param variant_directory_segment, usually str of form "GENE_refseq_A123B"
-        @param workstatus_filename:       Filename of status of all calculations, previously updated by psb_monitor.py,
-        @param parent_report_row: In the event that no calculations were launched for the variant, then
-           the unp from the parent row (on the main page report) populates variables so a minimal report can be
-           completed
-
-        Load all the calculation results from the filesystem, making them available as dataframes and dictionaries
-        indexed by (method_structureid_chain_mers)
-        """
-        if not os.path.exists(
-                CalculationResultsLoader.collaboration_dir_variant_directory_segment(variant_directory_segment)):
-            LOGGER.critical(
-                "The  variant directory %s has not been created by the pipeline under %s.",
-                variant_directory_segment, collaboration_dir)
-            sys.exit(1)
-
-        self._variant_directory_segment = variant_directory
-
-        # This "full path" can be a spectacularly long entity - and
-        # We probably need to force execution of psb_rep.py with UDN/UDN123456 as the current working directory
-        # to stop other things from leaking out as issues.
-        self._variant_directory_fullpath = os.path.join(collaboration_dir, self._variant_directory_segment)
-
-        if not os.path.exists(os.path.join(collaboration_dir, variant_directory_segment)):
-            LOGGER.critical(
-                "The  variant directory %s has not been created by the pipeline under %s.",
-                variant_directory, collaboration_dir)
-            sys.exit(1)
-
-        # These dataframes are raw loads of .csv files created by the psb_plan.py and psb_monitor.py
-        # over-arching pipeline control programs.  These are accessed via @properties of the same name
-        # which lack the initial underscore.
-        self._workplan_df = None  # Original list of jobs to be run, created by psb_plan.py
-        self._workstatus_df = None  # pdb_monintor.py updates workplan rows with exit codes to create this
-        self._structure_report_df = None  # Original list of structures on which calculations are planned run
-        self._dropped_structures_df = None  # Original list of structures rejected by psb_plan.py
-
-        # We build up dictionaries of dataframes, which link each 3D structure to the raw dataframes of computed
-        # results for that structure
-        self.ddG_monomer_results_dict_of_dfs = {}
-        self.ddG_cartesian_results_dict_of_dfs = {}
-        self.pathprox_disease1_results_dict_of_dfs = {}
-        self.pathprox_disease2_results_dict_of_dfs = {}
-
-        # Once the above raw dataframes are loaded, we iterate through the outputs and gather
-        # filenames for display images, PDBs to display in the NGL viewer, as well as variant lists.
-        self.structure_graphics_dicts = []
-
-        self._workstatus_filename_exists = False
-        if os.path.exists(self.workstatus_filename):
-            self._workstatus_filename_exists = True
-
-        if not self._workstatus_filename_exists:
-            if len(self.workplan_df) > 0:
-                LOGGER.critical("No workstatus file (%s) found.  However, %d jobs should have been launched.", \
-                                len(self.workplan_df))
-            else:
-                LOGGER.info("No work was planned for this variant")
-
-        # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
-        if self._workstatus_filename_exists:
-            self._info_dict = self.workplan_df.iloc[0]
-
-            # Assert that we have a 'unp' in the workstatus dataframe, else
-            # really the pipelien must halt altogether... at this juncture
-            if 'unp' not in self._info_dict:
-                msg = "No 'unp' column found in %s.  The report generator cannot continue" % (
-                    self.workplan_filename)
-                LOGGER.critical(msg)
-                sys.exit(msg)
-        else:  # Since we don't have any rows in the workstatus file, just use the information from the main page report
-            self._info_dict = parent_report_row
-
-        self._unp_transcript = PDBMapTranscriptUniprot(self.unp)
-
-    @property
-    def project(self):
-        if 'project' in self._info_dict:
-            return self._info_dict['project']
-        return args.projectORstructures
-
-    # What fun - define read-only @property class members with one-line anonymous functions
-    unp = property(lambda self: self._info_dict['unp'])
-    gene = property(lambda self: self._info_dict['gene'])
-    mutation = property(lambda self: self._info_dict['mutation'])
-    # Try to move to "Variant" to describe that which was previously a mutation
-    variant = property(lambda self: self._info_dict['mutation'])
-    unp_transcript = property(lambda self: self._unp_transcript)
-
-    @property
-    def notes(self):
-        """
-        @return: A string that might contain an overall condition, like no successful calculations
-        """
-        return ""
 
     def _load_ddG_details(self):
         self.workstatus_df = pd.read_csv(self.workstatus_filename, '\t', keep_default_na=False, na_filter=False,
@@ -1265,7 +1268,7 @@ class PfamDomainGraphics:
             if interpro_xml_handle.isCanonical(self.unp):  # Then we need to manually create the xml ourselves
                 # Go for the web link because this is a canonical UNP - however that _can_ fail.
                 domain_graphics_legend = "Downloaded Pfam Domain Graphic for Canonical Isoform %s" % self.unp
-                LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam" % self.unp);
+                LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam" % self.unp)
                 domain_graphics_json = self._fetch_canonical_pfam_graphic_json_from_xfam(30)
                 if not domain_graphics_json:
                     LOGGER.info("Download returned nothing")
@@ -1276,7 +1279,7 @@ class PfamDomainGraphics:
             # _Either_ communications failure OR non-canonical isoform
             # So we create our own graphic from our local xml database
             if not domain_graphics_json:  # _Either_ communications failure OR non-canonical (no communication)
-                LOGGER.info("Creating Domain Graphic for %s from xml", self.unp);
+                LOGGER.info("Creating Domain Graphic for %s from xml", self.unp)
                 nonCanonicalGraphicsJSON = interpro_xml_handle.PFAMgraphicsJSONfromUnp(self.unp)
                 domain_graphics_json = json.dumps(nonCanonicalGraphicsJSON)
 
@@ -1292,17 +1295,17 @@ class PfamDomainGraphics:
         """
         # Add our variant point of interest to the PFAM-like domain graphics.
         # as a simple diamond in the graphics, and an entry in the table.
-        variant_site_markup_dict = {'colour': '#e469fe', \
-                                    'display': True, \
-                                    'headStyle': 'diamond', \
-                                    'lineColour': '#333333', \
-                                    'metadata': {'database': 'UDN Case', \
-                                                 'description': '%s' % self.variant, \
-                                                 'start': self.variant[1:-1], \
-                                                 'type': 'Mutation'}, \
-                                    'residue': 'X', \
-                                    'start': self.variant[1:-1], \
-                                    'type': 'UDN Mutation site', \
+        variant_site_markup_dict = {'colour': '#e469fe',
+                                    'display': True,
+                                    'headStyle': 'diamond',
+                                    'lineColour': '#333333',
+                                    'metadata': {'database': 'UDN Case',
+                                                 'description': '%s' % self.variant,
+                                                 'start': self.variant[1:-1],
+                                                 'type': 'Mutation'},
+                                    'residue': 'X',
+                                    'start': self.variant[1:-1],
+                                    'type': 'UDN Mutation site',
                                     'v_align': 'top'}
 
         # Grab any _existing_ markups in our domain graphics.
@@ -1578,8 +1581,8 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
     templatePfamGraphics = env.get_template("html/pfamGraphicsIframeTemplate.html")
     htmlPfamGraphics = templatePfamGraphics.render(template_vars)
 
-    save_cwd = os.getcwd();
-    os.chdir(variant_report_directory);
+    save_cwd = os.getcwd()
+    os.chdir(variant_report_directory)
 
     # WE ARE NOW OPERATING FROM ..../UDN/CaseName target directory
     LOGGER.info("Now working in %s", variant_report_directory)
@@ -1592,7 +1595,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
     with open(pfamGraphicsIframe_fname, "w") as html_f:
         html_f.write(htmlPfamGraphics)
 
-    write_pdfs = None
+    """write_pdfs = None
     if write_pdfs:
         pdf_fname = base_fname % "pdf"
         wkhtmltopdf_fname = base_fname % "wkhtml.pdf"
@@ -1635,9 +1638,10 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
             LOGGER.warning("wkhtmltopdf stderr:\n%s", err_legit)
         else:
             LOGGER.info("wkhtmltopdf stderr:\n%s", err_legit)
+    """
 
     # WE HAVE NOW RETURNED TO the psb_pipeline/bin directory
-    os.chdir(save_cwd);
+    os.chdir(save_cwd)
     # Close out the local log file for this mutation
     _end_local_logging(local_logger_fh)
     gathered_info['variant_report_directory'] = os.path.basename(variant_report_directory)
@@ -1718,7 +1722,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 return row[0].strip()
 
 
-    if set(['chrom', 'pos', 'change']).issubset(df_all_mutations.columns) and not args.slurm:
+    if {'chrom', 'pos', 'change'}.issubset(df_all_mutations.columns) and not args.slurm:
         for index, row in df_all_mutations.iterrows():
             chrom_pos_change = (row['chrom'], row['pos'], row['change'])
             LOGGER.info("%s", chrom_pos_change)
@@ -1754,7 +1758,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     print(msg)
                 LOGGER.info(msg)
                 variant_directory = "%s_%s_%s" % (
-                genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
+                    genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
                 variant_isoform_summary = report_one_variant_one_isoform(variant_directory, genome_variant_row)
                 if variant_isoform_summary:
                     variant_isoform_summary['#'] = index
@@ -1969,7 +1973,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     slurmf.write("esac\n")
             msg = "Created slurm script to launch all psb_rep.py processes for this case: %s" % slurm_file
             if args.verbose:
-                LOGGER.info(msg);
+                LOGGER.info(msg)
             else:
                 print(msg)
 
@@ -2098,7 +2102,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     print("")
 
     if args.verbose:
-        LOGGER.info(lastmsg);
+        LOGGER.info(lastmsg)
     else:
         print(lastmsg)
 
