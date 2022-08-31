@@ -231,7 +231,7 @@ img {
     <table cellspacing="1" class="tablesorter">
         <thead>
         <tr>
-            <th class="sorter-false"/>
+            <th class="sorter-false" />
             <th class="sorter-false">COSMIS Score</th>
             <th class="sorter-false">QQ-Interval</th>
             <th class="sorter-false">Std</th>
@@ -241,10 +241,11 @@ img {
         <tbody>
         <tr>
             <td>Normalized:</td>
-            <td>1.7</td>
-            <td>[1.181, 1.826]</td>
-            <td>0.9057</td>
-            <td>43/100</td>
+            <td>{{ calculation_results.cosmis_results_dict['score'] }}</td>
+            <td>{{ calculation_results.cosmis_results_dict['qq-interval_low'] }},
+                {{ calculation_results.cosmis_results_dict['qq-interval_high'] }}</td>
+            <td>{{ calculation_results.cosmis_results_dict['std'] }}</td>
+            <td>{{ calculation_results.cosmis_results_dict['msa'] }}/100</td>
         </tr>
         <tr>
             <td>Raw:</td>
