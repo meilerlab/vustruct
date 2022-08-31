@@ -79,9 +79,6 @@ from lib import PDBMapGnomad
 from lib import PDB36Parser
 from lib import PDBMapComplex
 
-from lib.PDBMapAlignment import sifts_best_unps
-
-
 if __name__ == "__main__":
     # Logging setup can vary a lot depending on whether pathprox is used as import module or mainline route
     ch = logging.StreamHandler()
@@ -2161,10 +2158,10 @@ if __name__ == "__main__":
     #
     # Write the complex out using the renumbered chains in  output directory
     #
-    complex.write_renumbered(format='mmCIF')
-    complex.write_renumbered(format='pdb')
-    complex.write_renumbered(format='chimera2') # Add chimera HELIX/SHEET annotations
-    complex.write_original(format='mmCIF')
+    complex.write_renumbered(file_format='mmCIF')
+    complex.write_renumbered(file_format='pdb')
+    complex.write_renumbered(file_format='chimera2') # Add chimera HELIX/SHEET annotations
+    complex.write_original(file_format='mmCIF')
 
 
     ## Write pathogenic, neutral, candidate, and/or quantiative trait Chimera attribute files
@@ -2569,8 +2566,8 @@ if __name__ == "__main__":
         str.maketrans('', '', string.punctuation))
 
     # pdb_rep.py will point ngl to the psb with HELIX and SHEET information (Secondary Structure)
-    residuesOfInterest['pdbSSfilename'] = os.path.join(args.outdir, renumberedPDBfilenameSS)
-    residuesOfInterest['cifSSfilename'] = os.path.join(args.outdir, renumberedCIFfilenameSS)
+    residuesOfInterest['pdbSSfilename'] = os.path.join(args.outdir, complex.renumbered_pdb_filenameSS)
+    residuesOfInterest['cifSSfilename'] = os.path.join(args.outdir, complex.renumbered_cif_filenameSS)
 
     # write out the various residues in per-chain dictionaries.  psb_rep.py will use these later
     from collections import defaultdict
