@@ -4,12 +4,7 @@ class DDG_monomer manages all aspects of Rosetta ddg_monomer calculations
 inside the directory heirarchy supplied by a ddg_repo object
 """
 import os
-import datetime
-import lzma
 import pprint
-import subprocess
-import tempfile
-import time
 import pandas as pd
 from io import StringIO
 from psb_shared.ddg_repo import DDG_repo
@@ -22,30 +17,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 class DDG_monomer(DDG_base):
-
-    def refresh_ddg_repo_and_mutations(self,ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
-        """
-        When retrieving results from the repository, one should be able to update the ddg_repo
-        pointer to a new variant without repeating all the other checks
-        """
-
-        self._ddg_repo = ddg_repo
-
-        if type(mutations) == str:
-            self._mutations = [mutations]  # Nasty to switch out like this - watch closely
-        else:
-            assert type(self._mutations) == list
-            # Sort the mutations by the integer part of their pdb code
-            # and the PDB insertion code if mutation[-2] isalpha(!)
-            self._mutations = sorted(mutations, key=lambda mutation: (
-                int(mutation[1:-2 if mutation[-2].isalpha() else -1]),
-                mutation[-2] if mutation[-2].isalpha() else ' '
-            ))
-
-        # Not sure we really want this potentially long string in filenames
-        # Keep thinking about it.
-        self._mutationtext = ",".join(self._mutations)
-
     @property
     def _mutation_list_filename(self):
         filename_prefix = "%s_%s_%s" % (
@@ -205,7 +176,7 @@ class DDG_monomer(DDG_base):
 
             if previous_exit_code == 0:
                 LOGGER.info("Skipping minimization.  Using results from prior calculation")
-                returncode = previous_exit_code
+                return_code = previous_exit_code
                 runtime = 0.0
             else:
                 # Then re-run the minimization in a subdirectory of the variant current directory
@@ -256,7 +227,7 @@ class DDG_monomer(DDG_base):
                         # '> mincst.log'
                     ]
 
-                    returncode, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                    return_code, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
                         minimize_with_cst_command,
                         additional_files_to_archive=[minimized_pdb_filename])
 
@@ -293,23 +264,14 @@ class DDG_monomer(DDG_base):
                 # If OTHER tasks beat us to installing their work directory, then 
                 # no worries!  Load that as the data source instead
                 # and discard our hard work
-                LOGGER.info("Attempting os.rename(%s,%s)" % (tmp_directory, minimize_directory))
-                rename_succeeded = False
-                if returncode == 0:
-                    try:
-                        os.rename(tmp_directory, minimize_directory)
-                        rename_succeeded = True
-                    except OSError:
-                        # The final minimize directory already exists there
-                        pass
+                if return_code == 0:
+                    rename_succeeded = self._attempt_directory_rename_delete_if_fail(tmp_directory, minimize_directory)
 
                 if not rename_succeeded:
                     # Then some other task beat us...
-                    LOGGER.info("%s already installed by another process." % minimize_directory)
-                    LOGGER.info("Discarding current calculation and loading prior results")
                     # Load their outputs so all the ddgs are on the same page
-                    returncode, stdout, stderr = load_from_prior_minimize()
-                    assert returncode == 0
+                    return_code, stdout, stderr = load_from_prior_minimize()
+                    assert return_code == 0
 
             _minimized_pdb_relpath = os.path.join('..', '..', minimize_directory, minimized_pdb_filename)
             if not os.path.isfile(_minimized_pdb_relpath):
@@ -732,7 +694,6 @@ class DDG_monomer(DDG_base):
 
         os.chdir(save_current_directory)
         return jobstatus_info
-
 
     def retrieve_result(self) -> pd.Series:
         """Return the calculated ddG results as a pandas series, or None"""

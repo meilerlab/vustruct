@@ -4,6 +4,7 @@ class DDG_base underpins both DDG_monomer and DDG_cartesian with
 a variety of methods shared by bost.
 """
 import os
+import shutil
 import time
 import datetime
 import subprocess
@@ -448,4 +449,44 @@ class DDG_base(object):
                 pass
 
         return previous_exit, previous_exit_int
+
+
+    def _attempt_directory_rename_delete_if_fail(self, tmp_directory: str, final_directory: str) -> bool:
+        """
+        
+        @param tmp_directory:   The teporary directory name where ddG work was just completed 
+        @param final_directory: The final directory resting place for a successful set of ddG work.
+        @return: True if the rename was successful, False if if rename unsuccessful and tmp_directory deleted because
+                the final directory was already in place.
+        """
+        # Move our work to become the new "minimize" directory
+        # so that other tasks do not have to repeat this work
+        #
+        # If OTHER tasks beat us to installing their work directory, then
+        # no worries!  Load that as the data source instead
+        # and discard our hard work
+
+        LOGGER.info("Attempting os.rename(%s,%s)", tmp_directory, final_directory)
+        rename_succeeded = False
+        try:
+            os.rename(tmp_directory, final_directory)
+            rename_succeeded = True
+        except OSError:
+            # The final minimize directory already exists there
+            pass
+
+        # If the above rename() failed for any reason but already exists, the exception is not caught and execution
+        # is not continuing....
+
+        if not rename_succeeded:
+            # Then some other task beat us...
+            LOGGER.info("%s found already installed by another process.", final_directory)
+            LOGGER.info("Discarding current calculation in %s and loading the other results", tmp_directory)
+
+            # In ability to clean up redundant generated data should not be cause to crash - so I
+            # set ignore_errors
+            shutil.rmtree(tmp_directory, ignore_errors=True)
+
+        return rename_succeeded
+
 
