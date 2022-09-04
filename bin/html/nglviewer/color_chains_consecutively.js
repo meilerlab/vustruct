@@ -160,34 +160,34 @@
 
 
 
-	function color_chains_by_cosmis_scores(cosmis_scores) {
+	function color_chains_by_rate4site_scores(rate4site_scores) {
 
        var schemeId = NGL.ColormakerRegistry.addScheme(function (params) {
-           // cosmis_scores are normalized to have average=0.0, std=1.0
+           // rate4site_scores are normalized to have average=0.0, std=1.0
            // We want to color [-2,2], with all outliers bright 
            this.atomColor = function (atom) {
                let atomScoreKey = atom.resno + ":" + atom.chainname;
                let final_color = 0x000000
-               if (! (atomScoreKey in cosmis_scores)) // Unlike pathprox scores which cover every position, it is possible we won't have some scores
+               if (! (atomScoreKey in rate4site_scores)) // Unlike pathprox scores which cover every position, it is possible we won't have some scores
                    final_color = 0x00FFFF // Color those yellow for now
                else {
-               let cosmis_score = parseFloat(cosmis_scores[atomScoreKey])
+               let rate4site_score = parseFloat(rate4site_scores[atomScoreKey])
 
-               if (cosmis_score < 0)
+               if (rate4site_score < 0)
                          {
                          let redIntensity=0xFF
                          let whiteIntensity=0x0
-                         if (cosmis_score > -2.0) // Lighten a bit inside 2nd stddev
-                             whiteIntensity=parseInt((1.0-(cosmis_score/(-2.0))) * 0xFF)
+                         if (rate4site_score > -2.0) // Lighten a bit inside 2nd stddev
+                             whiteIntensity=parseInt((1.0-(rate4site_score/(-2.0))) * 0xFF)
 
                          final_color = (redIntensity  << 16) |  (whiteIntensity << 8) | (whiteIntensity)
                          }
-             			else // cosmis_score >= 0
+             			else // rate4site_score >= 0
                          {
                          let blueIntensity = 0xFF
                          let whiteIntensity=0x0
-                         if (cosmis_score < 2.0) // Lighten a bit inside 2nd stddev
-                             whiteIntensity=parseInt((1.0-(cosmis_score/2.0)) * 0xFF)
+                         if (rate4site_score < 2.0) // Lighten a bit inside 2nd stddev
+                             whiteIntensity=parseInt((1.0-(rate4site_score/2.0)) * 0xFF)
 
                          final_color = (whiteIntensity << 16) |  (whiteIntensity << 8) | (blueIntensity)
                          }

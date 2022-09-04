@@ -1607,7 +1607,7 @@ if __name__ == "__main__":
                              "sprot",
                              "swiss_dir",
                              "swiss_summary",
-                             "cosmis_dir",
+                             "rate4site_dir",
                              "vep", "vep_cache_dir", "vep_assembly", "vep_db_version"]
 
     config, config_dict = psb_config.read_config_files(args, required_config_items)
@@ -1958,9 +1958,9 @@ if __name__ == "__main__":
     args.outdir = move_to_outdir(args.outdir)
 
     # Assign a COSMIS score to each position in the uniprot transcript
-    complex.load_cosmis_scores()
+    complex.load_rate4site_scores()
 
-    complex.write_cosmis_scores(args.label + "_cosmis.json")
+    complex.write_rate4site_scores(args.label + "_rate4site.json")
 
 
     # We now gather all the variants, for all transcripts, for all chains, into a single dataframe with 6 columns

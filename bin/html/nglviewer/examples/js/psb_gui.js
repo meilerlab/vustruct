@@ -795,10 +795,10 @@ NGL.MenubarChainColorsWidget = function (stage, preferences) {
             color_chains_consecutively(stage.vustruct_component, chainColorIndex);
     }
 
-    function onCosmisColorsClick() {
+    function onRate4SiteColorsClick() {
         removeChainColorRepresentations();
-        let schemeId = color_chains_by_cosmis_scores(
-                stage.vustruct_info.cosmisScores);
+        let schemeId = color_chains_by_rate4site_scores(
+                stage.vustruct_info.rate4siteScores);
 
         stage.vustruct_representations.chainColorsRepresentations =
                 [stage.vustruct_component.addRepresentation("cartoon", {color: schemeId})]
@@ -842,10 +842,10 @@ NGL.MenubarChainColorsWidget = function (stage, preferences) {
         UI.MenubarHelper.createOption('Chains',
             onColorChainsClick));
 
-    if (vustruct_info.cosmisScores && Object.keys(vustruct_info.cosmisScores)) {
+    if (vustruct_info.rate4siteScores && Object.keys(vustruct_info.rate4siteScores)) {
         menuConfig.push(
-            UI.MenubarHelper.createOption("COSMIS scores",
-                onCosmisColorsClick));
+            UI.MenubarHelper.createOption("Rate4Site scores",
+                onRate4SiteColorsClick));
     }
 
     if (vustruct_info.disease1PathProxScores && Object.keys(vustruct_info.disease1PathProxScores)) {

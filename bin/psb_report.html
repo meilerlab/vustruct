@@ -75,8 +75,8 @@
     <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/faces/optimer-bold-normal.js"></script>
     -->
 
-    <!-- NGL molecular graphics viewer -->
-    <script type="text/javascript" src="../html/javascript/ngl.js"></script>
+    <!-- NGL molecular graphics viewer 
+    <script type="text/javascript" src="../html/javascript/ngl.js"></script> -->
 
 
     <!-- IE, being IE, needs extra help. In particular we need to add an extra library
@@ -227,12 +227,13 @@ img {
 <!-- End Domain Graphic area -->
 
 <div class="container">
-    <h3>{{ calculation_results.variant[:-1] }} COSMIS Score	(ENST00000287020)</h3>
+    {% for ensembl_transcript_id in rate4site_dict %}
+    <h3>{{ calculation_results.variant[:-1] }} Rate4Site Score {{ ensembl_transcript_id }}</h3>
     <table cellspacing="1" class="tablesorter">
         <thead>
         <tr>
             <th class="sorter-false" />
-            <th class="sorter-false">COSMIS Score</th>
+            <th class="sorter-false">Rate4Site Score</th>
             <th class="sorter-false">QQ-Interval</th>
             <th class="sorter-false">Std</th>
             <th class="sorter-false">MSA</th>
@@ -241,21 +242,22 @@ img {
         <tbody>
         <tr>
             <td>Normalized:</td>
-            <td>{{ calculation_results.cosmis_results_dict['score'] }}</td>
-            <td>{{ calculation_results.cosmis_results_dict['qq-interval_low'] }},
-                {{ calculation_results.cosmis_results_dict['qq-interval_high'] }}</td>
-            <td>{{ calculation_results.cosmis_results_dict['std'] }}</td>
-            <td>{{ calculation_results.cosmis_results_dict['msa'] }}/100</td>
+            <td>{{ rate4site_dict[ensembl_transcript_id]['score'] }}</td>
+            <td>{{ rate4site_dict[ensembl_transcript_id]['qq-interval_low'] }},
+                {{ rate4site_dict[ensembl_transcript_id]['qq-interval_high'] }}</td>
+            <td>{{ rate4site_dict[ensembl_transcript_id]['std'] }}</td>
+            <td>{{ rate4site_dict[ensembl_transcript_id]['msa'] }}/100</td>
         </tr>
         <tr>
-            <td>Raw:</td>
-            <td>1.897</td>
-            <td>[1.537, 1.984]</td>
-            <td>0.628</td>
-            <td>43/100</td>
+            <td>fake Raw:</td>
+            <td>fake 1.897</td>
+            <td>fake [1.537, 1.984]</td>
+            <td>fake 0.628</td>
+            <td>fake 43/100</td>
         </tr>
         </tbody>
     </table>
+    {% endfor %}
 
 </div>
 <!-- Present a table of all structures analyzed for the transcript -->

@@ -54,6 +54,7 @@ from lib import PDBMapSQLdb
 from lib import PDBMapTranscriptBase
 from lib import PDBMapTranscriptUniprot
 from lib import PDBMapTranscriptEnsembl
+from lib import PDBMapComplex
 
 from collections import defaultdict
 
@@ -131,7 +132,7 @@ if not os.path.exists(args.config):
     LOGGER.critical("Global config file not found: " + args.config)
     sys, exit(1)
 
-required_config_items = ['output_rootdir', 'collaboration', 'ddg_config']
+required_config_items = ['output_rootdir', 'collaboration', 'ddg_config', 'rate4site_dir']
 
 config, config_dict = psb_config.read_config_files(args, required_config_items)
 config_dict_shroud_password = {x: config_dict[x] for x in required_config_items}
@@ -373,7 +374,7 @@ class CalculationResultsLoader:
         self.pathprox_disease1_results_dict_of_dfs = {}
         self.pathprox_disease2_results_dict_of_dfs = {}
 
-        self.cosmis_results_dict = {}
+        # self.rate4site_results_dict = {}
 
         # Once the above raw dataframes are loaded, we iterate through the outputs and gather
         # filenames for display images, PDBs to display in the NGL viewer, as well as variant lists.
@@ -746,7 +747,8 @@ class CalculationResultsLoader:
             # if 'cifSSfilename' in pathprox_output_json:
             #    cifSSbasename = os.path.basename(pathprox_output_json['cifSSfilename'])
             #    cifSSdirname = os.path.realpath(os.path.dirname(pathprox_output_json['cifSSfilename']))
-            #    pathprox_output_json['cifSSfilename'] = os.path.join(os.path.relpath(cifSSdirname,variant_report_directory),cifSSbasename)
+            #    pathprox_output_json['cifSSfilename'] = \
+            #    os.path.join(os.path.relpath(cifSSdirname,variant_report_directory),cifSSbasename)
 
             def _variant_count(variant_type: str):
                 return sum([len(chain_variants[1]) for chain_variants in pathprox_output_json[variant_type].items()])
@@ -800,25 +802,25 @@ class CalculationResultsLoader:
                 alpha_fold_metrics = json.load(json_f)
         return alpha_fold_metrics
 
-    def _load_cosmis_json(self, pathprox_result: pd.Series) -> Dict:
+    def _load_rate4site_json(self, pathprox_result: pd.Series) -> Dict:
         """
-        Supports load_structure_graphics_dicts by loading cosmis scores for each chain left from the pathprox runs
+        Supports load_structure_graphics_dicts by loading rate4site scores for each chain left from the pathprox runs
 
-        @return: COSMIS json file.  Dictionary per chain, with then values per residue.
+        @return: Rate4Site json file.  Dictionary per chain, with then values per residue.
         """
-        cosmis_scores_json_filename = os.path.join(self._variant_directory_segment,
+        rate4site_scores_json_filename = os.path.join(self._variant_directory_segment,
                                                    pathprox_result['output_flavor_directory'],
-                                                   pathprox_result['pathprox_prefix'] + "_cosmis.json")
+                                                   pathprox_result['pathprox_prefix'] + "_rate4site.json")
 
-        if not os.path.exists(cosmis_scores_json_filename):
+        if not os.path.exists(rate4site_scores_json_filename):
             LOGGER.warning(
-                "Pathprox left no COSMIS json output file: %s",
-                cosmis_scores_json_filename)
+                "Pathprox left no Rate4Site json output file: %s",
+                rate4site_scores_json_filename)
             return {}
         else:
-            with open(cosmis_scores_json_filename) as json_f:
-                cosmis_scores = json.load(json_f)
-        return cosmis_scores
+            with open(rate4site_scores_json_filename) as json_f:
+                rate4site_scores = json.load(json_f)
+        return rate4site_scores
 
     def load_structure_graphics_dicts(self):
         """
@@ -886,7 +888,7 @@ class CalculationResultsLoader:
             structure_graphics_dict['html_div_id'] = html_div_id_create(structure)
             structure_key = (structure.method, structure.structure_id, structure.chain_id, structure.mers)
             alpha_fold_metrics = None
-            cosmis_scores = None
+            rate4site_scores = None
 
             for disease1_or_2, pathprox_results_dict_of_dfs in zip(
                     ['disease1', 'disease2'],
@@ -908,28 +910,29 @@ class CalculationResultsLoader:
                                 '[' + ', '.join(
                                     str(alpha_fold_metric) for alpha_fold_metric in alpha_fold_metrics[1]) + ']'
 
-                    if not cosmis_scores:
-                        cosmis_scores = self._load_cosmis_json(pathprox_result_series_for_structure)
-                        if cosmis_scores:
-                            ngl_formatted_residue_cosmis_pairs = []
-                            for chain in cosmis_scores:
-                                for residue_no in cosmis_scores[chain]:
-                                    ngl_formatted_residue_cosmis_pairs.append(
+                    if not rate4site_scores:
+                        rate4site_scores = self._load_rate4site_json(pathprox_result_series_for_structure)
+                        if rate4site_scores:
+                            ngl_formatted_residue_rate4site_pairs = []
+                            for chain in rate4site_scores:
+                                for residue_no in rate4site_scores[chain]:
+                                    ngl_formatted_residue_rate4site_pairs.append(
                                         ("%s:%s" %
                                          (residue_no, chain),
-                                         cosmis_scores[chain][residue_no]['score'])
+                                         rate4site_scores[chain][residue_no]['score'])
                                     )
 
                             # Now create the final javascript-compatible version of this...
-                            javascript_dict_residues_cosmis_scores = \
+                            javascript_dict_residues_rate4site_scores = \
                                 "{" + ", ".join(["'%s': %s" % dict_key \
-                                                 for dict_key in ngl_formatted_residue_cosmis_pairs]) + \
+                                                 for dict_key in ngl_formatted_residue_rate4site_pairs]) + \
                                 "}"
 
-                            # Add the Cosmis score json format to the dictionary seen in the django template.
-                            structure_graphics_dict['ngl_cosmis_scores'] = \
-                                javascript_dict_residues_cosmis_scores
-                        self.cosmis_results_dict = cosmis_scores[vus_chain][str(vus_residue)]
+                            # Add the Rate4site score json format to the dictionary seen in the django template.
+                            structure_graphics_dict['ngl_rate4site_scores'] = \
+                                javascript_dict_residues_rate4site_scores
+
+                        # self.rate4site_results_dict = rate4site_scores[vus_chain][str(vus_residue)]
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
@@ -1437,6 +1440,22 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
         variant_directory_segment)
     local_logger_fh = _initialize_local_logging_in_variant_directory(variant_directory_fullpath)
 
+    # The rate4site score for the variant is shown in a table of transcripts near top, if rate4site data is found
+    rate4site_dict = {}
+    if 'transcript' in parent_report_row and parent_report_row['transcript']:
+        ensembl_transcript_ids =  parent_report_row['transcript'].split(';')
+        for ensembl_transcript_id in ensembl_transcript_ids:
+            rate4site_norm_rates_filename = os.path.join(config_dict['rate4site_dir'],
+                                                     "%s_norm_rates.txt" % ensembl_transcript_id.split('.')[0])
+            if os.path.exists(rate4site_norm_rates_filename):
+                rate4site_df, alpha_parameter, average, std = PDBMapComplex._load_one_rate4site_file(
+                    rate4site_norm_rates_filename)
+                variant_pos = int(parent_report_row['mutation'][1:-1])
+                # Now grab just th dataframe row of all the rate4site entries for this position
+                rate4site_dict[ensembl_transcript_id] = rate4site_df[rate4site_df['pos'] == variant_pos].iloc[0].to_dict()
+            else:
+                LOGGER.warning("No rate4site results were found for %s: %s", parent_report_row['unp'], ensembl_transcript_id)
+
     calculation_results_loader = CalculationResultsLoader(variant_directory_segment, parent_report_row)
     calculation_results_loader.load_dataframes()
     calculation_results_loader.load_structure_graphics_dicts()
@@ -1444,6 +1463,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
     # Various data max/min/etc computations from the gathered data, which are great to return to the caller
     # and also useful to compose the report.
     variant_isoform_summary = {}
+
 
     # Load the template psb_report.html that is hear
     env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
@@ -1470,7 +1490,9 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
         "today_date": time.strftime("%Y-%m-%d"),
         "pfamGraphicsIframe_fname": pfamGraphicsIframe_fname,
         # html template references disease variant strings like clinvar/cosmic...
-        'config_pathprox_dict': config_pathprox_dict
+        'config_pathprox_dict': config_pathprox_dict,
+        'rate4site_dict': rate4site_dict
+
     }
 
     # Write out the individual structure.html files
