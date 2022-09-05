@@ -302,7 +302,7 @@ class PDBMapVariantSet():
         for transcript in ENST_transcripts:
             if not first_one:
                 transcript_in_str += ','
-            transcript_in_str += "'%s'" % transcript.id
+            transcript_in_str += "'%s'" % transcript.unversioned_id
             first_one = False
         transcript_in_str += ')'
 
