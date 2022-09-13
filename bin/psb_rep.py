@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
 # Project        : PSB Pipeline
-# Filename       : psb_monitor.py
+# Filename       : psb_rep.py
 # Authors        : Chris Moth and R. Michael Sivley
 # project Organization   : Vanderbilt Genetics Institute,
 #                : Vanderbilt University
@@ -899,8 +899,6 @@ class CalculationResultsLoader:
                     pathprox_result_series_for_structure = pathprox_results_dict_of_dfs[structure_key].iloc[0]
                     pathprox_output_json = self._load_pathprox_residues_of_interest_json(
                         pathprox_result_series_for_structure)
-                    vus_chain = next(iter(pathprox_output_json['variants']))
-                    vus_residue = pathprox_output_json['variants'][vus_chain][0]
 
                     if not alpha_fold_metrics and structure.method == "alphafold":
                         alpha_fold_metrics = self._load_alpha_fold_metrics_all_residues_json(
@@ -931,8 +929,6 @@ class CalculationResultsLoader:
                             # Add the Rate4site score json format to the dictionary seen in the django template.
                             structure_graphics_dict['ngl_rate4site_scores'] = \
                                 javascript_dict_residues_rate4site_scores
-
-                        # self.rate4site_results_dict = rate4site_scores[vus_chain][str(vus_residue)]
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
