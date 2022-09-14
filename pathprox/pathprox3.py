@@ -1608,6 +1608,7 @@ if __name__ == "__main__":
                              "swiss_dir",
                              "swiss_summary",
                              "rate4site_dir",
+                             "cosmis_dir",
                              "vep", "vep_cache_dir", "vep_assembly", "vep_db_version"]
 
     config, config_dict = psb_config.read_config_files(args, required_config_items)
@@ -1961,6 +1962,9 @@ if __name__ == "__main__":
     complex.load_rate4site_scores()
 
     complex.write_rate4site_scores(args.label + "_rate4site.json")
+
+    complex.load_cosmis_scores()
+    complex.write_cosmis_scores(args.label + "_cosmis.json")
 
 
     # We now gather all the variants, for all transcripts, for all chains, into a single dataframe with 6 columns
