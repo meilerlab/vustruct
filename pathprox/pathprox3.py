@@ -1649,7 +1649,7 @@ if __name__ == "__main__":
     user_chain_to_transcript: dict[str, str] = PDBMapComplex.parse_user_chain_to_transcript(args_remaining)
 
     if args.pdb:  # Then this is going to be a single chain calculation - so do try a biounit which may lack chain of interest
-        complex = PDBMapComplex(config_dict, 'pdb', args.pdb, args.chain, user_chain_to_transcript)
+        complex = PDBMapComplex('pdb', args.pdb, args.chain, user_chain_to_transcript)
 
     elif args.biounit:
         complex = PDBMapComplex('biounit', args.biounit, args.chain, user_chain_to_transcript)
