@@ -218,8 +218,8 @@ from lib import PDBMapProtein
 #  """ Returns coordinate files for a UniProt AC """
 #  entities = io.load_unp(ac)
 #  if not entities:
-#    msg = "No structures or models associated with %s\n"%ac
-#    LOGGER.warning(msg)
+#    message = "No structures or models associated with %s\n"%ac
+#    LOGGER.warning(message)
 #    return None
 #  flist = []
 #  for etype,ac in entities:
@@ -422,9 +422,9 @@ class PDBMapVariantSet():
             split_at_colon = raw_variant.split(':')
             variant_str_remaining = raw_variant.upper()
             if len(split_at_colon) > 2:
-                msg = "%s variant %s has more than 1 colon.  Execution halting." % (variants_flavor, raw_variant)
-                LOGGER.critical(msg)
-                sys_exit_failure(msg)
+                message = "%s variant %s has more than 1 colon.  Execution halting." % (variants_flavor, raw_variant)
+                LOGGER.critical(message)
+                sys_exit_failure(message)
             if len(split_at_colon) == 2:
                 dict_key = split_at_colon[0]  # Could be a chain, unp, or enst...
                 variant_str_remaining = split_at_colon[1].upper()
@@ -455,10 +455,10 @@ class PDBMapVariantSet():
                     v_dict['refAA'] = seq1(v_dict['refAA'])
                     v_dict['altAA'] = seq1(v_dict['altAA'])
                 else:
-                    msg = "Unable to parse variant input %s, specifically fragment [%s]" % (
+                    message = "Unable to parse variant input %s, specifically fragment [%s]" % (
                         raw_variant, variant_str_remaining)
-                    LOGGER.critical(msg)
-                    sys_exit_failure(msg)
+                    LOGGER.critical(message)
+                    sys_exit_failure(message)
 
             variant_set._variants.append([int(v_dict['position']), v_dict['refAA'], v_dict['altAA'], force_chain])
             if dict_key in id_to_variant_set:
@@ -720,15 +720,15 @@ def var2coord(s, p, n, c, q=[]):
     # Create a new MonotonicRangeIndex from 0 to len()-1.  Old index will be discarded
     vdf.reset_index(drop=True, inplace=True)
 
-    msg = None
+    message = None
     if vdf.empty and not (
             args.add_exac or args.add_gnomad or args.add_gnomad38 or args.add_1kg or args.add_pathogenic or args.add_pathogenic38 or args.add_cosmic or args.cosmic38 or args.add_tcga):
-        msg = "\nERROR: Must provide variants or request preloaded set with --add_<dataset>.\n"
+        message = "\nERROR: Must provide variants or request preloaded set with --add_<dataset>.\n"
     elif vdf.empty:
-        msg = "\nERROR: No variants identified. Please manually provide pathogenic and neutral variant sets.\n"
-    if msg:
-        LOGGER.critical(msg);
-        sys_exit_failure(msg)
+        message = "\nERROR: No variants identified. Please manually provide pathogenic and neutral variant sets.\n"
+    if message:
+        LOGGER.critical(message);
+        sys_exit_failure(message)
 
     # If a position has both pathogenic and neutral variants, THEN eliminate the neutral ones
     def defer_to_pathogenic(g):
@@ -770,37 +770,37 @@ def var2coord(s, p, n, c, q=[]):
         lambda x: blosum100[(x["ref"], x["alt"])] if not np.isnan(x["dcode"]) else None, axis=1)
 
     # Fail if all variants outside structural coverage or mapped to missing residues
-    msg = None
+    message = None
     vdf = complex_df[~complex_df["dcode"].isnull()]
     if vdf.empty:
         if not complex_df.empty:
-            msg = "Structure successfully aligned to sequence, but no variants were mapped to non-missing residues."
+            message = "Structure successfully aligned to sequence, but no variants were mapped to non-missing residues."
         else:
-            msg = "ERROR: Sequence-structure alignment failed."
-        LOGGER.critical(msg);
-        sys_exit_failure(msg)
+            message = "ERROR: Sequence-structure alignment failed."
+        LOGGER.critical(message);
+        sys_exit_failure(message)
 
     # Check that both variant categories are populated (if input is categorical)
     if not args.quantitative:
-        msg = None
+        message = None
         if (complex_df["dcode"] == 0).sum() < 3:
-            msg = "\nWARNING: Structure contains %d neutral variants (PathProx minimum 3).\n" % (
+            message = "\nWARNING: Structure contains %d neutral variants (PathProx minimum 3).\n" % (
                     complex_df["dcode"] == 0).sum()
             if not args.add_exac and not args.add_gnomad and not args.add_1kg:
-                msg += "Consider using --add_exac, --add_gnomad, or --add_1kg.\n"
+                message += "Consider using --add_exac, --add_gnomad, or --add_1kg.\n"
             else:
-                msg += "Please manually specify neutral variants.\n"
-        if msg:
-            LOGGER.warning(msg)
+                message += "Please manually specify neutral variants.\n"
+        if message:
+            LOGGER.warning(message)
         if (complex_df["dcode"] == 1).sum() < 3:
-            msg = "\nWARNING: Structure contains %d pathogenic variants (PathProx minimum 3).\n" % (
+            message = "\nWARNING: Structure contains %d pathogenic variants (PathProx minimum 3).\n" % (
                     complex_df["dcode"] == 1).sum()
             if not args.add_pathogenic and not args.add_cosmic and not args.add_tcga:
-                msg += "Consider using --add_pathogenic, --add_cosmic, or --add_tcga.\n"
+                message += "Consider using --add_pathogenic, --add_cosmic, or --add_tcga.\n"
             else:
-                msg += "Please manually specify pathogenic variants.\n"
-            if msg:
-                LOGGER.warning(msg)
+                message += "Please manually specify pathogenic variants.\n"
+            if message:
+                LOGGER.warning(message)
 
     # Conversion from short-code to explicit description
     code2class = {-1: "Candidate",
@@ -829,8 +829,8 @@ def TrangeCondensed(D):
     maxT = min(np.ceil(np.max(D)), 45)  # maximum observed inter-variant distance (bivariate) if <45A
     if maxT <= minT:
         maxT = np.ceil(np.max(D))
-        msg = "Observations too close (min=%.0f, max=%.0f) to divide space; using full range.\n" % (minT, maxT)
-        LOGGER.warning(msg)
+        message = "Observations too close (min=%.0f, max=%.0f) to divide space; using full range.\n" % (minT, maxT)
+        LOGGER.warning(message)
     # Verify that the structure is large enough to analyze multiple distances
     if maxT == minT:
         LOGGER.warning("Skipped %s.%s: Structure is too small to analyze." % (sid, chain))
@@ -864,8 +864,8 @@ def Trange(D, o=[]):
         maxT = min(np.ceil(np.nanmax(D)), 45)  # maximum observed inter-variant distance (bivariate) if <45A
     if maxT <= minT:
         maxT = np.ceil(np.n)
-        msg = "Observations too close (min=%.0f, max=%.0f) to divide space; using full range.\n" % (minT, maxT)
-        LOGGER.warning(msg)
+        message = "Observations too close (min=%.0f, max=%.0f) to divide space; using full range.\n" % (minT, maxT)
+        LOGGER.warning(message)
     # Verify that the structure is large enough to analyze multiple distances
     if maxT == minT:
         LOGGER.warning("Skipped %s.%s: Structure is too small to analyze." % (sid, chain))
@@ -1565,9 +1565,9 @@ if __name__ == "__main__":
             if os.path.isfile(file_path):
                 os.unlink(file_path)
         except Exception as e:
-            msg = "Unable to delete file %s from status directory" % file_path
-            LOGGER.exception(msg)
-            sys_exit_failure(msg)
+            message = "Unable to delete file %s from status directory" % file_path
+            LOGGER.exception(message)
+            sys_exit_failure(message)
 
 
     def __info_update(info):
@@ -1656,9 +1656,9 @@ if __name__ == "__main__":
 
     elif args.usermodel:
         if not args.label:
-            exitmsg = "--label is required on the command line when loading a --usermodel"
-            LOGGER.critical(exitmsg)
-            sys_exit_failure(exitmsg)
+            exit_message = "--label is required on the command line when loading a --usermodel"
+            LOGGER.critical(exit_message)
+            sys_exit_failure(exit_message)
         complex = PDBMapComplex('usermodel',
                                 args.usermodel,
                                 args.chain,
@@ -1745,17 +1745,17 @@ if __name__ == "__main__":
         try:
             args.use_residues = tuple(args.use_residues.split('-'))
         except:
-            msg = "Incorrect formatting for --use-residues. See help for details.\n"
-            LOGGER.critical(msg)
-            sys_exit_failure(msg)
+            message = "Incorrect formatting for --use-residues. See help for details.\n"
+            LOGGER.critical(message)
+            sys_exit_failure(message)
     if args.radius not in ("K", "D", "NW"):
         # Check that a valid numeric radius was provided
         try:
             args.radius = float(args.radius)
         except:
-            msg = "Invalid option for --radius. See help for details.\n"
-            LOGGER.critical(msg)
-            sys_exit_failure(msg)
+            message = "Invalid option for --radius. See help for details.\n"
+            LOGGER.critical(message)
+            sys_exit_failure(message)
     elif args.radius in ("K", "D"):
         # Ripley's K/D analyses required for parameterization
         LOGGER.info("Setting args.ripley=True because args.radius=%s", args.radius)
@@ -1792,13 +1792,13 @@ if __name__ == "__main__":
              args.add_cosmic or args.add_cosmic38 or \
              args.add_exac or args.add_1kg or args.add_benign or \
              args.add_drug or args.add_tcga):
-        msg = "\n!!!!===========================================!!!!\n"
-        msg += "                        WARNING\n"
-        msg += "   Reference EnsEMBL transcript was not specified. \n"
-        msg += "    Are there multiple isoforms for this protein?\n"
-        msg += "  Explictly declare isoform to avoid mis-alignments\n\n"
-        msg += "!!!!===========================================!!!!\n\n"
-        LOGGER.warning(msg)
+        message = "\n!!!!===========================================!!!!\n"
+        message += "                        WARNING\n"
+        message += "   Reference EnsEMBL transcript was not specified. \n"
+        message += "    Are there multiple isoforms for this protein?\n"
+        message += "  Explictly declare isoform to avoid mis-alignments\n\n"
+        message += "!!!!===========================================!!!!\n\n"
+        LOGGER.warning(message)
 
     statusdir_info('Configured')
 
@@ -1966,6 +1966,8 @@ if __name__ == "__main__":
     complex.load_cosmis_scores()
     complex.write_cosmis_scores(args.label + "_cosmis.json")
 
+    if complex.structure_type == 'alphafold':
+        complex.write_alphafold_metrics(args.label + "_alphafold_metrics.json")
 
     # We now gather all the variants, for all transcripts, for all chains, into a single dataframe with 6 columns
     variants_DataFrame = pd.DataFrame()
@@ -1976,11 +1978,15 @@ if __name__ == "__main__":
             df = pd.DataFrame()
             if not transcript_id:
                 df = variant_set[transcript_id].to_DataFrame()
+                # This code should be revisisted.  We are kludging and saying
+                # Hey, in a single chain model, set the chain name to what we know
+                # If we don't have a transcript_id... and so it is a kludge
+                _complex_chain_count = len(list(complex.structure[0].get_chains()))
                 # df['chain'] _must_ come from a chain-override in the user input unless this is a single chain structure
-                if complex.chain_count == 1 and len(df) and (
+                if _complex_chain_count == 1 and len(df) and (
                         df.iloc[0]['chain'] == None or df.iloc[0]['chain'] == np.NaN):
                     df['chain'] = list(complex.structure[0].get_chains())[0].id
-            else:  # Gather up _all_ the chains associated with the transcript ID and map variants to all fo them
+            else:  # Gather _all_ the chains associated with the transcript ID and map variants to all fo them
                 if transcript_id not in complex.transcript_to_chains:
                     if dcode == -1 and len(
                             transcript_id) < 6:  # Then the transcript is really a specific chain_id override on the variant
@@ -2014,21 +2020,21 @@ if __name__ == "__main__":
 
     # If we have no variants, then we have to exit.  But, give the user
     # some ideas about how to find variants in SQL or via text files
-    msg = None
+    message = None
     if variants_DataFrame.empty:
-        msg = "No variants loaded."
+        message = "No variants loaded."
         dash_dash_add_arguments = []  # What --add_* arguments were on command line?
         vars_args = vars(args)
         for key in vars_args:
             if vars_args[key] and str(vars_args[key]).startswith("add_"):
                 dash_dash_add_arguments.append("--" + key)
         if dash_dash_add_arguments:
-            msg += " SQL queries " + str(dash_dash_add_arguments) + " found no variants."
+            message += " SQL queries " + str(dash_dash_add_arguments) + " found no variants."
         else:
-            msg += " Consider --add_<dataset> arguments, or files of variants for this complex"
+            message += " Consider --add_<dataset> arguments, or files of variants for this complex"
 
-        LOGGER.critical(msg)
-        sys_exit_failure(msg)
+        LOGGER.critical(message)
+        sys_exit_failure(message)
 
 
     # If a position has both pathogenic and neutral variants, THEN eliminate the neutral ones
@@ -2069,15 +2075,15 @@ if __name__ == "__main__":
         lambda x: blosum100[(x["ref"], x["alt"])] if not np.isnan(x["dcode"]) else None, axis=1)
 
     # Fail if all variants outside structural coverage or mapped to missing residues
-    msg = None
+    message = None
     vdf = complex_df[~complex_df["dcode"].isnull()]
     if vdf.empty:
         if not complex_df.empty:
-            msg = "Structure successfully aligned to sequence, but no variants were mapped to non-missing residues."
+            message = "Structure successfully aligned to sequence, but no variants were mapped to non-missing residues."
         else:
-            msg = "ERROR: Sequence-structure alignment failed."
-        LOGGER.critical(msg);
-        sys_exit_failure(msg)
+            message = "ERROR: Sequence-structure alignment failed."
+        LOGGER.critical(message);
+        sys_exit_failure(message)
 
     # Check if there are enough variants to calculate neutral/pathogenic constraint
     sufficient_neutral_variants = (complex_df["dcode"] == 0).sum() > 2
