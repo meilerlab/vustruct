@@ -69,30 +69,6 @@
 		return schemeId;
   };
 
-	function color_chains_by_alpha_fold_metrics(alpha_fold_metrics) {
-
-   var schemeId = NGL.ColormakerRegistry.addScheme(function (params) {
-       this.atomColor = function (atom) {
-           alpha_fold_metric = parseFloat(alpha_fold_metrics[atom.residueIndex])
-
-           let final_color = 0x000000
-
-           
-           if (alpha_fold_metric > 90.0) 
-               final_color = 0x0053D6
-           else if (alpha_fold_metric > 70.0) 
-               final_color = 0x65CBF3
-           else if (alpha_fold_metric > 50.0) 
-               final_color = 0xFFDB13
-           else
-                final_color=0xFF7D45 
-
-        return final_color;
-			   }
-		})
-
-		return schemeId;
-  };
 
     	function color_chains_by_pathprox_class(disease1or2PathProxScores) {
 		let maxScore = -1.0
@@ -169,7 +145,7 @@
                let atomScoreKey = atom.resno + ":" + atom.chainname;
                let final_color = 0x000000
                if (! (atomScoreKey in rate4site_scores)) // Unlike pathprox scores which cover every position, it is possible we won't have some scores
-                   final_color = 0x00FFFF // Color those yellow for now
+                   final_color = 0x707070 // Color those yellow for now
                else {
                let rate4site_score = parseFloat(rate4site_scores[atomScoreKey])
 
@@ -191,9 +167,9 @@
 
                          final_color = (whiteIntensity << 16) |  (whiteIntensity << 8) | (blueIntensity)
                          }
-                     return final_color;
 						}
 
+                     return final_color;
 			   }
 		})
 
