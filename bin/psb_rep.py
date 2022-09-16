@@ -1502,11 +1502,15 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
         uniprot_id =  parent_report_row['unp'].split('-')[0]
         cosmis_df = PDBMapComplex._load_one_cosmis_set(uniprot_id)
         if cosmis_df.empty:
-            LOGGER.warning("No cosmis results were found for %s: %s", uniprot_id, uniprot_id)
+            LOGGER.warning("No cosmis results were found for %s", uniprot_id)
         else:
             variant_pos = int(parent_report_row['mutation'][1:-1])
             # Now grab just th dataframe row of all the rate4site entries for this position
-            cosmis_dict[uniprot_id] = cosmis_df[cosmis_df['uniprot_pos'] == variant_pos].iloc[0].to_dict()
+            cosmis_uniprot_pos_df = cosmis_dict[uniprot_id] = cosmis_df[cosmis_df['uniprot_pos'] == variant_pos]
+            if cosmis_uniprot_pos_df.empty:
+                LOGGER.warning("Cosmis results were found for %s, not not for position %d", uniprot_id, variant_pos)
+            else:
+                cosmis_dict[uniprot_id] = cosmis_uniprot_pos_df.iloc[0].to_dict()
 
     calculation_results_loader = CalculationResultsLoader(variant_directory_segment, parent_report_row)
     calculation_results_loader.load_dataframes()
