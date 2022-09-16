@@ -258,6 +258,31 @@ img {
         </tbody>
     </table>
     {% endfor %}
+<div class="container">
+    {% for uniprot_id in cosmis_dict %}
+    <h3>{{ calculation_results.variant[:-1] }} Cosmis Score {{ uniprot_id }}</h3>
+    <table cellspacing="1" class="tablesorter">
+        <thead>
+        <tr>
+            <th class="sorter-false" />
+            <th class="sorter-false">Cosmis Score</th>
+            <th class="sorter-false">pValue</th>
+            <th class="sorter-false">cossyn</th>
+            <th class="sorter-false">source</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>Normalized:</td>
+            <td>{{ cosmis_dict[uniprot_id]['cosmis'] }}</td>
+            <td>{{ cosmis_dict[uniprot_id]['cosmis_pValue'] }},
+                {{ cosmis_dict[uniprot_id]['cossyn'] }}</td>
+            <td>{{ cosmis_dict[uniprot_id]['std'] }}</td>
+            <td>{{ cosmis_dict[uniprot_id]['str_source'] }}</td>
+        </tr>
+        </tbody>
+    </table>
+    {% endfor %}
 
 </div>
 <!-- Present a table of all structures analyzed for the transcript -->
