@@ -262,7 +262,7 @@ while i < dfRows:
 
             try:
                 raw_mut = df.iloc[i + 2][2]
-                mut = raw_mut.replace("p.", "")
+                mut = raw_mut.replace("p.", "").strip()
             except (AttributeError,IndexError):
                 LOGGER.warning("Row %3d: %-8s  Could not read AA variant from spreadsheet" % (i, gene))
                 raw_mut = ''
