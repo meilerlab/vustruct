@@ -229,7 +229,7 @@ img {
 <div class="container">
     {% for ensembl_transcript_id in rate4site_dict %}
     <h3>{{ calculation_results.variant[:-1] }} Rate4Site Score {{ ensembl_transcript_id }}</h3>
-    <table cellspacing="1" class="tablesorter">
+    <table cellspacing="1" class="tablesorter" style="width:add_width;">
         <thead>
         <tr>
             <th class="sorter-false" />
@@ -242,28 +242,20 @@ img {
         <tbody>
         <tr>
             <td>Normalized:</td>
-            <td>{{ rate4site_dict[ensembl_transcript_id]['score'] }}</td>
-            <td>{{ rate4site_dict[ensembl_transcript_id]['qq-interval_low'] }},
-                {{ rate4site_dict[ensembl_transcript_id]['qq-interval_high'] }}</td>
-            <td>{{ rate4site_dict[ensembl_transcript_id]['std'] }}</td>
-            <td>{{ rate4site_dict[ensembl_transcript_id]['msa'] }}/100</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['score']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_low']|float) }},
+                {{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_high']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['std']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['msa']|float) }}/100</td>
         </tr>
-        <tr>
-            <td>fake Raw:</td>
-            <td>fake 1.897</td>
-            <td>fake [1.537, 1.984]</td>
-            <td>fake 0.628</td>
-            <td>fake 43/100</td>
-        </tr>
-        </tbody>
     </table>
     {% endfor %}
 <div class="container">
     {% for uniprot_id in cosmis_dict %}
     <h3>{{ calculation_results.variant[:-1] }} Cosmis Score {{ uniprot_id }}</h3>
-    <table cellspacing="1" class="tablesorter">
+    <table cellspacing="1" class="tablesorter" style="width: auto;">
         <thead>
-        <tr>
+        <tr style="width: auto;">
             <th class="sorter-false" />
             <th class="sorter-false">Cosmis Score</th>
             <th class="sorter-false">pValue</th>
@@ -272,12 +264,11 @@ img {
         </tr>
         </thead>
         <tbody>
-        <tr>
+        <tr style="width: auto;">
             <td>Normalized:</td>
-            <td>{{ cosmis_dict[uniprot_id]['cosmis'] }}</td>
-            <td>{{ cosmis_dict[uniprot_id]['cosmis_pValue'] }},
-                {{ cosmis_dict[uniprot_id]['cossyn'] }}</td>
-            <td>{{ cosmis_dict[uniprot_id]['std'] }}</td>
+            <td>{{ "%.2f"|format(cosmis_dict[uniprot_id]['cosmis']|float) }}</td>
+            <td>{{ "%.2f"|format(cosmis_dict[uniprot_id]['cosmis_pvalue']|float) }}</td>
+            <td>{{ "%.2f"|format(cosmis_dict[uniprot_id]['cossyn']|float) }}</td>
             <td>{{ cosmis_dict[uniprot_id]['str_source'] }}</td>
         </tr>
         </tbody>
