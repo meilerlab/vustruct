@@ -1495,7 +1495,8 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
                 # Now grab just th dataframe row of all the rate4site entries for this position
                 rate4site_dict[ensembl_transcript_id] = rate4site_df[rate4site_df['pos'] == variant_pos].iloc[0].to_dict()
             else:
-                LOGGER.warning("No rate4site results were found for %s: %s", parent_report_row['unp'], ensembl_transcript_id)
+                LOGGER.warning("No rate4site results were found for %s: %s",
+                               parent_report_row['unp'], ensembl_transcript_id)
 
     cosmis_dict = {}
     if 'unp' in parent_report_row and parent_report_row['unp']:
@@ -1506,7 +1507,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
         else:
             variant_pos = int(parent_report_row['mutation'][1:-1])
             # Now grab just th dataframe row of all the rate4site entries for this position
-            cosmis_uniprot_pos_df = cosmis_dict[uniprot_id] = cosmis_df[cosmis_df['uniprot_pos'] == variant_pos]
+            cosmis_uniprot_pos_df = cosmis_df[cosmis_df['uniprot_pos'] == variant_pos]
             if cosmis_uniprot_pos_df.empty:
                 LOGGER.warning("Cosmis results were found for %s, not not for position %d", uniprot_id, variant_pos)
             else:
@@ -1653,7 +1654,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
 
     if LOGGER.isEnabledFor(logging.DEBUG):
         pp = pprint.PrettyPrinter(indent=1)
-        LOGGER.debug("Dictionary template_vars to render:\n%s" % pp.pformat(template_vars))
+        LOGGER.debug("Dictionary template_vars to render:\n%s", pp.pformat(template_vars))
 
     html_out = isoform_variant_template.render(template_vars)
 
@@ -2164,26 +2165,28 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             LOGGER.debug("Dictionary final_gathered_info to render:\n%s" % pp.pformat(final_gathered_info))
 
         html_out = case_report_template.render(final_gathered_info)
+
+        # args.projectORstructures is an entire project UDN124356
         case_summary_filename = os.path.join(collaboration_dir,
-                                             "%s.html" % args.projectORstructures)  # The argument is an entire project UDN124356
+                                             "%s.html" % args.projectORstructures)
         website_filelist.append(case_summary_filename)
         with open(case_summary_filename, "w") as f:
             f.write(html_out)
-        lastmsg = "The case summary report is: " + case_summary_filename
+        last_message = "The case summary report is: " + case_summary_filename
         case_summary_json = os.path.join(collaboration_dir,
-                                         "%s.json" % args.projectORstructures)  # The argument is an entire project UDN124356
+                                         "%s.json" % args.projectORstructures)
         with open(case_summary_json, 'w') as fp:
             json.dump(final_gathered_info, fp)
     else:
-        lastmsg = "No mutation summaries - bummer"
+        last_message = "No mutation summaries - bummer"
 
     print("")
     print("")
 
     if args.verbose:
-        LOGGER.info(lastmsg)
+        LOGGER.info(last_message)
     else:
-        print(lastmsg)
+        print(last_message)
 
     if website_filelist:
         try:
