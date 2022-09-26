@@ -12,7 +12,7 @@
        '#33a02c', //Apple (green)
        '#e31a1c', //Alizarin Crimson
        '#ff7f00', //Flush orange
-       '#101010', //Chris found black 000000 to be too black - so backing off with less dark
+       '#707070', //Chris found black 000000 to be too black - so backing off with less dark
                     ]
    var chainColors = ["skyblue","green","magenta","salmon","orange","black"]
    chainColors = colorBrewer9Colors
