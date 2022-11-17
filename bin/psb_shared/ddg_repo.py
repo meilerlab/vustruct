@@ -315,6 +315,14 @@ class DDG_repo():
         return self._psb_status_manager
 
     @property
+    def calculation_flavor(self):
+        """
+
+        @return: 'ddg_cartesian' or 'ddg_monomer'  Handy property
+        """
+        return self._calculation_flavor
+
+    @property
     def chain_id(self):
         """
         Return the chain_id set in __init__

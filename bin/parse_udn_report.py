@@ -17,6 +17,9 @@ import pandas as pd
 import json
 from lib.amino_acids import longer_names
 from lib import PDBMapProtein
+from lib import PDBMapComplex
+from lib import PDBMapTranscriptUniprot
+from lib import PDBMapTranscriptEnsembl
 from lib import PDBMapVEP
 import unicodedata
 
@@ -195,7 +198,7 @@ while i < dfRows:
                 cleaned_effect = remove_unicode_control_characters(effect)
                 effect = cleaned_effect
             else:
-                effect = str(row[3]).strip() # .encode('utf-8')
+                effect = str(row[3]).strip()  # .encode('utf-8')
 
             if gene not in genes:
                 genes[gene] = {}
@@ -259,7 +262,7 @@ while i < dfRows:
 
             try:
                 raw_mut = df.iloc[i + 2][2]
-                mut = raw_mut.replace("p.", "")
+                mut = raw_mut.replace("p.", "").strip()
             except (AttributeError,IndexError):
                 LOGGER.warning("Row %3d: %-8s  Could not read AA variant from spreadsheet" % (i, gene))
                 raw_mut = ''
@@ -399,15 +402,23 @@ if csv_rows:
 
         for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             for CSQ in vcf_record.CSQ:
-                unp = PDBMapProtein.enst2unp(CSQ['Feature'])
-                if type(unp) is list: # << This is typical
-                    unp = unp[0]
-                refseq = "NA"
-                if not unp:
-                    LOGGER.warning("No uniprot ID for Ensembl transcript %s"%CSQ['Feature'])
+                ensembl_transcript_id = CSQ['Feature']
+                uniprot_id_list = PDBMapProtein.enst2unp(ensembl_transcript_id)
+                if not uniprot_id_list: # Empty returned of the VEP returned ENST trnascript ID not in our curated idmapping
+                    LOGGER.warning("No curated uniprot ID for VEP-returned Ensembl transcript %s" % ensembl_transcript_id)
                     continue
-                if unp:
-                    refseq = PDBMapProtein.unp2refseqNT(unp)
+                uniprot_id = uniprot_id_list[0]
+
+                uniprot_transcript = PDBMapTranscriptUniprot(uniprot_id)
+                ensembl_transcript = PDBMapTranscriptEnsembl(ensembl_transcript_id)
+                if not PDBMapComplex.uniprot_and_ensembl_close_enough(uniprot_transcript,ensembl_transcript):
+                    LOGGER.info("Skipping integration of Ensembl transcript %s as sequence does not match uniprot",
+                                ensembl_transcript_id)
+
+                refseq = "NA"
+
+                if uniprot_id:
+                    refseq = PDBMapProtein.unp2refseqNT(uniprot_id)
                 if type(refseq) is list and refseq:
                     refseq = refseq[0]
                 else:
@@ -419,8 +430,8 @@ if csv_rows:
                      'change': "%s/%s"%(
                          vcf_record.REF[0], # .translate(str.maketrans('','',string.punctuation)),
                          vcf_record.ALT[0]), #.translate(str.maketrans('','',string.punctuation))),
-                     'transcript': CSQ['Feature'],
-                     'unp': unp,
+                     'transcript': PDBMapProtein.versioned_ensembl_transcript(ensembl_transcript_id),
+                     'unp': uniprot_id,
                      'refseq': refseq,
                      'mutation': "%s%s%s"%(CSQ['Ref_AminoAcid'],CSQ['Protein_position'],CSQ['Alt_AminoAcid'])
                     }

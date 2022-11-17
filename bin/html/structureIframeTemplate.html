@@ -51,6 +51,19 @@
                                      null
                                      {% endif %},
 
+        rate4siteScores: {% if structure['ngl_rate4site_scores'] %}
+                                     {{ structure['ngl_rate4site_scores'] }}
+                                     {% else %}
+                                     null
+                                     {% endif %},
+
+        cosmisScores: {% if structure['ngl_cosmis_scores'] %}
+                                     {{ structure['ngl_cosmis_scores'] }}
+                                     {% else %}
+                                     null
+                                     {% endif %},
+
+
         neutral_variant_short_description: "{{ config_pathprox_dict['neutral_variant_short_description'] }}",
         disease1_variant_short_description: "{{ config_pathprox_dict['disease1_variant_short_description'] }}",
         disease2_variant_short_description: "{{ config_pathprox_dict['disease2_variant_short_description'] }}"

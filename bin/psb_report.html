@@ -75,8 +75,8 @@
     <script type="text/javascript" src="https://pfam.xfam.org/static/javascripts/faces/optimer-bold-normal.js"></script>
     -->
 
-    <!-- NGL molecular graphics viewer -->
-    <script type="text/javascript" src="../html/javascript/ngl.js"></script>
+    <!-- NGL molecular graphics viewer 
+    <script type="text/javascript" src="../html/javascript/ngl.js"></script> -->
 
 
     <!-- IE, being IE, needs extra help. In particular we need to add an extra library
@@ -156,13 +156,6 @@ img {
 }
 
 
-/* Create two equal columns that floats next to each other */
-.column2 {
-    /* float: left; */
-    width: 50%;
-    padding: 10px;
-    /* height: 300px; /* Should be removed. Only for demonstration */
-}
 /* Create three equal columns that floats next to each other */
 .column3 {
    float: left;
@@ -233,7 +226,56 @@ img {
 </iframe>
 <!-- End Domain Graphic area -->
 
+<div class="container">
+    {% for ensembl_transcript_id in rate4site_dict %}
+    <h3>{{ calculation_results.variant[:-1] }} Rate4Site Score {{ ensembl_transcript_id }}</h3>
+    <table cellspacing="1" class="tablesorter" style="width:auto;">
+        <thead>
+        <tr>
+            <th class="sorter-false" />
+            <th class="sorter-false">Rate4Site Score</th>
+            <th class="sorter-false">QQ-Interval</th>
+            <th class="sorter-false">Std</th>
+            <th class="sorter-false">MSA</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>Normalized:</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['score']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_low']|float) }},
+                {{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_high']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['std']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['msa']|float) }}/100</td>
+        </tr>
+    </table>
+    {% endfor %}
+<div class="container">
+    {% for uniprot_id in cosmis_dict %}
+    <h3>{{ calculation_results.variant[:-1] }} Cosmis Score {{ uniprot_id }}</h3>
+    <table cellspacing="1" class="tablesorter" style="width: auto;">
+        <thead>
+        <tr style="width: auto;">
+            <th class="sorter-false" />
+            <th class="sorter-false">Cosmis Score</th>
+            <th class="sorter-false">pValue</th>
+            <th class="sorter-false">cossyn</th>
+            <th class="sorter-false">source</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr style="width: auto;">
+            <td>Normalized:</td>
+            <td>{{ "%.2f"|format(cosmis_dict[uniprot_id]['cosmis']|float) }}</td>
+            <td>{{ "%.2f"|format(cosmis_dict[uniprot_id]['cosmis_pvalue']|float) }}</td>
+            <td>{{ "%.2f"|format(cosmis_dict[uniprot_id]['cossyn']|float) }}</td>
+            <td>{{ cosmis_dict[uniprot_id]['str_source'] }}</td>
+        </tr>
+        </tbody>
+    </table>
+    {% endfor %}
 
+</div>
 <!-- Present a table of all structures analyzed for the transcript -->
 <hr id="StructureReport">
 <div class="container">
