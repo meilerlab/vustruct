@@ -93,18 +93,36 @@ $ ./precompile.bash
 With root access, On CentOS 7 you do this easily  with:
 
 # yum install htslib-tools            # to get bgzip and tabix
-# yum install htslib-devel            #
+# yum install htslib-devel            # just in case you want to develop tools at API level
 
 If you lack root access, you should download and config/make htslib from http://www.htslib.org/   
 It is a relatively quick and painless build.
 
-Add the directory containing the binaries to your PATH
+Add the directory containing the bgzip and tabix binaries to your PATH (in ~/.bashrc always a good idea).
 
 =================================================================================================================
+Following is all mostly quite wrong.
 
-6) INSTALL the Ensembl PERL API.
+6) INSTALL (or configure) PERL to support the Ensembl PERL API.
 
 Access to the Ensembl PERL API requires PERL5 and BioPerl.  In my experience, PERL is a fading star, and it is difficult to imagine that there will not soon be an Ensembl Python API.  Until then, we follow Ensembl's very strict prescription for preparing the required PERL software stack.
+
+
+
+
+7) Install the ENSEMBL PERL files.
+
+My religion in November of 2022 is that the _best_ solution is to fully embrace "git", and the "Ensembl git tools" which need to precede git in your PATH.  Full details of how to install the tools, set the PATH, and _then_ select the branch for the current ENSEMBL version (108) are at:
+
+http://useast.ensembl.org/info/docs/api/api_git.html
+
+Follow the instructions at the above link.  I prefer installing this to an "ensembl/" named top-level directory, and not "src", but otherwise, I do everything asked.  The final step, selecting the correct branch for the database version is important and will be quite like this in the documentation
+
+$ cd ensembl
+$ git ensembl --checkout --branch release/108 api
+
+
+
 
 2020-Oct-31 Update: A potential nuisance is that the anaconda python installation conda insists on creating a ~/perl5 
 somewhere along the above setup.  Because we need SQL database access from PERL, bioperl, and other modules that
