@@ -79,6 +79,7 @@ LOGGER.info("Initializing Flask(%s)", __name__)
 app = Flask(__name__)
 
 jobs_dict = {}
+jobs_needing_website_refresh = []
 
 class ActiveVUstructJob:
     def __init__(self, case_id: str, job_uuid: str) -> None:
@@ -102,20 +103,52 @@ class ActiveVUstructJob:
             subprocess.run(launch_parse_command, shell=False,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         print("%s finished" % launch_parse_command)
+        os.chdir(save_cwd)
 
         return launch_parse_return
+
+    def launch_psb_rep(self):
+        save_cwd = os.getcwd()
+        print("chdir(%s)" % self.working_directory)
+        os.chdir(self.working_directory)
+        print("Attempting to run psb_rep.py in %s" % self.working_directory)
+
+        launch_psb_rep_command = "psb_rep.py"
+        print("Running: %s" % launch_psb_rep_command)
+        launch_psb_rep_return = \
+            subprocess.run(launch_psb_rep_command, shell=False,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print("%s finished" % launch_psb_rep_command)
+        os.chdir(save_cwd)
+
+        return launch_psb_rep_return
+
+
 
 
 
 def launch_vustruct_case(response_json: Dict[str,str]) -> subprocess.CompletedProcess :
+    global jobs_needing_website_refresh
+
     active_vustruct_job = ActiveVUstructJob(
         response_json['case_id'],
         response_json['job_uuid']
     )
-    
+   
+    launch_parse_retcd = 0 
     if 'data_format' in response_json and response_json['data_format'] == 'Vanderbilt UDN Case Spreadsheet':
         launch_parse_retcd = active_vustruct_job.launch_parse_udn_report(response_json['excel_file_URL'])
-    return launch_parse_retcd
+        if launch_parse_retcd != 0:
+            print("UUGH - parse_udn_Report for %s failed with %s" % (response_json['job_uuid'], launch_parse_retcd))
+
+    launch_psb_rep_retcd = active_vustruct_job.launch_psb_rep()
+  
+    if launch_psb_rep_retcd == 0:
+        jobs_needing_website_refresh.append(response_json['job_uuid'])
+    else:
+        print("UUGH - psb_rep for %s failed with %s" % (response_json['job_uuid'], launch_psb_rep_retcd))
+
+    return launch_psb_rep_retcd
 
 # def launch_vustruct_case(uuid_str: str):
 #     psb_plan_command = \
@@ -149,4 +182,10 @@ def launch_vustruct():
 
    return jsonify(json_to_return_after_launch)
 
-
+@app.route('/jobs_needing_refresh', methods = ['POST', 'GET'])
+def jobs_needing_refresh():
+    global jobs_needing_website_refresh
+    json_jobs_needing_website_refresh = jsonify(jobs_needing_website_refresh)
+    # Reset the listof jobs needing website refresh so we don't keep going and going
+    jobs_needing_website_refresh = []
+    return json_jobs_needing_website_refresh
