@@ -179,6 +179,14 @@ def copy_html_css_javascript():
     # sourcee directory
     src = os.path.join(os.path.dirname(os.path.realpath(__file__)), "html")
     dest = "%s/html" % collaboration_dir
+
+    nglviewer_filename = os.path.join(dest, "nglviewer", "examples", "dist", "ngl.js")
+    if os.path.exists(nglviewer_filename):
+        LOGGER.warning("%s found.  Skipping copy_html_css_javascript", nglviewer_filename)
+        return
+    else:
+        LOGGER.info("%s not found.  Assuming first time copy", nglviewer_filename)
+
     LOGGER.info("Copying supporting javascript and html from %s to %s" % (src, dest))
 
     try:
@@ -251,11 +259,7 @@ def gene_interaction_report(case_root, case, CheckInheritance):
 
     structure_positive_genes = [gene.strip() for gene in list(sorted(genepair_dict.keys()))]
 
-    pairs = {}
-    pairs['direct'] = []
-    pairs['pathways'] = []
-    pairs['phenotypes'] = []
-    pairs['other'] = []
+    pairs = {'direct': [], 'pathways': [], 'phenotypes': [], 'other': []}
 
     # We let the template html open the <table> with formatting as it prefers
     # print >>html_table, "<table>" 
@@ -353,12 +357,6 @@ class CalculationResultsLoader:
         # to stop other things from leaking out as issues.
         self._variant_directory_fullpath = os.path.join(collaboration_dir, self._variant_directory_segment)
 
-        if not os.path.exists(os.path.join(collaboration_dir, variant_directory_segment)):
-            LOGGER.critical(
-                "The  variant directory %s has not been created by the pipeline under %s.",
-                variant_directory, collaboration_dir)
-            sys.exit(1)
-
         # These dataframes are raw loads of .csv files created by the psb_plan.py and psb_monitor.py
         # over-arching pipeline control programs.  These are accessed via @properties of the same name
         # which lack the initial underscore.
@@ -380,16 +378,34 @@ class CalculationResultsLoader:
         # filenames for display images, PDBs to display in the NGL viewer, as well as variant lists.
         self.structure_graphics_dicts = []
 
-        self._workstatus_filename_exists = False
-        if os.path.exists(self.workstatus_filename):
-            self._workstatus_filename_exists = True
+        # it is possible that we only have a missense.csv file in the case directory so far,
+        # In that case, we need to leave the constructor with all
+        if not os.path.exists(os.path.join(collaboration_dir, variant_directory_segment)):
+            LOGGER.warning(
+                "The  variant directory %s has not been created by psb_plan.py under %s.",
+                variant_directory, collaboration_dir)
+            return
 
-        if not self._workstatus_filename_exists:
-            if len(self.workplan_df) > 0:
-                LOGGER.critical("No workstatus file (%s) found.  However, %d jobs should have been launched.", \
-                                len(self.workplan_df))
-            else:
-                LOGGER.info("No work was planned for this variant")
+        # If psb_plan.py has been run, then we should have a workplan file with all the jobs laid planned out
+        # However, we won't yet have a workstatus file until psb_launch.py program
+        # In any case, make sure the data collection simply returns all empty dictionaries if no planning has been done
+        self._workplan_filename_exists = False
+        self._workstatus_filename_exists = False
+        if os.path.exists(self.workplan_filename):
+            self._workplan_filename_exists = True
+            # We don't check for a workstatus file until we know there is a plan file.
+            if os.path.exists(self.workstatus_filename):
+                self._workstatus_filename_exists = True
+
+        # Now that the *filename_exists booleans have been set above, we can access the properties
+        # and get the dataframes back
+        if len(self.workplan_df) > 0:
+            if len(self.workstatus_df) == 0:
+                LOGGER.warning("No workstatus file (%s) found.  However, %d jobs are to be launched.",
+                               self.workstatus_filename,
+                               len(self.workplan_df))
+        else:
+            LOGGER.info("No work was planned for this variant")
 
         # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
         if self._workstatus_filename_exists:
@@ -459,31 +475,27 @@ class CalculationResultsLoader:
         if self._workplan_df is not None:
             return self._workplan_df
 
-        if not os.path.exists(self.workplan_filename):
+        if self._workplan_filename_exists:
+            self._workplan_df = pd.read_csv(self.workplan_filename, delimiter='\t')
+        else:
             msg = "Work plan file: %s not found.  Should have been created by psb_plan.py" % self.workplan_filename
-            LOGGER.critical(msg)
-            sys.exit(msg)
+            LOGGER.warning(msg)
+            self._workplan_df = pd.DataFrame(columns=['uniquekey'])
 
-        self._workplan_df = pd.read_csv(self.workplan_filename, delimiter='\t')
         return self._workplan_df
 
     @property
     def workstatus_df(self) -> pd.DataFrame:
         # If nothing was done, return a known empty dataframe
-        if not self._workstatus_filename_exists:
-            return self._workplan_df
-
         if self._workstatus_df is not None:
             return self._workstatus_df
 
-        if not os.path.exists(self.workstatus_filename):
-            msg = "Work status file: %s not found.  Should have been created by psb_monitor.py" % \
-                  self.workstatus_filename
-            LOGGER.critical(msg)
-            sys.exit(msg)
+        if self._workstatus_filename_exists:
+            self._workstatus_df = pd.read_csv(self.workstatus_filename, delimiter='\t', keep_default_na=False,
+                                              na_filter=False, dtype=str)
+        else:
+            self._workstatus_df = pd.DataFrame(columns=['uniquekey'])
 
-        self._workstatus_df = pd.read_csv(self.workstatus_filename, delimiter='\t', keep_default_na=False,
-                                          na_filter=False, dtype=str)
         return self._workstatus_df
 
     @property
@@ -508,11 +520,13 @@ class CalculationResultsLoader:
             return self._structure_report_df
 
         if not os.path.exists(self.structure_report_filename):
-            msg = "Structure Report file: %s not found.  Should have been created by pipeline psb_plan.py" % self.structure_report_filename
-            LOGGER.critical(msg)
-            sys.exit(msg)
+            LOGGER.warning("Structure Report file: %s not found.  Should have been created by pipeline psb_plan.py",
+                           self.structure_report_filename)
+            # Create an empty dataframe
+            self._structure_report_df = pd.DataFrame(columns=['method', 'structure_id', 'chain_id', 'mers'])
+        else:
+            self._structure_report_df = pd.read_csv(self.structure_report_filename, delimiter='\t')
 
-        self._structure_report_df = pd.read_csv(self.structure_report_filename, delimiter='\t')
         return self._structure_report_df
 
     def load_Pathprox_results_dataframe(self, workplan_df_row: pd.Series, disease_1_or_2: str) -> (pd.Series, str):
@@ -721,8 +735,6 @@ class CalculationResultsLoader:
                         str(workstatus_row))
                     LOGGER.critical(die_msg)
                     sys.exit(die_msg)
-
-
             else:
                 workstatus_row['Notes'] = workstatus_row['JobState']
 
@@ -801,7 +813,7 @@ class CalculationResultsLoader:
             with open(alpha_fold_metrics_json) as json_f:
                 alpha_fold_metrics = json.load(json_f)
         return alpha_fold_metrics
-    
+
     def _load_cosmis_json(self, pathprox_result: pd.Series) -> Dict:
         """
         Supports load_structure_graphics_dicts by loading cosmis scores for each chain left from the pathprox runs
@@ -822,7 +834,6 @@ class CalculationResultsLoader:
                 cosmis_scores = json.load(json_f)
         return cosmis_scores
 
-
     def _load_rate4site_json(self, pathprox_result: pd.Series) -> Dict:
         """
         Supports load_structure_graphics_dicts by loading rate4site scores for each chain left from the pathprox runs
@@ -830,8 +841,8 @@ class CalculationResultsLoader:
         @return: Rate4Site json file.  Dictionary per chain, with then values per residue.
         """
         rate4site_scores_json_filename = os.path.join(self._variant_directory_segment,
-                                                   pathprox_result['output_flavor_directory'],
-                                                   pathprox_result['pathprox_prefix'] + "_rate4site.json")
+                                                      pathprox_result['output_flavor_directory'],
+                                                      pathprox_result['pathprox_prefix'] + "_rate4site.json")
 
         if not os.path.exists(rate4site_scores_json_filename):
             LOGGER.warning(
@@ -886,9 +897,8 @@ class CalculationResultsLoader:
         # If the dataframe is empty, (i.e. no structural coverage) then do not run through the apply process,
         # because it returns a bad thing....
         if not structure_report_df_appended.empty:
-            structure_report_df_appended['html_div_id'] = structure_report_df_appended.apply(lambda df_row: \
-                                                                                                 html_div_id_create(
-                                                                                                     df_row), axis=1)
+            structure_report_df_appended['html_div_id'] = structure_report_df_appended.apply(
+                lambda df_row: html_div_id_create(df_row), axis=1)
 
         # Let's round some columns for sane output
         structure_report_df_appended = structure_report_df_appended.round(
@@ -951,7 +961,7 @@ class CalculationResultsLoader:
                             # Add the Rate4site score json format to the dictionary seen in the django template.
                             structure_graphics_dict['ngl_rate4site_scores'] = \
                                 javascript_dict_residues_rate4site_scores
-                            
+
                     if not cosmis_scores:
                         cosmis_scores = self._load_cosmis_json(pathprox_result_series_for_structure)
                         if cosmis_scores:
@@ -973,7 +983,6 @@ class CalculationResultsLoader:
                             # Add the Cosmis score json format to the dictionary seen in the django template.
                             structure_graphics_dict['ngl_cosmis_scores'] = \
                                 javascript_dict_residues_cosmis_scores
-
 
                     if 'pdbSSfilename' in pathprox_output_json:
                         pdbSSbasename = os.path.basename(pathprox_output_json['pdbSSfilename'])
@@ -1474,33 +1483,40 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
            the unp from the parent row (on the main page report) populates variables so a minimal report can be
            completed
     @return: An variant_isoform_summary dictionary that can help the caller assemble the main report page.
+             or {} if no caluclation results are available for any reason
     """
 
     # Start logging - after which logging entries are mirrored to variant_directory/psb_rep.log
     variant_directory_fullpath = CalculationResultsLoader.collaboration_dir_variant_directory_segment(
         variant_directory_segment)
+
+    if not os.path.exists(variant_directory_fullpath):
+        LOGGER.warning("The variant directory has not even been created via psb_plan yet,")
+        return {}
+
     local_logger_fh = _initialize_local_logging_in_variant_directory(variant_directory_fullpath)
 
     # The rate4site score for the variant is shown in a table of transcripts near top, if rate4site data is found
     rate4site_dict = {}
     if 'transcript' in parent_report_row and parent_report_row['transcript']:
-        ensembl_transcript_ids =  parent_report_row['transcript'].split(';')
+        ensembl_transcript_ids = parent_report_row['transcript'].split(';')
         for ensembl_transcript_id in ensembl_transcript_ids:
             rate4site_norm_rates_filename = os.path.join(config_dict['rate4site_dir'],
-                                                     "%s_norm_rates.txt" % ensembl_transcript_id.split('.')[0])
+                                                         "%s_norm_rates.txt" % ensembl_transcript_id.split('.')[0])
             if os.path.exists(rate4site_norm_rates_filename):
                 rate4site_df, alpha_parameter, average, std = PDBMapComplex._load_one_rate4site_file(
                     rate4site_norm_rates_filename)
                 variant_pos = int(parent_report_row['mutation'][1:-1])
                 # Now grab just th dataframe row of all the rate4site entries for this position
-                rate4site_dict[ensembl_transcript_id] = rate4site_df[rate4site_df['pos'] == variant_pos].iloc[0].to_dict()
+                rate4site_dict[ensembl_transcript_id] = rate4site_df[rate4site_df['pos'] == variant_pos].iloc[
+                    0].to_dict()
             else:
                 LOGGER.warning("No rate4site results were found for %s: %s",
                                parent_report_row['unp'], ensembl_transcript_id)
 
     cosmis_dict = {}
     if 'unp' in parent_report_row and parent_report_row['unp']:
-        uniprot_id =  parent_report_row['unp'].split('-')[0]
+        uniprot_id = parent_report_row['unp'].split('-')[0]
         cosmis_df = PDBMapComplex._load_one_cosmis_set(uniprot_id)
         if cosmis_df.empty:
             LOGGER.warning("No cosmis results were found for %s", uniprot_id)
@@ -1521,11 +1537,10 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
     # and also useful to compose the report.
     variant_isoform_summary = {}
 
-
     # Load the template psb_report.html that is hear
-    env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
-    variant_isoform_template = env.get_template("psb_report.html")
-    structure_iframe_template = env.get_template("html/structureIframeTemplate.html")
+    jinja2_environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
+    variant_isoform_template = jinja2_environment.get_template("psb_report.html")
+    structure_iframe_template = jinja2_environment.get_template("html/structureIframeTemplate.html")
 
     calculation_results_loader_as_dict = {key: value for key, value in vars(calculation_results_loader).items() \
                                           if not (
@@ -1590,7 +1605,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
     # Encapsulate in a list
     template_render_dict["DomainGraphicsJSON"] = '[' + json.dumps(pfam_domain_graphics_dict) + ']'
 
-    template_pfam_graphics = env.get_template("html/pfamGraphicsIframeTemplate.html")
+    template_pfam_graphics = jinja2_environment.get_template("html/pfamGraphicsIframeTemplate.html")
     pfam_graphics_html_full_iframe = template_pfam_graphics.render(template_render_dict)
 
     # The variant_report refers to the Pfam graphics without a directory indicator.
@@ -1649,8 +1664,8 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
 
     return variant_isoform_summary
 
-    env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
-    isoform_variant_template = env.get_template("psb_report.html")
+    jinja2_environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
+    isoform_variant_template = jinja2_environment.get_template("psb_report.html")
 
     if LOGGER.isEnabledFor(logging.DEBUG):
         pp = pprint.PrettyPrinter(indent=1)
@@ -1658,7 +1673,7 @@ def report_one_variant_one_isoform(variant_directory_segment: str, parent_report
 
     html_out = isoform_variant_template.render(template_vars)
 
-    templatePfamGraphics = env.get_template("html/pfamGraphicsIframeTemplate.html")
+    templatePfamGraphics = jinja2_environment.get_template("html/pfamGraphicsIframeTemplate.html")
     htmlPfamGraphics = templatePfamGraphics.render(template_vars)
 
     save_cwd = os.getcwd()
@@ -1739,6 +1754,23 @@ PDBMapSQLdb.set_access_dictionary(config_dict)
 
 copy_html_css_javascript()
 
+# Build up a dictionary of logging steps performed
+parse_udn_report_dict = {}
+parse_udn_report_logfile = "log/parse_udn_report.log"
+if os.path.exists(parse_udn_report_logfile):
+    parse_udn_report_dict['parse_udn_report_logfile'] = parse_udn_report_logfile;
+    parse_udn_report_dict['case'] = args.projectORstructures
+    website_filelist.append(parse_udn_report_logfile)
+
+vustruct_logs_template_location = os.path.dirname(os.path.realpath(__file__))
+jinja2_environment = Environment(loader=FileSystemLoader(vustruct_logs_template_location))
+vustruct_logs_template = jinja2_environment.get_template("vustruct_logs.html")
+html_out = vustruct_logs_template.render(parse_udn_report_dict)
+case_logs_html_filename = os.path.join("log", "%s_logs.html" % args.projectORstructures)
+with open(case_logs_html_filename, "w") as f:
+    f.write(html_out)
+website_filelist.append(case_logs_html_filename)
+
 # directly from a single mutation output file of psb_plan.py
 if oneMutationOnly:
     if args.slurm:
@@ -1770,7 +1802,7 @@ else:
         jobCount = len(df_all_mutations)
         msg = "Slurm script to run %d reports for %s is %s" % (jobCount, args.projectORstructures, slurm_file)
     else:  # not a slurm run - so just do one report after another- normal case
-        msg = "Reporting on all %d project %s mutations" % (len(df_all_mutations), args.projectORstructures)
+        msg = "Reporting on all %d case=%s mutations" % (len(df_all_mutations), args.projectORstructures)
     if not infoLogging:
         print(msg)
     LOGGER.info(msg)
@@ -1802,10 +1834,11 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 return row[0].strip()
 
 
+    # When we have chrom+pos+change columns in the input, then make collapsible rows
+    # for each entry, where the transcripts are shown when the row is expanded.
     if {'chrom', 'pos', 'change'}.issubset(df_all_mutations.columns) and not args.slurm:
         for index, row in df_all_mutations.iterrows():
             chrom_pos_change = (row['chrom'], row['pos'], row['change'])
-            LOGGER.info("%s", chrom_pos_change)
             genome_variants[chrom_pos_change].append((index, row))
 
         for chrom_pos_change in genome_variants:
@@ -1831,6 +1864,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             }
 
             variant_isoform_summaries = []
+            genome_header['variant_isoform_summaries'] = variant_isoform_summaries
+
             for index, genome_variant_row in genome_variants[chrom_pos_change]:
                 msg = "%s %-10s %-10s %-6s" % (
                     "      ", genome_variant_row['refseq'], genome_variant_row['mutation'], genome_variant_row['unp'])
@@ -1860,77 +1895,80 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     variant_isoform_summary['Refseq'] = genome_variant_row['refseq']
                     variant_isoform_summary['Mutation'] = genome_variant_row['mutation']
                     variant_isoform_summaries.append(variant_isoform_summary)
+
+
+                    # Go to SQL to get the Gene ID for this gene.....
+                    genome_header['gene_id'] = variant_isoform_summary['gene_id']
+
+                    genome_header['ddG Monomer Min'] = min(
+                        [variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary[
+                             'ddG Monomer Min'] is not None],
+                        default=None)
+                    genome_header['ddG Monomer Max'] = max(
+                        [variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary[
+                             'ddG Monomer Max'] is not None],
+                        default=None)
+
+                    genome_header['ddG Cartesian Min'] = min(
+                        [variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary[
+                             'ddG Cartesian Min'] is not None],
+                        default=None)
+                    genome_header['ddG Cartesian Max'] = max(
+                        [variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary[
+                             'ddG Cartesian Max'] is not None],
+                        default=None)
+
+                    genome_header['AA_Len Min'] = min(
+                        [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
+                        default=None)
+
+                    genome_header['AA_Len Max'] = max(
+                        [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
+                        default=None)
+
+                    genome_header['disease1_pp Min'] = min(
+                        [variant_isoform_summary['disease1_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'disease1_pp Min' in variant_isoform_summary and variant_isoform_summary[
+                             'disease1_pp Min'] is not None],
+                        default=None)
+                    genome_header['disease1_pp Max'] = max(
+                        [variant_isoform_summary['disease1_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'disease1_pp Max' in variant_isoform_summary and variant_isoform_summary[
+                             'disease1_pp Max'] is not None],
+                        default=None)
+
+                    genome_header['disease2_pp Min'] = min(
+                        [variant_isoform_summary['disease2_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'disease2_pp Min' in variant_isoform_summary and variant_isoform_summary[
+                             'disease2_pp Min'] is not None],
+                        default=None)
+                    genome_header['disease2_pp Max'] = max(
+                        [variant_isoform_summary['disease2_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'disease2_pp Max' in variant_isoform_summary and variant_isoform_summary[
+                             'disease2_pp Max'] is not None],
+                        default=None)
+
+                    genome_header['Error'] = max(
+                        [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
+                         if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
+                        default=None)
+
+                    genome_headers.append(genome_header)
+
+
+
                 else:
                     msg = "Due to lack of pathprox or ddG outputs, %s %s %s has no html (or pdf) report" % (
                         genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
                     if not infoLogging:
                         print(msg)
                     LOGGER.info(msg)
-            genome_header['variant_isoform_summaries'] = variant_isoform_summaries
-
-            # Go to SQL to get the Gene ID for this gene.....
-            genome_header['gene_id'] = variant_isoform_summary['gene_id']
-
-            genome_header['ddG Monomer Min'] = min(
-                [variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary[
-                     'ddG Monomer Min'] is not None],
-                default=None)
-            genome_header['ddG Monomer Max'] = max(
-                [variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary[
-                     'ddG Monomer Max'] is not None],
-                default=None)
-
-            genome_header['ddG Cartesian Min'] = min(
-                [variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary[
-                     'ddG Cartesian Min'] is not None],
-                default=None)
-            genome_header['ddG Cartesian Max'] = max(
-                [variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary[
-                     'ddG Cartesian Max'] is not None],
-                default=None)
-
-            genome_header['AA_Len Min'] = min(
-                [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
-                default=None)
-
-            genome_header['AA_Len Max'] = max(
-                [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
-                default=None)
-
-            genome_header['disease1_pp Min'] = min(
-                [variant_isoform_summary['disease1_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'disease1_pp Min' in variant_isoform_summary and variant_isoform_summary[
-                     'disease1_pp Min'] is not None],
-                default=None)
-            genome_header['disease1_pp Max'] = max(
-                [variant_isoform_summary['disease1_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'disease1_pp Max' in variant_isoform_summary and variant_isoform_summary[
-                     'disease1_pp Max'] is not None],
-                default=None)
-
-            genome_header['disease2_pp Min'] = min(
-                [variant_isoform_summary['disease2_pp Min'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'disease2_pp Min' in variant_isoform_summary and variant_isoform_summary[
-                     'disease2_pp Min'] is not None],
-                default=None)
-            genome_header['disease2_pp Max'] = max(
-                [variant_isoform_summary['disease2_pp Max'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'disease2_pp Max' in variant_isoform_summary and variant_isoform_summary[
-                     'disease2_pp Max'] is not None],
-                default=None)
-
-            genome_header['Error'] = max(
-                [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
-                 if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
-                default=None)
-
-            genome_headers.append(genome_header)
 
     else:  # There are no chrom positions in this case.  Use the old format
         variant_isoform_summaries = []  # One line per variant
@@ -2112,11 +2150,11 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 digepred_gene_pairs.append(gene_pair_dict)
 
         case_report_template_location = os.path.dirname(os.path.realpath(__file__))
-        env = Environment(loader=FileSystemLoader(case_report_template_location))
+        jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
         # if len(found_graphics_files) == 2:
         #     LOGGER.info("Integrating DiGePred svg graphics")
         #     digenic_graphics_score_only_filename = os.path.join('.', found_graphics_files['digenic_score'])
-        #     template = env.get_template("html/DigenicInteractionsReportTemplate.html")
+        #     template = jinja2_environment.get_template("html/DigenicInteractionsReportTemplate.html")
         #     # Probably a goof - but the template file restates the full graphics filenames
         #     html_out = template.render({'case': args.projectORstructures})
         #     digenic_graphics_html_filename = os.path.join(collaboration_dir, 'casewide',
@@ -2143,7 +2181,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         #         if genome_header['Gene'] in geneInteractions_familial:
         #             genome_header['Gene Interactions Familial'] = ' '.join(
         #                 geneInteractions_familial[genome_header['Gene']])
-        case_report_template = env.get_template("case_report_template.html")
+        case_report_template = jinja2_environment.get_template("case_report_template.html")
         # print html_table
         final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
                                'genome_headers': genome_headers,
@@ -2191,9 +2229,15 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     if website_filelist:
         try:
             os.remove('index.html')  # First time through will gen an exception.  That's A-OK
-        except:
+        except OSError:  # A-OK if file is not arleady there
             pass
-        os.symlink(case_summary_filename, 'index.html')
+        try:
+            # The symlink fails when we are running in some vm environments - so we just copy in those cases
+            os.symlink(case_summary_filename, 'index.html')
+        except PermissionError:
+            LOGGER.info("Creating index.html as symlink failed in VM.  Attempting simpler cp operations")
+            shutil.copy(src=case_summary_filename, dst='index.html')
+            pass
         website_filelist.append('index.html')
 
         website_filelist_filename = os.path.join(collaboration_dir,
