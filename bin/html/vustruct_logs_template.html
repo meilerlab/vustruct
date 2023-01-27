@@ -1,0 +1,14 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Log Files and Analysis details for {{ case }}</title>
+</head>
+<body>
+{% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['logfile'] %}
+<A href="{{ module }} and then {{ vustruct[module]['logfile'] }}" download="{{ vustruct[module]['logfile'] }}" >Download {{ vustruct[module]['logfile'] }}</A> :
+<body>More text about {{ vustruct[module]['logfile'] }}</body>
+{% endfor %}
+</body>
+</html>
