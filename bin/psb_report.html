@@ -3,7 +3,7 @@
 <html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
 	<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
-	<title>{{ "%s %s %s"%(calculation_results.gene,calculation_results.unp,calculation_results.variant) }}</title>
+	<title>{{ "%s %s %s"%(gene,uniprot_id,variant) }}</title>
 	<!-- <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css"> -->
  <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
 	<!-- jQuery -->
@@ -212,11 +212,11 @@ img {
 	</tr>
 	<tr>
 		<th style="text-align:right">Protein</th>
-		<td><a href="https://www.uniprot.org/uniprot/{{ calculation_results.unp }}">{{ calculation_results.unp }}</a></td>
+		<td><a href="https://www.uniprot.org/uniprot/{{ uniprot_id }}">{{ uniprot_id }}</a></td>
 	</tr>
 	<tr>
 		<th style="text-align:right">Variant</th>
-		<td>{{ calculation_results.variant }}</td>
+		<td>{{ variant }}</td>
 	</tr>
 </table>
 <iframe  height="100%" width="100%" style="width:100%; height:100%; border: none; overflow:hidden; " src="{{ pfamGraphicsIframe_fname }}" onload="resizeIframe(this)" scrolling="no">
@@ -225,7 +225,7 @@ img {
 
 <div class="container">
     {% for ensembl_transcript_id in rate4site_dict %}
-    <h3>{{ calculation_results.variant[:-1] }} Rate4Site Score {{ ensembl_transcript_id }}</h3>
+    <h3>{{ variant[:-1] }} Rate4Site Score {{ ensembl_transcript_id }}</h3>
     <table cellspacing="1" class="tablesorter" style="width:auto;">
         <thead>
         <tr>
@@ -249,7 +249,7 @@ img {
     {% endfor %}
 <div class="container">
     {% for uniprot_id in cosmis_dict %}
-    <h3>{{ calculation_results.variant[:-1] }} Cosmis Score {{ uniprot_id }}</h3>
+    <h3>{{ variant[:-1] }} Cosmis Score {{ uniprot_id }}</h3>
     <table cellspacing="1" class="tablesorter" style="width: auto;">
         <thead>
         <tr style="width: auto;">
