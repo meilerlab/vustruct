@@ -50,6 +50,9 @@ from typing import Dict
 from logging.handlers import RotatingFileHandler
 from logging import handlers
 
+from vustruct import VUstruct
+
+
 sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
 global_fh = None  # Setup global fileHandler log when we get more info
@@ -119,14 +122,15 @@ cmdline_parser.add_argument("refseq", nargs='?', type=str, help="Omit OR NM_... 
 cmdline_parser.add_argument("mutation", nargs='?', type=str, help="Omit OR HGVS mutation string (ex S540A)")
 args, remaining_argv = cmdline_parser.parse_known_args()
 
-infoLogging = False
+# infoLogging = False  Old/ancient idea about printing vs. logging.  Everything logged now
 
 if args.debug:
-    infoLogging = True
     sh.setLevel(logging.DEBUG)
 elif args.verbose:
-    infoLogging = True
     sh.setLevel(logging.INFO)
+else:
+    sh.setLevel(logging.INFO)
+
 # If neither option, then logging.WARNING (set at top of this code) will prevail for stdout
 
 # If we can reload from RAM, it saves a ton of time
@@ -175,6 +179,7 @@ psb_permissions = psb_perms.PsbPermissions(config_dict)
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory, args.project)
+
 psb_permissions.makedirs(collaboration_dir)
 # collaboration_log_dir = os.path.join(collaboration_dir,"log")
 
@@ -217,12 +222,12 @@ oneMutationOnly = args.gene or args.refseq or args.mutation
 # If this is a "global" run of psb_plan, then make a global log file in the collaboration directory
 if not oneMutationOnly:
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(collaboration_dir, "%s_psb_plan.log" % args.project)
+    plan_wide_log_filename = os.path.join("./log", "psb_plan.log")
 
-    sys.stderr.write("Collaboration-wide  psb_plan log file is %s\n" % log_filename)
-    needRoll = os.path.isfile(log_filename)
+    sys.stderr.write("psb_plan log file is %s\n" % plan_wide_log_filename)
+    needRoll = os.path.isfile(plan_wide_log_filename)
 
-    global_fh = RotatingFileHandler(log_filename, backupCount=7)
+    global_fh = RotatingFileHandler(plan_wide_log_filename, backupCount=7)
     formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
                                   datefmt="%H:%M:%S")
     global_fh.setFormatter(formatter)
@@ -295,8 +300,6 @@ LOGGER.info("Pathprox Neutral   command line argument: %s" % pathprox_arguments[
 LOGGER.info("Results for patient case %s will be rooted in %s" % (args.project, collaboration_dir))
 
 swiss_filename = os.path.join(config_dict['swiss_dir'], config_dict['swiss_summary'])
-if not infoLogging:
-    print("Loading swiss model JSON metadata from %s" % swiss_filename)
 LOGGER.info("Loading swiss model JSON metadata from %s" % swiss_filename)
 
 # import cProfile
@@ -304,12 +307,10 @@ LOGGER.info("Loading swiss model JSON metadata from %s" % swiss_filename)
 # sys.exit(0)
 PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'], config_dict['swiss_summary'])
 # In order to set the directories, we need the gene name worted out, interestingly enough
-if not infoLogging:
-    print("Loading idmapping file from %s" % config_dict['idmapping'])
 
-LOGGER.info("Loading idmapping")
+LOGGER.info("Loading idmapping from %s" % config_dict['idmapping'])
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
-LOGGER.info("Loading done")
+LOGGER.debug("Loading done")
 
 
 # print "Establishing connection with the PDBMap database..."
@@ -387,7 +388,7 @@ def get_pdb_pos(*args):
         df = pd.read_sql(ModbaseSwiss_sql, io._con, params={'sid': sid, 'chain': chain,
                                                             'trans': transcript, 'trans_pos': trans_pos})
         if df.empty:
-            LOGGER.info("WARNING: Residue %s is missing in %s %s.%s." % (trans_pos, label, sid, chain))
+            LOGGER.warning("WARNING: Residue %s is missing in %s %s.%s." % (trans_pos, label, sid, chain))
             return np.nan
 
     return df["chain_seqid"].values[0]
@@ -2094,14 +2095,18 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
 
 
 if oneMutationOnly:
-    print("Planning work for one mutation only: %s %s %s %s" % (args.project, args.entity, args.refseq, args.mutation))
+    # LATER - This needs to be cleaned up.s
+    LOGGER.info("Planning work for one mutation only: %s %s %s %s" % (args.project, args.entity, args.refseq, args.mutation))
     df_all_jobs, workplan_filename, df, df_dropped, log_filename = plan_one_mutation(args.entity, args.refseq,
                                                                                      args.mutation)
-    print("Workplan of %d jobs written to:" % len(df_all_jobs), workplan_filename)
-    print("%3d structures/models will be processed." % len(ci_df))
-    print("%3d structures/models were considered, but dropped." % len(df_dropped))
-    print("Full details in %s", log_filename)
+    LOGGER.info("Workplan of %d jobs written to:" % len(df_all_jobs), workplan_filename)
+    LOGGER.info("%3d structures/models will be processed." % len(ci_df))
+    LOGGER.info("%3d structures/models were considered, but dropped." % len(df_dropped))
+    LOGGER.info("Full details in %s", log_filename)
 else:
+    vustruct = VUstruct('plan', args.project, __file__)
+    vustruct.stamp_start_time()
+
     original_Vanderbilt_UDN_case_xlsx_filename = None
     if digepred_program:
         original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(collaboration_dir, "%s.xlsx" % args.project)
@@ -2120,17 +2125,17 @@ else:
         fulldir, filename = os.path.split(log_filename)
         fulldir, casewide_dir = os.path.split(fulldir)
         fulldir, project_dir = os.path.split(fulldir)
-        print(" %4d casewide jobs will run.  See: $UDN/%s" % (
+        LOGGER.info(" %4d casewide jobs will run.  See: $UDN/%s" % (
         len(df_all_jobs), os.path.join(project_dir, casewide_dir, filename)))
     else:
-        print(" No casewide jobs will be run.")
+        LOGGER.info(" No casewide jobs will be run.")
 
     # Now plan the per-mutation jobs
     udn_csv_filename = os.path.join(collaboration_dir, "%s_missense.csv" % args.project)
-    print("Retrieving project mutations from %s" % udn_csv_filename)
+    LOGGER.info("Retrieving project mutations from %s" % udn_csv_filename)
     df_all_mutations = pd.read_csv(udn_csv_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
-    print("Work for %d mutations will be planned" % len(df_all_mutations))
+    LOGGER.info("Work for %d mutations will be planned" % len(df_all_mutations))
 
     if 'unp' not in df_all_mutations.columns:
         df_all_mutations['unp'] = None
@@ -2210,10 +2215,10 @@ else:
 
     ui_final_table = pd.DataFrame()
     for index, row in df_all_mutations.iterrows():
-        print("Planning %3d,%s,%s,%s,%s" % (
+        LOGGER.info("Planning %3d,%s,%s,%s,%s" % (
         index, row['gene'], row['refseq'], row['mutation'], row['unp'] if 'unp' in row else "???"))
         if ('unp' in row) and ('user_model' in row):
-            print("....Including user_model %s" % row['user_model'])
+            LOGGER.info("Including user_model %s" % row['user_model'])
         ui_final = {}
         for f in ['gene', 'refseq', 'mutation', 'unp']:
             ui_final[f] = row[f]
@@ -2231,7 +2236,7 @@ else:
         fulldir, filename = os.path.split(log_filename)
         fulldir, mutation_dir = os.path.split(fulldir)
         fulldir, project_dir = os.path.split(fulldir)
-        print(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s" % (
+        LOGGER.info(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s" % (
         len(df_structures), len(df_dropped), len(df_all_jobs), os.path.join(project_dir, mutation_dir, filename)))
         ui_final['retained'] = len(df_structures)
         ui_final['dropped'] = len(df_dropped)
@@ -2249,8 +2254,12 @@ else:
         justify='center',
         formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq, 'unp': myLeftJustifiedUNP,
                     'planfile': myLeftJustifiedPlanfile})
-    print(("Structure Report\n%s" % final_structure_info_table))
-    LOGGER.info("%s", final_structure_info_table)
+    LOGGER.info(("Structure Report\n%s" % final_structure_info_table))
+
+    vustruct.logfile = plan_wide_log_filename
+    vustruct.exit_code = 0
+    vustruct.write_file()
+
 
     # It is so easy to forget to create this phenotypes file - so remind user again!
     # if not os.path.exists(phenotypes_filename):

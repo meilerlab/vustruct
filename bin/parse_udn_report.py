@@ -23,6 +23,7 @@ from lib import PDBMapTranscriptEnsembl
 from lib import PDBMapVEP
 import unicodedata
 
+from vustruct import VUstruct
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
@@ -65,6 +66,11 @@ config, config_dict = psb_config.read_config_files(args, required_items)
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory, args.project)
 
+vustruct = VUstruct('preprocess', args.project, __file__)
+vustruct.stamp_start_time()
+
+
+
 
 def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
     """
@@ -76,7 +82,7 @@ def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
     stream_handler = logging.StreamHandler()
     root_logger = logging.getLogger()
 
-    _log_filename = os.path.join(collaboration_dir, "log", "%s.log" % program_name)
+    _log_filename = os.path.join("./log", "%s.log" % program_name)
     os.makedirs(os.path.dirname(_log_filename), exist_ok=True)
 
     sys.stderr.write("Log file is %s\n" % _log_filename)
@@ -84,7 +90,7 @@ def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
 
     rotating_file_handler = RotatingFileHandler(_log_filename, backupCount=7)
     formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                              datefmt="%H:%M:%S")
+                                  datefmt="%H:%M:%S")
     rotating_file_handler.setFormatter(formatter)
     rotating_file_handler.setLevel(logging.INFO)
     root_logger.addHandler(rotating_file_handler)
@@ -117,10 +123,7 @@ def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
 
 log_filename = initialize_file_and_stderr_logging(__file__)
 
-
-
-
-LOGGER=logging.getLogger()
+LOGGER = logging.getLogger()
 
 udn_excel_filename = os.path.join(udn_root_directory, args.project, args.project + ".xlsx")
 missense_csv_filename = os.path.join(udn_root_directory, args.project, args.project + "_missense.csv")
@@ -556,3 +559,8 @@ if csv_rows:
     LOGGER.info("==> %d rows successfully written to %s" % (len(df_with_original_lineno), missense_csv_filename))
     LOGGER.info("==> Compare contents to original input file %s" % udn_excel_filename)
     LOGGER.info("==> These log entries are in %s", log_filename)
+
+    vustruct.logfile = log_filename
+    vustruct.exit_code = 0
+    vustruct.write_file()
+
