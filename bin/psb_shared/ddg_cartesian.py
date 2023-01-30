@@ -293,10 +293,10 @@ COMPLEX:   Round3: MUT_106VAL:  -615.593  fa_atr: -1141.217 fa_rep:   147.892 fa
                 with pushdir(relax_directory):
                     _previous_exit_code, _stdout, _stdin = self._command_ran_previously(
                         self._relax_application_filename)
-                    assert previous_exit_code == 0, \
+                    assert _previous_exit_code == 0, \
                         "%s directory lacks a 0 exit code recorded.  This should never happen" % \
                         relax_directory
-                    return previous_exit_code, _stdout, _stdin
+                    return _previous_exit_code, _stdout, _stdin
 
             if os.path.isdir(relax_directory):
                 previous_exit_code, stdout, stderr = load_from_prior_relax()
