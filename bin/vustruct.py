@@ -34,14 +34,14 @@
 import json
 import copy
 import sys
-from datetime import datetime;
+from datetime import datetime
 import logging
 LOGGER = logging.getLogger(__name__)
 
 
 class VUstruct:
 
-    def __init__(self, vustruct_module :str, case_id: str, executable_file: str):
+    def __init__(self, vustruct_module: str, case_id: str, executable_file: str):
         possible_vustruct_modules = [
             'preprocess',
             'plan',
@@ -61,7 +61,7 @@ class VUstruct:
                 'executable': '',
                 'start_time': '',
                 'logfile': '',
-                'exit_code': 1 # Default file is marked as not exiting well
+                'exit_code': 1  # Default file is marked as not exiting well
 
             } for command_line_module in possible_vustruct_modules
         }
@@ -79,25 +79,20 @@ class VUstruct:
     def dict_for_jinja2(self):
         return copy.deepcopy(self._vustruct_dict)
 
-
-
     def stamp_start_time(self):
         self._vustruct_dict[self._module]['start_time'] = datetime.now().isoformat()
 
     @property
-    def start_time(self, value):
-        self._vustruct_dict[self._module]['start_time'] = value
-
-
+    def start_time(self):
+        return self._vustruct_dict[self._module]['start_time']
 
     @property
     def exit_code(self):
-        self._vustruct_dict[self._module]['exit_code'] = datetime.now().isoformat()
+        return self._vustruct_dict[self._module]['exit_code']
 
     @exit_code.setter
     def exit_code(self, value):
         self._vustruct_dict[self._module]['exit_code'] = value
-
 
     @property
     def logfile(self):
@@ -124,14 +119,9 @@ class VUstruct:
 
     def write_file(self):
         with open(self._filename, 'w') as f:
-            json.dump(self._vustruct_dict, f, indent=2);
+            json.dump(self._vustruct_dict, f, indent=2)
 
 
 if __name__ == '__main__':
     print("Only for use as library")
     sys.exit(1)
-
-            
-    
-
-
