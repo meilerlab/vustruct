@@ -34,24 +34,18 @@ The three output files for each gene include:
 
 print("%s: Pipeline execution plan generator.  -h for detailed help" % __file__)
 
-import os
-import sys
-import grp
-import stat
-import pwd
-import gzip
-import lzma
-import logging
 import datetime
+import gzip
+import logging
+import lzma
+import os
+import shutil
+import sys
 from io import StringIO
-
+from logging.handlers import RotatingFileHandler
 from typing import Dict
 
-from logging.handlers import RotatingFileHandler
-from logging import handlers
-
 from vustruct import VUstruct
-
 
 sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
@@ -85,10 +79,6 @@ pd.options.mode.chained_assignment = 'raise'
 pd.set_option("display.max_columns", 100)
 pd.set_option("display.width", 1000)
 import numpy as np
-import time
-from get_structures import get_pdbs, get_modbase_swiss
-import argparse, configparser
-from glob import glob
 from lib import PDBMapSIFTSdb
 from lib import PDBMapProtein
 from lib import PDBMapSwiss
@@ -102,10 +92,7 @@ from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
 from lib.PDBMapAlignment import PDBMapAlignment
 # The planning phase will ask the DDG class about structure quality only
 from psb_shared.ddg_base import DDG_base
-from lib.amino_acids import longer_names
 import pprint
-import shutil
-import warnings
 # from jinja2 import Environment, FileSystemLoader
 
 from psb_shared import psb_config
@@ -175,18 +162,18 @@ from psb_shared import psb_perms
 
 psb_permissions = psb_perms.PsbPermissions(config_dict)
 
-# The collaboration_dir is the master directory for the case, i.e. for one patient
+# The case_dir is the master directory for the case, i.e. for one patient
 # Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
-collaboration_dir = os.path.join(udn_root_directory, args.project)
+case_dir = os.path.join(udn_root_directory, args.project)
 
-psb_permissions.makedirs(collaboration_dir)
-# collaboration_log_dir = os.path.join(collaboration_dir,"log")
+psb_permissions.makedirs(case_dir)
+# case_log_dir = os.path.join(case_dir,"log")
 
 # Whether we made it above or not, we want our main directory for this run to be group capra_lab and sticky!
-psb_permissions.set_dir_group_and_sticky_bit(collaboration_dir)
+psb_permissions.set_dir_group_and_sticky_bit(case_dir)
 
-# psb_permissions.makedirs(collaboration_log_dir)
+# psb_permissions.makedirs(ccase_log_dir)
 
 LOGGER.info("Loading UniProt ID mapping...")
 
@@ -297,7 +284,7 @@ LOGGER.info("Pathprox Disease 1 command line argument: %s" % pathprox_arguments[
 LOGGER.info("Pathprox Disease 2 command line argument: %s" % pathprox_arguments['disease2'])
 LOGGER.info("Pathprox Neutral   command line argument: %s" % pathprox_arguments['neutral'])
 
-LOGGER.info("Results for patient case %s will be rooted in %s" % (args.project, collaboration_dir))
+LOGGER.info("Results for patient case %s will be rooted in %s" % (args.project, case_dir))
 
 swiss_filename = os.path.join(config_dict['swiss_dir'], config_dict['swiss_summary'])
 LOGGER.info("Loading swiss model JSON metadata from %s" % swiss_filename)
@@ -603,7 +590,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     if not gene:
         LOGGER.critical("A gene name was not matched to the refseq or uniprot ID.  Gene will be set to %s", gene)
 
-    mutation_dir = os.path.join(collaboration_dir, "%s_%s_%s" % (gene, refseq, mutation))
+    mutation_dir = os.path.join(case_dir, "%s_%s_%s" % (gene, refseq, mutation))
     psb_permissions.makedirs(mutation_dir)
     mutation_log_dir = mutation_dir
     psb_permissions.makedirs(mutation_log_dir)
@@ -833,7 +820,6 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 
     from Bio.PDB import MMCIFParser
     from Bio.PDB import PDBParser
-    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
     from Bio.SeqUtils import seq1
     mmCIF_parser = MMCIFParser(QUIET=True)
     pdb_parser = PDBParser(QUIET=True)
@@ -2027,7 +2013,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
     # 2017-10-03 Chris Moth modified to key off NT_ refseq id
 
     casewideString = "casewide"
-    casewide_dir = os.path.join(collaboration_dir, casewideString);
+    casewide_dir = os.path.join(case_dir, casewideString);
     psb_permissions.makedirs(casewide_dir)
     casewide_log_dir = casewide_dir  # os.path.join(casewide_dir,"log")
     psb_permissions.makedirs(casewide_log_dir)
@@ -2109,7 +2095,7 @@ else:
 
     original_Vanderbilt_UDN_case_xlsx_filename = None
     if digepred_program:
-        original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(collaboration_dir, "%s.xlsx" % args.project)
+        original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(case_dir, "%s.xlsx" % args.project)
     else:
         LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific UDN analysis will not be performed')
 
@@ -2131,9 +2117,9 @@ else:
         LOGGER.info(" No casewide jobs will be run.")
 
     # Now plan the per-mutation jobs
-    udn_csv_filename = os.path.join(collaboration_dir, "%s_missense.csv" % args.project)
-    LOGGER.info("Retrieving project mutations from %s" % udn_csv_filename)
-    df_all_mutations = pd.read_csv(udn_csv_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+    case_missense_filename = os.path.join(case_dir, "%s_missense.csv" % args.project)
+    LOGGER.info("Retrieving project mutations from %s", case_missense_filename)
+    df_all_mutations = pd.read_csv(case_missense_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
     LOGGER.info("Work for %d mutations will be planned" % len(df_all_mutations))
 
@@ -2178,7 +2164,7 @@ else:
     for index, row in df_all_mutations.iterrows():
         if 'unp' not in row or not str(row['unp']):
             msg = "%s %d Gene %s invalid.  The Pipeline cannot operate on proteins which lack a valid uniprot identifier" % (
-                udn_csv_filename, index + 1, row['Gene'])
+                case_missense_filename, index + 1, row['Gene'])
             LOGGER.critical(msg)
             sys.exit(msg)
         if row['unp'] not in unp2transcript:
@@ -2255,6 +2241,10 @@ else:
         formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq, 'unp': myLeftJustifiedUNP,
                     'planfile': myLeftJustifiedPlanfile})
     LOGGER.info(("Structure Report\n%s" % final_structure_info_table))
+
+    # log_missense_filename = os.path.join("log/", case_missense_filename)
+    # LOGGER.info("Saving %s file to %s", case_missense_filename, log_missense_filename)
+    # shutil.copy(src=case_missense_filename, dst=log_missense_filename)
 
     vustruct.logfile = plan_wide_log_filename
     vustruct.exit_code = 0
