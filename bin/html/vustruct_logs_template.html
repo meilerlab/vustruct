@@ -1,14 +1,86 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">>
-<html lang="en">
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
-    <meta charset="UTF-8">
-    <title>Log Files and Analysis details for {{ case }}</title>
+	<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
+    <title>Log Files for {{ case }}</title>
 </head>
+	<!-- jQuery -->
+	<script type="text/javascript" src="../html/javascript/jquery-3.5.1/jquery-3.5.1.min.js"></script>
+
+	<!-- Demo stuff from mottie.github.io -->
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
+    <script src="../html/javascript/tablesorter_docs/js/prettify.js"></script>
+	<script src="../html/javascript/tablesorter_docs/js/docs.js"></script>
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
+    <script src="../html/javascript/tablesorter_docs/js/prettify.js"></script>
+	<script src="../html/javascript/tablesorter_docs/js/docs.js"></script>
+
+	<!-- Tablesorter required -->
+	<link rel="stylesheet" href="../html/javascript/tablesorter/css/theme.blue.css">
+	<script type="text/javascript" src="../html/javascript/tablesorter/js/jquery.tablesorter.js"></script>
+
+<script type="text/javascript">
+	// In current javascript, syntax below does what we need
+   $(function() {
+                                $(".tablesorter").tablesorter({
+                                        // sortReset: 'true',
+                                        theme: 'blue'
+                                });
+        });
+
+
+</script>
+
+
 <body>
+<h1>{{ case }} Log Files</h1>
+
 {% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['logfile'] %}
-<A href="{{ module }} and then {{ vustruct[module]['logfile'] }}" download="{{ vustruct[module]['logfile'] }}" >Download {{ vustruct[module]['logfile'] }}</A> :
-<body>More text about {{ vustruct[module]['logfile'] }}</body>
+
+<h3>
+<A href="{{ vustruct[module]['logfile'] }}" download>Download {{ vustruct[module]['logfile'] }}</A>
+</h3>
+<div id="{{module}}_div">
+<br>
+{% if module == 'plan' %}
+<A href="../{{case_missense_filename}}" download={{ case_missense_filename }}>Download {{case_missense_filename}}</A>
+
+<TABLE cellspacing="1" class="tablesorter">
+    <THEAD>
+    {% for column_header in case_missense_df.columns %}
+    <TH>{{ column_header }}</TH>
+    {% endfor %}
+    </THEAD>
+
+    {% for index, row in case_missense_df.iterrows() %}
+    <TR>
+    {% for column_header in case_missense_df.columns %}<TD>
+            {{ row[column_header] }}
+        </TD>{% endfor %}
+    </TR>
+    {% endfor %}
+
+</TABLE>
+
+<textarea id=missense_file_data readonly=true cols=80 rows={{ case_missense_df.index | length }} name=comments>You rock!
+
+Hope this is line 3</textarea></p>
+
+<script type="text/javascript" id="js">
+function missense_text_copy() {
+  let textarea = document.getElementById("missense_file_data");
+  textarea.select();
+  document.execCommand("copy");
+}
+</script>
+<button onclick="missense_text_copy()">Copy</button>
+
+{% endif %}
+</div>
+<br>
 {% endfor %}
 </body>
 </html>
