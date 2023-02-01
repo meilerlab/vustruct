@@ -343,24 +343,18 @@ copy_html_css_javascript()
 # CREATE the log/ webpage first, which includes details of everything done so far...
 case_report_template_location = os.path.dirname(os.path.realpath(__file__))
 jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
-vustruct_logs_template = jinja2_environment.get_template("vustruct_logs.html")
+vustruct_logs_template = jinja2_environment.get_template("html/vustruct_logs_template.html")
 vustruct_dict_for_jinja2 = vustruct.dict_for_jinja2()
 # We need to get rid of log/ prefixes, because we generate index.html
 # down in the log directory
 for command_line_module in vustruct_dict_for_jinja2.keys():
     if 'logfile' in vustruct_dict_for_jinja2[command_line_module]:
-        vustruct_dict_for_jinja2[command_line_module]['logfile'] = \
-            os.path.basename(vustruct_dict_for_jinja2[command_line_module]['logfile'])
+        logfile_name = vustruct_dict_for_jinja2[command_line_module]['logfile']
+        if logfile_name:
+            website_filelist.append(logfile_name)
+            vustruct_dict_for_jinja2[command_line_module]['logfile'] = \
+                os.path.basename(logfile_name)
 
-vustruct_logs_info = {
-    'vustruct': vustruct_dict_for_jinja2
-}
-
-html_out = vustruct_logs_template.render(vustruct_logs_info)
-vustruct_html_filename = os.path.join("log/", "index.html")
-website_filelist.append(vustruct_html_filename)
-with open(vustruct_html_filename, "w") as f:
-    f.write(html_out)
 
 # directly from a single mutation output file of psb_plan.py
 if oneMutationOnly:
@@ -372,13 +366,13 @@ if oneMutationOnly:
     else:
         print("Due to lack of pathprox outputs, no html (or pdf) reports were created from %s" % args.workstatus)
 else:
-    udn_csv_filename = os.path.join(case_root_dir,
+    case_missense_filename = os.path.join(case_root_dir,
                                     "%s_missense.csv" % args.projectORstructures)  # The argument is an entire project UDN124356
-    msg = "Retrieving project mutations from %s" % udn_csv_filename
+    msg = "Retrieving project mutations from %s" % case_missense_filename
     if not infoLogging:
         print(msg)
     LOGGER.info(msg)
-    df_all_mutations = pd.read_csv(udn_csv_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+    df_all_mutations = pd.read_csv(case_missense_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
     df_all_mutations.fillna('NA', inplace=True)
 
@@ -823,6 +817,21 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             json.dump(final_gathered_info, fp)
     else:
         last_message = "No mutation summaries - bummer"
+
+
+    LOGGER.info("Writing website log/ files")
+    vustruct_logs_info = {
+        'case_missense_filename': os.path.basename(case_missense_filename),
+        'case_missense_df': df_all_mutations,
+        'vustruct': vustruct_dict_for_jinja2
+    }
+
+    html_out = vustruct_logs_template.render(vustruct_logs_info)
+    vustruct_html_filename = os.path.join("log/", "index.html")
+    website_filelist.append(vustruct_html_filename)
+    website_filelist.append(os.path.basename(case_missense_filename))
+    with open(vustruct_html_filename, "w") as f:
+        f.write(html_out)
 
     print("")
     print("")
