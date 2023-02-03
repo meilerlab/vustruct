@@ -1,7 +1,9 @@
 # Web front end to vustruct
 This directory contains two python scripts which
 implement the bulk of a web front-end to the
-vustruct pipeline 
+vustruct pipeline.  I also check in the tail
+of the wordpress functions.php which POSTS
+to the vustruct_* flask routines
 
 ## <ins>vustruct_flask</ins> 
 
@@ -24,3 +26,9 @@ A second flask program which
 - implements RESTAPI calls which:
 1. record job identifiers which are in process
 2. rebuild local websites in file system from emerging vustruct .tar.gz files
+
+## <ins>functions.php.tail</ins>
+
+Hook forms to validate gravity forms user interface entries
+and launch the pipeline as final part of SUBMIT processing
+

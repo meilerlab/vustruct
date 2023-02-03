@@ -1,0 +1,317 @@
+
+/*******************************************************************************
+/* vustruct_* functions support entry of UDN case via gravity forms hooks
+/* The architecture of the hard-coded field numbers is a return to 1980 at best
+ * but that is what we have.  In the supporting functions, I try to map
+ * the hard coded field numbers to the variable names
+ * ******************************************************************************/
+
+/**
+ * Form 1 is the input form for the UDN case name This atrocious add_filter()
+ * call "hooks" gravity forms so that vustruct_gform_validation() is called
+ * when the user clicks submit, but before gravity adds the data to its database
+ */
+
+add_filter( 'gform_validation_1', 'vustruct_gform_validation');
+
+function vustruct_get_fields_from_form($entryform, &$case_id_field,&$missense_field) {
+    $case_id_field = GFAPI::get_field($entryform,1);
+	$missense_csv = GFAPI::get_field($entryform,9);
+}
+
+function vustruct_get_entries_from_entry($entry, &$case_id, &$data_format,&$excel_file_URI, &$missense_csv, &$job_uuid) {
+	// Parse values from the user-entered gravity form
+	// Proceed to grab the other data elements
+	$case_id = strtoupper(rgar( $entry, '1' ));
+	// If a field is hidden, then rgar will return NULL and that is A-OK.
+	$data_format = rgar($entry, '2');
+	// Careful, missense_csv is a multiline field
+	$excel_file_URI = rgar($entry,'3');
+	// Careful, missense_csv is a multiline field
+	$missense_csv = rgar($entry,'9');
+
+	// JOBuuid comes from a hiden field on initial validation, then should be part of the POST later...
+	$job_uuid = rgar($entry,'7');
+
+}
+
+/**
+ * Wrap the wp_remote_function to deal with non-running flask applications, obvious timeouts and fails, etc
+ * @param $flask_application
+ * Must be 'vustruct_flask' or 'vustruct_webupdate'
+ * @param $post_target
+ * Example '/get_uuid'  It is added to the URI to be the directory target of the POST.  Include leading slash
+ * @param $restapi_body
+ *
+ *
+ * @return array($failure_message, $flask_response_body_json)
+ */
+function vustruct_wp_post_wrapper($flask_application, $post_target, $restapi_body) {
+	// The two flask application listener URIs.
+	// As the hosts or ports change, change that here
+    if ($flask_application == 'vustruct_flask')
+        $vustruct_flask_or_webupdate_URI = "http://localhost:5000";
+	elseif ($flask_application == 'vustruct_webupdate')
+	    $vustruct_flask_or_webupdate_URI = "http://localhost:3000";
+    else
+        return array("Unrecognized flask_application:" . $flask_application, array());
+
+    $administrator_email = 'chris.moth@vanderbilt.edu';
+
+    $post_target = $vustruct_flask_or_webupdate_URI . $post_target;
+
+	$flask_response = wp_remote_post( $post_target , array(
+        'timeout' => 1,
+        'httpversion' => '1.0',
+        'headers' => array(
+            'Content-Type' => 'application/json'
+        ),
+        'body' => json_encode($restapi_body)
+    ));
+
+    $failure_message = ""; // Returning an empty failure message indicates that obvious checks have passed
+	$flask_response_body_json = array();
+
+    // GFCommon::log_remote_response($flask_response);
+    if ( is_wp_error( $flask_response )) {
+        $failure_message = $post_target . " failed<br>". $flask_application . '.py likely not running: ' .
+                           $flask_response->get_error_message();
+
+        $wp_mail_success = wp_mail($administrator_email,
+	        "Website flask app down", $failure_message);
+
+        if ($wp_mail_success)
+	        $failure_message .= ".  The site adminsitrator ," . $administrator_email . " has been notified.";
+	    else
+	        $failure_message .= ".  Email could not be sent to site administrator " . $administrator_email;
+
+    }
+    elseif (! is_array($flask_response))
+    {
+
+        $failure_message = $post_target . " failed<br>" .
+                           "Bad format returend from vustruct_flask.py: " . $flask_response;
+    }
+    elseif (! array_key_exists('body', $flask_response))
+    {
+        $failure_message = $post_target . ": No response body from " . $flask_application . implode(", ", $flask_response);
+    }
+    else
+    {
+        // Can we convert the body to json.  If not, then we likely asked for a target of the post
+        // that is invalid
+	    $body = $flask_response['body'];
+
+	    $flask_response_body_json = json_decode($body);
+	    if ($flask_response_body_json == null)
+		    $failure_message = $post_target. ":<br>Unable to json_decode body from server: <code>" . $body . "</code>";
+    }
+
+
+    return array($failure_message, $flask_response_body_json);
+}
+
+
+
+
+/**
+ * Validate the UI inputs for obvious problems.  THEN, do a quick RESTAPI call
+ * to vustruct_flask() to get a uuid.  We return the uuid to gravity forms
+ * for saving in its database.  We also ping the second flask task,
+ * vustruct_webupdate just to make sure it is alive and well, and ready-to-go
+ * when we ask vustruct_webupdate to create a start webpage after submit
+ *
+ * @param $validation_result
+ * A handle to the user UI form input, sent from Gravity Forms plugin
+ *
+ * @return
+ * The return value tells gravity forms if any fields failed our validation
+ * and, if so, what errors to display.  If we set failed_validation to true, then
+ * Gravity Forms will reject the <submit> press and the user will have a chance
+ * to correct before attempting <submit> again.
+ */
+
+function vustruct_gform_validation( $validation_result ) {
+
+	$form = $validation_result['form'];
+
+    // $entry will contain the values entered in the user form
+	$entry = GFFormsModel::get_current_lead();
+
+    $case_id = $data_format=$excel_file_URI=$missense_csv=$job_uuid = null;
+    vustruct_get_entries_from_entry($entry, $case_id, $data_format, $excel_file_URI, $missense_csv, $job_uuid);
+    $case_id_field = $misses_csv_field = null;
+    vustruct_get_fields_from_form($form, $case_id_field, $misses_csv_field);
+
+    // Validate that the Case ID has a minimum length
+	if ( strlen($case_id) < 8 ) {
+		$validation_result['is_valid'] = false;
+
+		$case_id_field = GFAPI::get_field($form,1);
+		$case_id_field->validation_message = 'The Case ID must have minimum length 8';
+		$case_id_field->failed_validation = true;
+
+		$validation_result['form'] = $form;
+
+        return $validation_result;
+	}  // End test for reasonable length Case ID
+
+    // Proceed to grab the other data elements
+    // If a field is hidden, then rgar will return NULL and that is A-OK.
+    $data_format = rgar($entry, '2');
+	// Careful, missense_csv is a multiline field
+	$excel_file_URI = rgar($entry,'3');
+    // Careful, missense_csv is a multiline field
+    $missense_csv = rgar($entry,'9');
+
+    // Validate that, if it is MissenseCSV input, that a few lines are entered.
+    if ($data_format == "MissenseCSV") {
+        if (substr_count($missense_csv,"\n") < 1) {
+	        $validation_result['is_valid'] = false;
+
+	        $misses_csv_field = GFAPI::get_field($form,9);
+	        $misses_csv_field->validation_message = 'Missense CSV data must have at least a header and one line';
+	        $misses_csv_field->failed_validation = true;
+
+	        $validation_result['form'] = $form;
+
+	        return $validation_result;
+        }
+    }
+
+
+    $empty_restapi_body = array();
+	list($failure_message, $flask_response_body_json) =
+        vustruct_wp_post_wrapper('vustruct_flask', '/get_uuid', $empty_restapi_body);
+
+    if (! $failure_message) // Success getting close
+    {
+        if (property_exists($flask_response_body_json, "job_uuid"))
+            $_POST['input_7'] = $flask_response_body_json->job_uuid;
+        else
+            $failure_message = "job_uuid mnissing from returned json";
+    }
+
+    // If we got a uuid OK, great.  HOWEVER, it is wise to also ensure that the OTHER
+    // flask application is responding
+    if (! $failure_message) {
+	    list($failure_message, $flask_response_body_json) =
+		    vustruct_wp_post_wrapper('vustruct_webupdate', '/health_check', $empty_restapi_body);
+        // Just fall through.  If we failed to do the health check on th second flask application,
+        // $failure_message will inform us.
+    }
+
+    # If we have a RESTAPI error, then we go a bit crazy and put that error message in red with
+    # every field on the input form.  This kind of error should be super super rare.
+    if ($failure_message) {
+	    $validation_result['is_valid'] = false;
+		foreach ( $form['fields'] as &$field ) {
+		    $field->failed_validation = true;
+			$field->validation_message = $failure_message;
+        }
+
+        $validation_result['form'] = $form;
+        return $validation_result;
+    }
+
+    # All is A-OK if we arrive here
+	# Note uuid is filled in above.
+	$validation_result['is_valid'] = true;
+	$validation_result['form'] = $form;
+    return $validation_result;
+}
+
+
+add_action('gform_after_submission_1', 'vustruct_launch_after_submission_and_create_new_page', 10, 2); /* , 10, 2); */
+function vustruct_launch_after_submission_and_create_new_page( $entry, $form ) {
+
+	$case_id = $data_format=$excel_file_URI=$missense_csv=$job_uuid = null;
+	vustruct_get_entries_from_entry($entry,
+        $case_id,
+        $data_format,
+        $excel_file_URI,
+        $missense_csv,
+        $job_uuid);
+
+    $restapi_create_new_webpage = array(
+	    'case_id' => $case_id,
+	    'job_uuid' => $job_uuid
+    );
+
+
+    // On return we have the URL of the page that we transfer our user to after we start the report generator
+	list($failure_message, $flask_response_body_json) =
+		vustruct_wp_post_wrapper('vustruct_webupdate', '/add_uuid', $restapi_create_new_webpage);
+
+    // From here in the .php code, if the called program fails to quick-build a webpage, then there is nothing
+    // more we can do.  We cannot create a webpage file ihere in the .php code, for example.
+    if ($failure_message)
+        return;
+
+    // AWESOME - we now have a URL and the user will soon see that in their browser
+    // BUT FIRST we need to set about truly launching the entire pipeline via vustruct_flask
+
+	if (property_exists($flask_response_body_json, "webpage_url"))
+		$webpage_url = $flask_response_body_json->webpage_url;
+    else
+        return;
+
+	$restapi_body = array(
+		'case_id' => $case_id,
+		'data_format' => $data_format,
+		'missense_csv' => $missense_csv,
+		'excel_file_URI' => $excel_file_URI,
+		'job_uuid' => $job_uuid
+	);
+
+	list($failure_message, $flask_response_body_json) =
+		vustruct_wp_post_wrapper('vustruct_flask', '/launch_vustruct', $restapi_body);
+
+    $created_page_content = "placeholder";
+    if (strlen($failure_message) > 0) {
+	    $created_page_content = "Unable to launch tasks" . "\n" . $failure_message;
+	    GFCommon::log_debug( "vustruct_launch RESTAPI call fail: " . print_r( $failure_message, 1 ) );
+        }
+    else {
+	    $created_page_content =
+            $body_json->case_id . ":\n"  .
+            $body_json->launch_status . "\n" .
+            $body_json->job_uuid . "\n" .
+            "Bookmark this page to view arriving results";
+    }
+
+    # Even if the RESTAPI failus, the only way to get info back to the user is through the new webpage...
+	GFCommon::log_debug('we are in the create_new_page');
+	$page_slug = $job_uuid; // Slug of the Post
+	$new_page = array(
+		'post_type'     => 'page', 				// Post Type Slug eg: 'page', 'post'
+		'post_title'    =>  $case_id,	// Title of $_POST['input_1'] = $form_case_id;the Content
+		'post_content'  =>  $created_page_content,	// Content
+		'post_status'   => 'publish',			// Post Status
+		'post_author'   => 1,					// Post Author ID
+		'post_name'     => $page_slug			// Slug of the Post
+	);
+
+    $post_id = wp_insert_post($new_page);
+
+	$success = wp_redirect( $webpage_url );
+
+	# if (!get_page_by_path( $page_slug, OBJECT, 'page')) { // Check If Page Not Exits
+    # 		$new_page_id = wp_insert_post($new_page);
+	# }
+}
+
+if ( ! function_exists( 'wp_get_list_item_separator' ) ) :
+	/**
+	 * Retrieves the list item separator based on the locale.
+	 *
+	 * Added for backward compatibility to support pre-6.0.0 WordPress versions.
+	 *
+	 * @since 6.0.0
+	 */
+	function wp_get_list_item_separator() {
+		/* translators: Used between list items, there is a space after the comma. */
+		return __( ', ', 'twentytwentyone' );
+	}
+endif;
+
