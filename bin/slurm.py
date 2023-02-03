@@ -19,8 +19,8 @@ from time import sleep
 import logging
 import numpy as np
 
-logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-                    datefmt='%d-%m-%Y:%H:%M:%S', )
+# logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+#                    datefmt='%d-%m-%Y:%H:%M:%S', )
 
 
 def slurm_jobstate_isfinished(JobState):
