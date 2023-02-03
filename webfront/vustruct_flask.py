@@ -17,9 +17,7 @@
 
 import logging
 
-import flask
 from flask import Flask
-# from flask import Request
 from flask import request
 from flask import jsonify
 import uuid
@@ -66,27 +64,30 @@ cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirn
 
 args, remaining_argv = cmdline_parser.parse_known_args()
 
-sh = logging.StreamHandler()
+# sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
-LOGGER.addHandler(sh)
+# LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 LOG_FORMAT_STRING = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 DATE_FORMAT_STRING = '%H:%M:%S'
-log_formatter = logging.Formatter(LOG_FORMAT_STRING, DATE_FORMAT_STRING)
+logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+datefmt='%d-%m:%H:%M:%S', )
 
 # print("Level is %s " % os.getenv("FLASK_ENV"))
 if args.debug or (os.getenv("FLASK_ENV") == 'development'):
     print("Setting Debug level")
-    sh.setLevel(logging.DEBUG)
+    LOGGER.setLevel(logging.DEBUG)
 elif args.verbose:
-    sh.setLevel(logging.INFO)
+    LOGGER.setLevel(logging.INFO)
 else:
-    sh.setLevel(logging.WARNING)
-sh.setFormatter(log_formatter)
+    LOGGER.setLevel(logging.WARNING)
+# LOGGER.setFormatter(log_formatter)
 
 LOGGER.info("%s running web-input cases in %s", __file__, UDN)
 LOGGER.info("Initializing Flask(%s)", __name__)
+
+
 app = Flask(__name__)
 
 jobs_dict = {}
@@ -236,6 +237,8 @@ def get_uuid():
     # Launch psb_plan.py
 
     uuid_str = str(uuid.uuid4())
+
+    LOGGER.info("POST to /getuuid returning %s", uuid_str)
 
     return jsonify({"job_uuid": uuid_str})  # 'Hello ' #  + rq.get('name', 'No name'))
 

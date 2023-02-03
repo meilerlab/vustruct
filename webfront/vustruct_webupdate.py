@@ -8,21 +8,26 @@
 #   1. record job identifiers which are in process
 #   2. rebuild local websites in file system from emerging vustruct .tar.gz files
 
-import argparse
 import logging
+
 from flask import Flask
 from flask import request
 from flask import jsonify
 import uuid
-import sys
 import threading
+from datetime import datetime
 import time
 import json
 import subprocess
 import os
-import requests
-from typing import Dict
+import sys
 
+from slurm import slurm_submit
+from bsub import bsub_submit
+
+# requests is used to read the excel or missense filess uploaded to wordpress.
+import requests
+from requests_file import FileAdapter
 # import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -32,6 +37,10 @@ from typing import TextIO
 # into generated final file
 import inspect
 
+from psb_shared import psb_config
+from psb_shared import psb_perms
+
+
 # UDN="/dors/capra_lab/users/mothcw/UDNtests/"
 UDN = os.getenv("UDN")
 if not UDN:
@@ -40,59 +49,60 @@ if not UDN:
 
 
 
-cmdline_parser = argparse.ArgumentParser()
-cmdline_parser.add_argument(
-    "-v", "--verbose",
-    help="Include routine info log entries on stderr", default=False, action="store_true")
-cmdline_parser.add_argument(
-    "-d", "--debug",
-    help="Include routine info AND 'debug' log entries on stderr",
-    default=False, action="store_true")
+cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)))
 
 args, remaining_argv = cmdline_parser.parse_known_args()
 
-if args.debug:
-    sh.setLevel(logging.DEBUG)
-elif args.verbose:
-    sh.setLevel(logging.INFO)
-
-sh = logging.StreamHandler()
+# sh = logging.StreamHandler()
+logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+datefmt='%d-%m:%H:%M:%S', )
 LOGGER = logging.getLogger()
-LOGGER.addHandler(sh)
+# LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 LOG_FORMAT_STRING = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 DATE_FORMAT_STRING = '%H:%M:%S'
 log_formatter = logging.Formatter(LOG_FORMAT_STRING, DATE_FORMAT_STRING)
 
-LOGGER.setLevel(logging.DEBUG)
-sh.setLevel(logging.WARNING)
-sh.setFormatter(log_formatter)
+# print("Level is %s " % os.getenv("FLASK_ENV"))
+if args.debug or (os.getenv("FLASK_ENV") == 'development'):
+    print("Setting Debug level")
+    LOGGER.setLevel(logging.DEBUG)
+elif args.verbose:
+    LOGGER.setLevel(logging.INFO)
+else:
+    LOGGER.setLevel(logging.WARNING)
+# LOGGER.setFormatter(log_formatter)
 
 LOGGER.info("%s running web-input cases in %s", __file__, UDN)
 LOGGER.info("Initializing Flask(%s)", __name__)
 
-print("HELLO")
-
 app = Flask(__name__)
-
-print("HELLO after Flask")
 
 # Create a mapping of the unique uuids for running jobs to user and job names
 # so that we know where to go fish out emerging websites.`
 jobs_dict = {}
 jobs_needing_website_refresh = []
 
-@app.route('/add_uuid', methods=['POST', 'GET'])
+@app.route('/health_check', methods=['POST'])
+def health_check():
+    health_good_dict = {'health': 'good'}
+    LOGGER.info("/health_check.. returning  %s", health_good_dict)
+    return health_good_dict
+
+@app.route('/add_uuid', methods=['POST'])
 def add_uuid():
-    print("add_uuid(): The request I got is: %s" % request.json)
+    LOGGER.info("/add_uuid: %s" % request.json)
 
     case_url = "None"
 
-    if 'job_uuid' in request.json and 'case_id' in request.json:
-        case_url = os.path.join("http://localhost/vustruct/",
-                                request.json['job_uuid'],
-                                request.json['case_id'])
+    if not ('job_uuid' in request.json and 'case_id' in request.json):
+        LOGGER.info("/add_uuid: missing job_uuid or case_id")
+        return {}
+
+    case_url = os.path.join("http://localhost/vustruct/",
+                            request.json['job_uuid'],
+                            request.json['case_id'])
 
     webpage_home = os.path.join("/var/www/html/vustruct/",
                                 request.json['job_uuid'],
@@ -145,5 +155,7 @@ document.write("Time: " + current_time);
 
     # Launch psb_plan.py
 
-    return case_url
+    add_uuid_return = {'webpage_url': case_url}
+    LOGGER.info("/add_uuid: returning %s", add_uuid_return)
+    return add_uuid_return
 
