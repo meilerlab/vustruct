@@ -11,6 +11,14 @@
 import logging
 
 from flask import Flask
+jobs_dict = {}
+job_uuids_needing_website_refresh = set()
+
+import atexit
+from apscheduler.schedulers.background import BackgroundScheduler
+
+import tarfile
+
 from flask import request
 from flask import jsonify
 import uuid
@@ -20,7 +28,10 @@ import time
 import json
 import subprocess
 import os
+import shutil
 import sys
+
+
 
 from slurm import slurm_submit
 from bsub import bsub_submit
@@ -82,7 +93,6 @@ app = Flask(__name__)
 # Create a mapping of the unique uuids for running jobs to user and job names
 # so that we know where to go fish out emerging websites.`
 jobs_dict = {}
-jobs_needing_website_refresh = []
 
 @app.route('/health_check', methods=['POST'])
 def health_check():
@@ -159,3 +169,75 @@ document.write("Time: " + current_time);
     LOGGER.info("/add_uuid: returning %s", add_uuid_return)
     return add_uuid_return
 
+def xfer_to_web_thread(job_needing_refresh) -> subprocess.CompletedProcess:
+    LOGGER.info("Updating website for case: %s  job_uuid: %s", job_needing_refresh['case_id'], job_needing_refresh['job_uuid'])
+
+    # LOGGER.info("Copying to live web: %s", job_needing_refresh)
+    job_uuids_needing_website_refresh.remove(job_needing_refresh['job_uuid'])
+
+    internal_case_name = "external_user_%s_%s" % (
+        job_needing_refresh['case_id'],
+        job_needing_refresh['job_uuid'])
+    tar_filename = os.path.join(
+                   job_needing_refresh['working_directory'],
+                   "%s.tar.gz" % internal_case_name)
+
+    # open file
+    with tarfile.open(tar_filename) as tar_f:
+        tar_f.extractall('/var/www/html/vustruct/')
+
+    webpage_home = os.path.join("/var/www/html/vustruct/",
+                                  job_needing_refresh['job_uuid'],
+                                  job_needing_refresh['case_id'])
+    os.makedirs(webpage_home, exist_ok=True)
+
+    # Now recursively move all the files in the tar x directory to the correct directory
+    # LATER - make this a mv.  For now brute copy
+    cp_source = os.path.join('/var/www/html/vustruct/', internal_case_name )
+    cp_dest = os.path.join('/var/www/html/vustruct/', job_needing_refresh['job_uuid'], job_needing_refresh['case_id']);
+    shutil.copytree(src=cp_source,dst=cp_dest,dirs_exist_ok=True)
+    # for root, dirs, files in os.walk(os.path.join('/var/www/html/vustruct/')
+
+    # Clean up the index.html to just show the case name - and NOT
+    # the uuid and so forth
+    index_html_filename = os.path.join(cp_dest,"index.html")
+    LOGGER.info("Cleaning %s", index_html_filename)
+    index_html_content = ""
+    with open(index_html_filename, 'r') as f:
+        index_html_content = f.read();
+    index_html_content  = index_html_content.replace(internal_case_name, job_needing_refresh['case_id'])
+    with open(index_html_filename,'w') as f:
+        f.write(index_html_content);
+
+
+
+    # Get rid of any old file that is there
+
+
+
+    return None
+
+def refresh_case_websites():
+    # Go fetch the jobs that our vustruct_flask application is managing, and which have just
+    # run psb_rep.py
+    peek_jobs_needing_refresh = requests.get("http://127.0.0.1:5000/peek_jobs_needing_refresh")
+    if peek_jobs_needing_refresh.status_code != 200:
+        LOGGER.warning("vustruct_flask.py not responding.  Check environment!")
+    else:
+        jobs_needing_refresh = peek_jobs_needing_refresh.json()
+        LOGGER.info("%d jobs need website transfers" % len(jobs_needing_refresh))
+
+        for job_needing_refresh in jobs_needing_refresh:
+            LOGGER.info("%s", job_needing_refresh)
+            job_uuids_needing_website_refresh.add(job_needing_refresh['job_uuid'])
+            psb_plan_thread = threading.Thread(target=xfer_to_web_thread, args=(job_needing_refresh,))
+            psb_plan_thread.start()
+    # sys.exit(0)
+
+refresh_case_websites()
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=refresh_case_websites, trigger="interval", seconds=10)
+scheduler.start()
+
+# Shut down the scheduler when exiting the app
+atexit.register(lambda: scheduler.shutdown())
