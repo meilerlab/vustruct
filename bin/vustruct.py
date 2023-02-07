@@ -105,6 +105,14 @@ class VUstruct:
     @property
     def preprocess(self):
         return self._vustruct_dict['preprocess']
+    @property
+    def plan(self):
+        return self._vustruct_dict['plan']
+
+    @property
+    def launch(self):
+        return self._vustruct_dict['launch']
+
 
     @property
     def executable_file(self):
