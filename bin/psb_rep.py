@@ -695,128 +695,91 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             else:
                 print(msg)
 
-    if genome_headers or variant_isoform_summaries:  # Excellent, we have a home page report for many variants
-        # If there are DigenicInteraction .svg files in the right place, integrate them
-        # digenic_graphics_types = [
-        #     'digenic_score', 
-        #     # 'digenic_details', 
-        #     'sys_bio_details']
-        # digenic_graphics_score_only_filename = None
-        # found_graphics_files = {}
-        # for digenic_graphic_type in digenic_graphics_types:
-        #     digenic_graphic_filename = os.path.join('casewide', 'DiGePred',
-        #                                             '%s_all_gene_pairs_%s.svg' % (
-        #                                             args.projectORstructures, digenic_graphic_type))
-        #
-        #      if os.path.exists(os.path.join(case_root_dir, digenic_graphic_filename)):
-        #         found_graphics_files[digenic_graphic_type] = digenic_graphic_filename
-        #         website_filelist.append(os.path.join('.', digenic_graphic_filename))
+    # args.projectORstructures is an entire project UDN124356
+    case_summary_filename = os.path.join(case_root_dir,
+                                         "%s.html" % args.projectORstructures)
+    website_filelist.append(case_summary_filename)
 
-        # Was there a generated .html file from DiGePred
-        digepred_html_filename = os.path.join('casewide', 'DiGePred',
-                                              '%s_all_gene_pairs_summary.html' % (
-                                                  args.projectORstructures,))
+    # It can easily be the case that we arrive here WITHOUT data because the pipeline is not launched.
+    # In that case, we need to give an update on pipeline progress and NOT a table of results.
+    # In this case, the following "if" will be false
+    early_or_fail_message = ""
+    if not (genome_headers or variant_isoform_summaries):  # Excellent, we have a home page report for many variants
+        if not vustruct.plan['executable']:
+            early_or_fail_message = "The plan phase has not been run.  Check logs for errors"
+        if not vustruct.plan['executable']:
+            early_or_fail_message = "The plan phase has not been run.  Check logs for errors"
 
-        if os.path.exists(os.path.join(case_root_dir, digepred_html_filename)):
-            website_filelist.append(digepred_html_filename)
-            LOGGER.info("Integrating DiGePred html: %s", digepred_html_filename)
-        else:
-            LOGGER.warning("DiGePred %s missing.  Did you run DiGePred?", digepred_html_filename)
-            digepred_html_filename = None
+    # Was there a generated .html file from DiGePred?
+    digepred_html_filename = os.path.join('casewide', 'DiGePred',
+                                          '%s_all_gene_pairs_summary.html' % (
+                                              args.projectORstructures,))
 
-        digepred_gene_pairs = []
-        if digepred_html_filename:
-            digepred_csv_filename = os.path.join('casewide', 'DiGePred',
-                                                 '%s_all_gene_pairs_digenic_metrics.csv' % (
-                                                     args.projectORstructures,))
-
-            digepred_metrics_df = pd.DataFrame()
-            if os.path.exists(os.path.join(case_root_dir, digepred_csv_filename)):
-                LOGGER.info("Integrating DiGePred csv: %s", digepred_csv_filename)
-                digepred_metrics_df = pd.read_csv(digepred_csv_filename, sep=',')
-                LOGGER.info("%d rows read", len(digepred_metrics_df))
-                digepred_metrics_df.sort_values(by=['digenic score'], ascending=False, inplace=True, ignore_index=True)
-            else:
-                LOGGER.critical("DiGePred %s missing.  Alarming, as .html file was found", digepred_csv_filename)
-                del digepred_csv_filename
-
-            # Now prepare the entries which will go to the html table
-            # For now, max 20 or all
-            max_rows = min(20, len(digepred_metrics_df))
-            for index, row in digepred_metrics_df.head(max_rows).iterrows():
-                gene_pair_dict = {}
-                for key in ['gene A', 'gene B', 'digenic score']:
-                    gene_pair_dict[key] = row[key]
-                digepred_gene_pairs.append(gene_pair_dict)
-
-        case_report_template_location = os.path.dirname(os.path.realpath(__file__))
-        jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
-        # if len(found_graphics_files) == 2:
-        #     LOGGER.info("Integrating DiGePred svg graphics")
-        #     digenic_graphics_score_only_filename = os.path.join('.', found_graphics_files['digenic_score'])
-        #     template = jinja2_environment.get_template("html/DigenicInteractionsReportTemplate.html")
-        #     # Probably a goof - but the template file restates the full graphics filenames
-        #     html_out = template.render({'case': args.projectORstructures})
-        #     digenic_graphics_html_filename = os.path.join(case_root_dir, 'casewide',
-        #         #         #         #         #         #         #   'DigenicGraphics.html')  # The argument is an entire project UDN124356
-        #     with open(digenic_graphics_html_filename, "w") as f:
-        #         # f.write(html_out)
-        #     website_filelist.append(digenic_graphics_html_filename)
-        # else:
-        #     LOGGER.warning("DiGePred svg files are missing.  Did you run DiGePred")
-
-        # pprint.pformat(mutation_summaries)
-        # Grab Souhrids gene interaction information
-        # geneInteractions_generic, html_table_generic, html_report_generic, text_report_generic = \
-        #     gene_interaction_report(case_root_dir, args.projectORstructures, False)
-        # geneInteractions_familial, html_table_familial, html_report_familial, text_report_familial = \
-        #     gene_interaction_report(case_root_dir, args.projectORstructures, True)
-        # if geneInteractions_generic:
-        #     for genome_header in genome_headers:
-        #         if genome_header['Gene'] in geneInteractions_generic:
-        #             genome_header['Gene Interactions Generic'] = ' '.join(
-        #                 geneInteractions_generic[genome_header['Gene']])
-        # if geneInteractions_familial:
-        #     for genome_header in genome_headers:
-        #         if genome_header['Gene'] in geneInteractions_familial:
-        #             genome_header['Gene Interactions Familial'] = ' '.join(
-        #                 geneInteractions_familial[genome_header['Gene']])
-        case_report_template = jinja2_environment.get_template("case_report_template.html")
-        # print html_table
-        final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
-                               'genome_headers': genome_headers,
-                               # 'firstGeneTable': html_table_generic,
-                               # 'firstGeneReport': html_report_generic,
-                               # 'secondGeneTable': html_table_familial,
-                               # 'secondGeneReport': html_report_familial,
-                               'case': args.projectORstructures,
-                               "date": time.strftime("%Y-%m-%d"),
-                               'disease1_variant_short_description': config_pathprox_dict[
-                                   'disease1_variant_short_description'],
-                               'disease2_variant_short_description': config_pathprox_dict[
-                                   'disease2_variant_short_description'],
-                               'digepred_html_filename': digepred_html_filename,
-                               'digepred_gene_pairs': digepred_gene_pairs
-                               }
-        if LOGGER.isEnabledFor(logging.DEBUG):
-            pp = pprint.PrettyPrinter(indent=1)
-            LOGGER.debug("Dictionary final_gathered_info to render:\n%s" % pp.pformat(final_gathered_info))
-
-        html_out = case_report_template.render(final_gathered_info)
-
-        # args.projectORstructures is an entire project UDN124356
-        case_summary_filename = os.path.join(case_root_dir,
-                                             "%s.html" % args.projectORstructures)
-        website_filelist.append(case_summary_filename)
-        with open(case_summary_filename, "w") as f:
-            f.write(html_out)
-        last_message = "The case summary report is: " + case_summary_filename
-        case_summary_json = os.path.join(case_root_dir,
-                                         "%s.json" % args.projectORstructures)
-        with open(case_summary_json, 'w') as fp:
-            json.dump(final_gathered_info, fp)
+    if os.path.exists(os.path.join(case_root_dir, digepred_html_filename)):
+        website_filelist.append(digepred_html_filename)
+        LOGGER.info("Integrating DiGePred html: %s", digepred_html_filename)
     else:
-        last_message = "No mutation summaries - bummer"
+        LOGGER.warning("DiGePred %s missing.  Did you run DiGePred?", digepred_html_filename)
+        digepred_html_filename = None
+
+    digepred_gene_pairs = []
+    if digepred_html_filename:
+        digepred_csv_filename = os.path.join('casewide', 'DiGePred',
+                                             '%s_all_gene_pairs_digenic_metrics.csv' % (
+                                                 args.projectORstructures,))
+
+        digepred_metrics_df = pd.DataFrame()
+        if os.path.exists(os.path.join(case_root_dir, digepred_csv_filename)):
+            LOGGER.info("Integrating DiGePred csv: %s", digepred_csv_filename)
+            digepred_metrics_df = pd.read_csv(digepred_csv_filename, sep=',')
+            LOGGER.info("%d rows read", len(digepred_metrics_df))
+            digepred_metrics_df.sort_values(by=['digenic score'], ascending=False, inplace=True, ignore_index=True)
+        else:
+            LOGGER.critical("DiGePred %s missing.  Alarming, as .html file was found", digepred_csv_filename)
+            del digepred_csv_filename
+
+        # Now prepare the entries which will go to the html table
+        # For now, max 20 or all
+        max_rows = min(20, len(digepred_metrics_df))
+        for index, row in digepred_metrics_df.head(max_rows).iterrows():
+            gene_pair_dict = {}
+            for key in ['gene A', 'gene B', 'digenic score']:
+                gene_pair_dict[key] = row[key]
+            digepred_gene_pairs.append(gene_pair_dict)
+
+    case_report_template_location = os.path.dirname(os.path.realpath(__file__))
+    jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
+    case_report_template = jinja2_environment.get_template("case_report_template.html")
+    # print html_table
+    final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
+                           'genome_headers': genome_headers,
+                           'early_or_fail_message': early_or_fail_message,
+                           # 'firstGeneTable': html_table_generic,
+                           # 'firstGeneReport': html_report_generic,
+                           # 'secondGeneTable': html_table_familial,
+                           # 'secondGeneReport': html_report_familial,
+                           'case': args.projectORstructures,
+                           "date": time.strftime("%Y-%m-%d"),
+                           'disease1_variant_short_description': config_pathprox_dict[
+                               'disease1_variant_short_description'],
+                           'disease2_variant_short_description': config_pathprox_dict[
+                               'disease2_variant_short_description'],
+                           'digepred_html_filename': digepred_html_filename,
+                           'digepred_gene_pairs': digepred_gene_pairs
+                           }
+    if LOGGER.isEnabledFor(logging.DEBUG):
+        pp = pprint.PrettyPrinter(indent=1)
+        LOGGER.debug("Dictionary final_gathered_info to render:\n%s" % pp.pformat(final_gathered_info))
+
+    html_out = case_report_template.render(final_gathered_info)
+
+    with open(case_summary_filename, "w") as f:
+        f.write(html_out)
+    last_message = "The case summary report is: " + case_summary_filename
+    case_summary_json = os.path.join(case_root_dir,
+                                     "%s.json" % args.projectORstructures)
+    with open(case_summary_json, 'w') as fp:
+        json.dump(final_gathered_info, fp)
 
 
     LOGGER.info("Writing website log/ files")

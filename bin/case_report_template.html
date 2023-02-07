@@ -126,8 +126,8 @@
 	
 	<h1>{{ case }}</h1>
 		
-		<table cellspacing="1" class="tablesorter">
 			{% if genome_headers %}
+				<table cellspacing="1" class="tablesorter">
 				<thead>
 				<tr>
 					<th>#</th>
@@ -336,7 +336,9 @@
 
 			{% endfor %}
 			</tbody>
+			</thead>
 			{% elif variant_isoform_summaries %}
+					<table>
 			{# This is the second major case report structure.  Here, there are no genomic headers
 			becauase there were no genomic coordinates on initial input #}
 			<thead>
@@ -460,9 +462,12 @@
 				</tr>
 				{% endfor %}
 			</tbody>
+		</table>
+					{% else %}
+					{# We are early in the pipeline.  Output the status message created in psbrep.py #}
+					<h1>{{ early_or_fail_message }}</h1>
 			{% endif %}
 
-		</table>
 
     <br>
 
