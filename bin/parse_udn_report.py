@@ -25,6 +25,7 @@ import unicodedata
 
 from vustruct import VUstruct
 
+
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
@@ -68,8 +69,6 @@ collaboration_dir = os.path.join(udn_root_directory, args.project)
 
 vustruct = VUstruct('preprocess', args.project, __file__)
 vustruct.stamp_start_time()
-
-
 
 
 def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
@@ -124,6 +123,15 @@ def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
 log_filename = initialize_file_and_stderr_logging(__file__)
 
 LOGGER = logging.getLogger()
+
+# Prior to getting going, we save the vustruct filename
+# and then _if_ we die with an error, at least there is a record
+# and psb_rep.py should be able to create a web page to that effect
+vustruct.logfile = log_filename
+vustruct.exit_code = 1
+vustruct.write_file()
+
+
 
 udn_excel_filename = os.path.join(udn_root_directory, args.project, args.project + ".xlsx")
 missense_csv_filename = os.path.join(udn_root_directory, args.project, args.project + "_missense.csv")
