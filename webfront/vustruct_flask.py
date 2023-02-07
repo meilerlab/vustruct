@@ -91,7 +91,7 @@ LOGGER.info("Initializing Flask(%s)", __name__)
 app = Flask(__name__)
 
 jobs_dict = {}
-jobs_needing_website_refresh = []
+job_uuids_needing_website_refresh = set()
 
 
 class ActiveVUstructJob:
@@ -136,7 +136,7 @@ class ActiveVUstructJob:
         launch_parse_return = \
             subprocess.run(launch_parse_command, shell=False,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        LOGGER.debug("%s finshed with exit code", launch_parse_command, launch_parse_return.returncode)
+        LOGGER.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
         os.chdir(save_cwd)
 
         self.last_module_launched = "parse"
@@ -160,7 +160,7 @@ class ActiveVUstructJob:
         print("%s finished" % launch_psb_rep_command)
         self.last_psb_rep_end = datetime.now().isoformat()
         os.chdir(save_cwd)
-        jobs_needing_website_refresh.append(self.job_uuid)
+        job_uuids_needing_website_refresh.add(self.job_uuid)
 
         return launch_psb_rep_return.returncode
 
@@ -171,7 +171,7 @@ def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.C
     of the entire pipeline, and return in case of terminal failure, or completion.
     Along the way, the website files will slated for updated
     """
-    global jobs_needing_website_refresh
+    global job_uuids_needing_website_refresh
 
     jobs_dict[vustruct_job.job_uuid] = vustruct_job
 
@@ -201,7 +201,7 @@ def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.C
     launch_psb_rep_retcd = vustruct_job.launch_psb_rep()
   
     if launch_psb_rep_retcd == 0:
-        jobs_needing_website_refresh.append(vustruct_job.job_uuid)
+        job_uuids_needing_website_refresh.add(vustruct_job.job_uuid)
     else:
         print("UUGH - psb_rep for %s failed with %s" % (vustruct_job.job_uuid, launch_psb_rep_retcd))
 
@@ -287,11 +287,21 @@ def launch_vustruct():
 
 @app.route('/jobs_needing_refresh', methods = ['POST', 'GET'])
 def jobs_needing_refresh():
-    global jobs_needing_website_refresh
-    json_jobs_needing_website_refresh = jsonify(jobs_needing_website_refresh)
+    global job_uuids_needing_website_refresh
     # Reset the listof jobs needing website refresh so we don't keep going and going
-    jobs_needing_website_refresh = []
-    return json_jobs_needing_website_refresh
+    jobs_needing_website_refresh = [vars(jobs_dict[uuid]) for uuid in job_uuids_needing_website_refresh]
+    # Clear out the set of jobs needing website refresh
+    job_uuids_needing_website_refresh = set()
+    return jsonify(jobs_needing_website_refresh)
+
+@app.route('/peek_jobs_needing_refresh', methods = ['POST', 'GET'])
+def peek_jobs_needing_refresh():
+    global job_uuids_needing_website_refresh
+    jobs_needing_website_refresh = [vars(jobs_dict[uuid]) for uuid in job_uuids_needing_website_refresh]
+    # With this peek_ call for testing, I do not clear out the set
+    LOGGER.info("peek_jobs_needing_refresh count=%d", len(jobs_needing_website_refresh))
+    return jsonify(jobs_needing_website_refresh)
+
 
 @app.route('/get_all_jobs', methods = ['POST'])
 def get_all_jobs():
