@@ -10,6 +10,10 @@
 # As of March 2019 python 3, pandas seems to have been loaded by default
 # pip install pandas
 
+# APScheduler allows the flask web front end to perform web updates 
+# at fixed intervals
+pip install APScheduler
+
 # Biopython requires, and will include, numpy library
 # Note that biopython may require manual patches due to bugs
 pip install biopython
