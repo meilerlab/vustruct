@@ -113,7 +113,7 @@ class ActiveVUstructJob:
 
         self.init_time = datetime.now().isoformat()
 
-    def launch_parse_udn_report(self) -> int:
+    def parse_udn_report(self) -> int:
         os.makedirs(self.working_directory, exist_ok=True)
         save_cwd = os.getcwd()
         LOGGER.info("chdir(%s)", self.working_directory)
@@ -130,7 +130,45 @@ class ActiveVUstructJob:
         with open("external_user_%s_%s.xlsx" % (self.case_id, self.job_uuid), "wb") as spreadsheet_f:
             spreadsheet_f.write(response.content)
 
-        launch_parse_command = "parse_udn_report.py"
+        parse_command_line = "parse_udn_report.py"
+        LOGGER.info("Running: %s" % parse_command_line)
+
+        parse_return = \
+            subprocess.run(parse_command_line, shell=False,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        LOGGER.debug("%s finshed with exit code %s", parse_command_line, parse_return.returncode)
+        os.chdir(save_cwd)
+
+        self.last_module_launched = "parse"
+        self.last_module_returncode = parse_return.returncode
+
+        return self.last_module_returncode
+
+
+    def psb_plan(self) -> int:
+        os.makedirs(self.working_directory, exist_ok=True)
+        save_cwd = os.getcwd()
+        LOGGER.info("chdir(%s)", self.working_directory)
+        os.chdir(self.working_directory)
+
+        # If the user uploaded a missense csv file, then we will
+        # fetch that here.  BUT, if they started with another format
+        # then the misesense file should already be in place..
+        missense_filename = "%s_missense.csv" % self.case_id
+        if self.data_format == 'MissenseCSV':
+            LOGGER.info("Saving missense data from wordpress UI to local missense filename %s", missense_filename)
+
+            # Usually we "get" the spreadsheet from wordpress using http
+            # It is convenient to be able to test all this with local files
+            # NOT RIGHT FOR CLIPBOARD PASTE - LATER _session = requests.Session()
+            # NOT RIGHT FOR CLIPBOARD PASTE - LATER  _session.mount('file://', FileAdapter())
+            # NOT RIGHT FOR CLIPBOARD PASTE - LATER response = _session.get(self.asdf)
+
+            # Write out the UDN spreadsheet in the final directory where it will be run
+            # NO with open("external_user_%s_%s.xlsx" % (self.case_id, self.job_uuid), "wb") as spreadsheet_f:
+            # spreadsheet_f.write(response.content)
+
+        launch_parse_command = "psb_plan.py"
         LOGGER.info("Running: %s" % launch_parse_command)
 
         launch_parse_return = \
@@ -144,20 +182,40 @@ class ActiveVUstructJob:
 
         return self.last_module_returncode
 
-    def launch_psb_rep(self) -> int:
+    def psb_launch(self) -> int:
+        os.makedirs(self.working_directory, exist_ok=True)
+        save_cwd = os.getcwd()
+        LOGGER.info("chdir(%s)", self.working_directory)
+        os.chdir(self.working_directory)
+
+        launch_parse_command = "psb_launch.py --nolaunch"
+        LOGGER.info("Running: %s" % launch_parse_command)
+
+        launch_parse_return = \
+            subprocess.run(launch_parse_command, shell=False,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        LOGGER.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
+        os.chdir(save_cwd)
+
+        self.last_module_launched = "parse"
+        self.last_module_returncode = launch_parse_return.returncode
+
+        return self.last_module_returncode
+
+    def psb_rep(self) -> int:
         save_cwd = os.getcwd()
         print("chdir(%s)" % self.working_directory)
         os.chdir(self.working_directory)
         print("Attempting to run psb_rep.py in %s" % self.working_directory)
 
-        launch_psb_rep_command = "psb_rep.py"
-        print("Running: %s" % launch_psb_rep_command)
+        psb_rep_command_line = "psb_rep.py"
+        print("Running: %s" % psb_rep_command_line)
 
         self.last_psb_rep_start = datetime.now().isoformat()
         launch_psb_rep_return = \
-            subprocess.run(launch_psb_rep_command, shell=False,
+            subprocess.run(psb_rep_command_line, shell=False,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        print("%s finished" % launch_psb_rep_command)
+        print("%s finished" % psb_rep_command_line)
         self.last_psb_rep_end = datetime.now().isoformat()
         os.chdir(save_cwd)
         job_uuids_needing_website_refresh.add(self.job_uuid)
@@ -180,7 +238,7 @@ def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.C
     vustruct_job.last_module_returncode = 0
     if vustruct_job.data_format == 'Vanderbilt UDN Case Spreadsheet':
         vustruct_job.last_module_launched = 'preprocess'
-        vustruct_job.last_module_returncode = vustruct_job.launch_parse_udn_report()
+        vustruct_job.last_module_returncode = vustruct_job.parse_udn_report()
         vustruct_job.last_module_error_message = ""
         if vustruct_job.last_module_returncode != 0:
             vustruct_job.last_module_error_message = "LATER Add error message for parse_udn_report please"
@@ -188,7 +246,7 @@ def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.C
         # so that the OTHER flask program will install the growing website if it comes to that.
         # HOWEVER, the psb_rep program must note if the parse process has terminated with bad exit code
         # and take that into consideration.  IT may not as of yet.
-        launch_psb_rep_retcd = vustruct_job.launch_psb_rep()
+        launch_psb_rep_retcd = vustruct_job.psb_rep()
 
         if launch_psb_rep_retcd != 0:
             vustruct_job.last_report_error = "psb_rep.py for %s failed with %s" % \
@@ -196,16 +254,55 @@ def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.C
 
 
         if vustruct_job.last_module_returncode != 0:
-            return
+            return None
 
-    launch_psb_rep_retcd = vustruct_job.launch_psb_rep()
+    # Whether we parsed genomic coordinates or not, the NEXT thing
+    # to do is run psb_plan.
+    vustruct_job.last_module_launched = 'plan'
+    vustruct_job.last_module_returncode = vustruct_job.psb_plan()
+    vustruct_job.last_module_error_message = ""
+    if vustruct_job.last_module_returncode != 0:
+        vustruct_job.last_module_error_message = "LATER Add error message for psb_plan please"
+
+    # Error or not with psb_plan...
+    # Now that we did psb_plan, we need to report
+    launch_psb_rep_retcd = vustruct_job.psb_rep()
+
+    if launch_psb_rep_retcd != 0:
+        vustruct_job.last_report_error = "psb_rep.py for %s failed with %s" % \
+                                         (vustruct_job.job_uuid, launch_psb_rep_retcd)
+
+
+    if vustruct_job.last_module_returncode != 0:
+        return None
+
+    # Now we need to do launch (create the .slurm files as first step)
+
+    vustruct_job.last_module_launched = 'launch'
+    vustruct_job.last_module_returncode = vustruct_job.psb_launch()
+    vustruct_job.last_module_error_message = ""
+    if vustruct_job.last_module_returncode != 0:
+        vustruct_job.last_module_error_message = "LATER Add error message for psb_launch please"
+
+    # Error or not with psb_plan...
+    # Now that we did psb_plan, we need to report
+    launch_psb_rep_retcd = vustruct_job.psb_rep()
+
+    if launch_psb_rep_retcd != 0:
+        vustruct_job.last_report_error = "psb_rep.py for %s failed with %s" % \
+                                         (vustruct_job.job_uuid, launch_psb_rep_retcd)
+    if vustruct_job.last_module_returncode != 0:
+        return None
+    launch_psb_launch_retcd = vustruct_job.psb_rep()
+
+    psb_rep_retcd = vustruct_job.psb_rep()
   
     if launch_psb_rep_retcd == 0:
         job_uuids_needing_website_refresh.add(vustruct_job.job_uuid)
     else:
         print("UUGH - psb_rep for %s failed with %s" % (vustruct_job.job_uuid, launch_psb_rep_retcd))
 
-    return launch_psb_rep_retcd
+    return psb_rep_retcd
 
 # def launch_vustruct_case(uuid_str: str):
 #     psb_plan_command = \
