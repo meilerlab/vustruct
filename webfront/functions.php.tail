@@ -1,4 +1,3 @@
-
 /*******************************************************************************
 /* vustruct_* functions support entry of UDN case via gravity forms hooks
 /* The architecture of the hard-coded field numbers is a return to 1980 at best
@@ -159,7 +158,6 @@ function vustruct_gform_validation( $validation_result ) {
     // Proceed to grab the other data elements
     // If a field is hidden, then rgar will return NULL and that is A-OK.
     $data_format = rgar($entry, '2');
-	// Careful, missense_csv is a multiline field
 	$excel_file_URI = rgar($entry,'3');
     // Careful, missense_csv is a multiline field
     $missense_csv = rgar($entry,'9');
@@ -178,10 +176,37 @@ function vustruct_gform_validation( $validation_result ) {
 	        return $validation_result;
         }
     }
+    else if ($data_format = "Vanderbilt UDN Case Spreadsheet") {
+	    $excel_URI_field = GFAPI::get_field($form,3);
+        if (! str_ends_with($excel_file_URI, '.xlsx')) {
+	        $validation_result['is_valid'] = false;
+
+	        $excel_URI_field->validation_message = 'Excel filename must end with .xlsx';
+	        $excel_URI_field->failed_validation = true;
+
+	        $validation_result['form'] = $form;
+
+	        return $validation_result;
+		}
+        // Mke sure the .xlsx file is readable before pressing on
+        /* Actually, this does not work, because the file is not uploaded until AFTER
+        $xlsx_contents_first_20 = @file_get_contents($excel_file_URI, NULL, NULL, NULL, 20 );
+        if (($xlsx_contents_first_20 === false) ||
+        
+            (strlen($xlsx_contents_first_20) != 20)) {
+	        $validation_result['is_valid'] = false;
+	        $excel_URI_field->validation_message = 'Could not read the excel file (or file too short). ' . basename($excel_file_URI) .  ' Re-select file';
+	        $excel_URI_field->failed_validation = true;
+
+	        $validation_result['form'] = $form;
+
+	        return $validation_result;
+            } */
+        }
 
 
     $empty_restapi_body = array();
-	list($failure_message, $flask_response_body_json) =
+    list($failure_message, $flask_response_body_json) =
         vustruct_wp_post_wrapper('vustruct_flask', '/get_uuid', $empty_restapi_body);
 
     if (! $failure_message) // Success getting close
@@ -215,9 +240,9 @@ function vustruct_gform_validation( $validation_result ) {
     }
 
     # All is A-OK if we arrive here
-	# Note uuid is filled in above.
-	$validation_result['is_valid'] = true;
-	$validation_result['form'] = $form;
+    # Note uuid is filled in above.
+    $validation_result['is_valid'] = true;
+    $validation_result['form'] = $form;
     return $validation_result;
 }
 
@@ -281,8 +306,10 @@ function vustruct_launch_after_submission_and_create_new_page( $entry, $form ) {
     }
 
     # Even if the RESTAPI failus, the only way to get info back to the user is through the new webpage...
-	GFCommon::log_debug('we are in the create_new_page');
-	$page_slug = $job_uuid; // Slug of the Post
+	/* 
+        We keep this code around in case it might help us later with a submit failure in the second stage
+        GFCommon::log_debug('we are in the create_new_page');
+	 $page_slug = $job_uuid; // Slug of the Post
 	$new_page = array(
 		'post_type'     => 'page', 				// Post Type Slug eg: 'page', 'post'
 		'post_title'    =>  $case_id,	// Title of $_POST['input_1'] = $form_case_id;the Content
@@ -293,6 +320,7 @@ function vustruct_launch_after_submission_and_create_new_page( $entry, $form ) {
 	);
 
     $post_id = wp_insert_post($new_page);
+        */
 
 	$success = wp_redirect( $webpage_url );
 
