@@ -45,7 +45,7 @@
 </h3>
 <div id="{{module}}_div">
 <br>
-{% if module == 'plan' %}
+{% if case_missense_filename %}
 <A href="../{{case_missense_filename}}" download={{ case_missense_filename }}>Download {{case_missense_filename}}</A>
 
 <TABLE cellspacing="1" class="tablesorter">
@@ -65,18 +65,21 @@
 
 </TABLE>
 
-<textarea id=missense_file_data readonly=true cols=80 rows={{ case_missense_df.index | length }} name=comments>You rock!
+<textarea id=missense_file_data readonly=true cols=80 rows={{ case_missense_df.index | length }} name=comments>
+    {{ case_missense_csv_data }}
 
-Hope this is line 3</textarea></p>
-
-<script type="text/javascript" id="js">
+</textarea>
+    <script type="text/javascript" id="js">
 function missense_text_copy() {
   let textarea = document.getElementById("missense_file_data");
   textarea.select();
   document.execCommand("copy");
-}
+  window.alert('Missense file copied to clipboard.');
+};
+
+
 </script>
-<button onclick="missense_text_copy()">Copy</button>
+    <button onclick="missense_text_copy()">Copy</button>
 
 {% endif %}
 </div>

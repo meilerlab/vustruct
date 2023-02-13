@@ -372,7 +372,11 @@ else:
     if not infoLogging:
         print(msg)
     LOGGER.info(msg)
-    df_all_mutations = pd.read_csv(case_missense_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+
+    missense_csv_data = ""
+    with open(case_missense_filename,'r') as f:
+        missense_csv_data = f.read()
+    df_all_mutations = pd.read_csv(StringIO(missense_csv_data), sep=',', index_col=None, keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
     df_all_mutations.fillna('NA', inplace=True)
 
@@ -707,8 +711,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     if not (genome_headers or variant_isoform_summaries):  # Excellent, we have a home page report for many variants
         if not vustruct.plan['executable']:
             early_or_fail_message = "The plan phase has not been run.  Check logs for errors"
-        if not vustruct.plan['executable']:
-            early_or_fail_message = "The plan phase has not been run.  Check logs for errors"
 
     # Was there a generated .html file from DiGePred?
     digepred_html_filename = os.path.join('casewide', 'DiGePred',
@@ -754,6 +756,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
                            'genome_headers': genome_headers,
                            'early_or_fail_message': early_or_fail_message,
+                           'refreshFlag': True,
                            # 'firstGeneTable': html_table_generic,
                            # 'firstGeneReport': html_report_generic,
                            # 'secondGeneTable': html_table_familial,
@@ -785,6 +788,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     LOGGER.info("Writing website log/ files")
     vustruct_logs_info = {
         'case_missense_filename': os.path.basename(case_missense_filename),
+        'case_missense_csv_data': missense_csv_data,
         'case_missense_df': df_all_mutations,
         'vustruct': vustruct_dict_for_jinja2
     }
