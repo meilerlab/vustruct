@@ -95,7 +95,14 @@
 
 </head>
 
-<body>
+
+
+{% if refreshFlag %}
+	<body onload = "JavaScript:AutoRefresh(10000);">
+{% else %}
+	<body>
+{% endif %}
+
 
 <div>
   <span class="span2">
@@ -120,6 +127,9 @@
 
 	</div>
 
+{% if refreshFlag %}
+	<p>This page will refresh every 10 secondse</p>
+{% endif %}
 
 
 <div id="main">
