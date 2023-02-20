@@ -7,6 +7,11 @@
 # - implements RESTAPI calls which:
 #   1. record job identifiers which are in process
 #   2. rebuild local websites in file system from emerging vustruct .tar.gz files
+#
+# For now, set the CASE...BASE directories in the lines below
+CASE_URL_BASE="https://staging.meilerlab.org/vustruct"
+CASE_FILESYSTEM_BASE="/var/www/staging.meilerlab.org/vustruct"
+VUSTRUCT_FLASK="https://api.vgi01.accre.vanderbilt.edu"
 
 import logging
 
@@ -110,11 +115,11 @@ def add_uuid():
         LOGGER.info("/add_uuid: missing job_uuid or case_id")
         return {}
 
-    case_url = os.path.join("http://localhost/vustruct/",
+    case_url = os.path.join(CASE_URL_BASE,
                             request.json['job_uuid'],
                             request.json['case_id'])
 
-    webpage_home = os.path.join("/var/www/html/vustruct/",
+    webpage_home = os.path.join(CASE_FILESYSTEM_BASE,
                                 request.json['job_uuid'],
                                 request.json['case_id'])
     os.makedirs(webpage_home, exist_ok=True)
@@ -184,17 +189,17 @@ def xfer_to_web_thread(job_needing_refresh) -> subprocess.CompletedProcess:
 
     # open file
     with tarfile.open(tar_filename) as tar_f:
-        tar_f.extractall('/var/www/html/vustruct/')
+        tar_f.extractall(CASE_FILESYSTEM_BASE)
 
-    webpage_home = os.path.join("/var/www/html/vustruct/",
+    webpage_home = os.path.join(CASE_FILESYSTEM_BASE,
                                   job_needing_refresh['job_uuid'],
                                   job_needing_refresh['case_id'])
     os.makedirs(webpage_home, exist_ok=True)
 
     # Now recursively move all the files in the tar x directory to the correct directory
     # LATER - make this a mv.  For now brute copy
-    cp_source = os.path.join('/var/www/html/vustruct/', internal_case_name )
-    cp_dest = os.path.join('/var/www/html/vustruct/', job_needing_refresh['job_uuid'], job_needing_refresh['case_id']);
+    cp_source = os.path.join(CASE_FILESYSTEM_BASE, internal_case_name )
+    cp_dest = os.path.join(CASE_FILESYSTEM_BASE, job_needing_refresh['job_uuid'], job_needing_refresh['case_id']);
     shutil.copytree(src=cp_source,dst=cp_dest,dirs_exist_ok=True)
     # for root, dirs, files in os.walk(os.path.join('/var/www/html/vustruct/')
 
@@ -220,11 +225,14 @@ def xfer_to_web_thread(job_needing_refresh) -> subprocess.CompletedProcess:
 def refresh_case_websites():
     # Go fetch the jobs that our vustruct_flask application is managing, and which have just
     # run psb_rep.py
-    peek_jobs_needing_refresh = requests.get("http://127.0.0.1:5000/peek_jobs_needing_refresh")
-    if peek_jobs_needing_refresh.status_code != 200:
+    jobs_needing_refresh = requests.get(
+        os.path.join(VUSTRUCT_FLASK,'jobs_needing_refresh'),
+        headers={'Authorization': 'vustruct_password'}
+        )
+    if jobs_needing_refresh.status_code != 200:
         LOGGER.warning("vustruct_flask.py not responding.  Check environment!")
     else:
-        jobs_needing_refresh = peek_jobs_needing_refresh.json()
+        jobs_needing_refresh = jobs_needing_refresh.json()
         LOGGER.info("%d jobs need website transfers" % len(jobs_needing_refresh))
 
         for job_needing_refresh in jobs_needing_refresh:
