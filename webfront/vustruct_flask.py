@@ -17,7 +17,9 @@
 
 import logging
 
+from functools import wraps
 from flask import Flask
+from flask import abort
 from flask import request
 from flask import jsonify
 import uuid
@@ -73,6 +75,22 @@ LOG_FORMAT_STRING = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(m
 DATE_FORMAT_STRING = '%H:%M:%S'
 logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
 datefmt='%d-%m:%H:%M:%S', )
+# pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
+os.makedirs('log', exist_ok=True)
+log_filename = os.path.join('log', "vustruct_flask.log")
+
+LOGGER.info("Additionally logging to file %s" % log_filename)
+needRoll = os.path.isfile(log_filename)
+
+local_fh = RotatingFileHandler(log_filename, backupCount=7)
+formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
+                              datefmt="%H:%M:%S")
+local_fh.setFormatter(formatter)
+local_fh.setLevel(logging.DEBUG)
+LOGGER.addHandler(local_fh)
+
+if needRoll:
+    local_fh.doRollover()
 
 # print("Level is %s " % os.getenv("FLASK_ENV"))
 if args.debug or (os.getenv("FLASK_ENV") == 'development'):
@@ -108,7 +126,13 @@ class ActiveVUstructJob:
         self.last_psb_rep_start = ""
         self.last_psb_rep_end = ""
 
-        self.working_directory = os.path.join(UDN, "external_user_%s_%s" % (case_id, job_uuid))
+        # This prefix results in a sibling directory to our interactive runs, with 
+        # a very distinctive  and long unique name however
+        # This prefix is used through to the website creation.
+        # However, it is rather removed from the actual text of the webpages themselves
+        # during final website installation
+        self.external_user_prefix = "external_user_%s_%s" % (case_id, job_uuid)
+        self.working_directory = os.path.join(UDN, self.external_user_prefix)
         self.data_format = ""
 
         self.init_time = datetime.now().isoformat()
@@ -131,10 +155,14 @@ class ActiveVUstructJob:
             spreadsheet_f.write(response.content)
 
         parse_command_line = "parse_udn_report.py"
+        #parse_command_line="""
+        #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg parse_udn_report.py"""%\
+        #self.working_directory
+
         LOGGER.info("Running: %s" % parse_command_line)
 
         parse_return = \
-            subprocess.run(parse_command_line, shell=False,
+            subprocess.run(parse_command_line, shell=True, encoding='UTF-8',
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         LOGGER.debug("%s finshed with exit code %s", parse_command_line, parse_return.returncode)
         os.chdir(save_cwd)
@@ -154,7 +182,7 @@ class ActiveVUstructJob:
         # If the user uploaded a missense csv file, then we will
         # fetch that here.  BUT, if they started with another format
         # then the misesense file should already be in place..
-        missense_filename = "%s_missense.csv" % self.case_id
+        missense_filename = "%s_missense.csv" % self.external_user_prefix
         if self.data_format == 'MissenseCSV':
             LOGGER.info("Saving missense data from wordpress UI to local missense filename %s", missense_filename)
 
@@ -167,12 +195,15 @@ class ActiveVUstructJob:
             # Write out the UDN spreadsheet in the final directory where it will be run
             # NO with open("external_user_%s_%s.xlsx" % (self.case_id, self.job_uuid), "wb") as spreadsheet_f:
             # spreadsheet_f.write(response.content)
+        else:
+            if not os.path.exists(missense_filename):
+                LOGGER.error('%s file must be present for psb_plan - but it is not there', os.path.join(self.working_directory,missense_filename))
 
         launch_parse_command = "psb_plan.py"
         LOGGER.info("Running: %s" % launch_parse_command)
 
         launch_parse_return = \
-            subprocess.run(launch_parse_command, shell=False,
+            subprocess.run(launch_parse_command, shell=False, encoding='UTF-8',
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         LOGGER.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
         os.chdir(save_cwd)
@@ -183,22 +214,50 @@ class ActiveVUstructJob:
         return self.last_module_returncode
 
     def psb_launch(self) -> int:
-        os.makedirs(self.working_directory, exist_ok=True)
-        save_cwd = os.getcwd()
         LOGGER.info("chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
 
-        launch_parse_command = "psb_launch.py --nolaunch"
-        LOGGER.info("Running: %s" % launch_parse_command)
+        # launch_launch_command = "psb_launch.py --nolaunch"
 
-        launch_parse_return = \
-            subprocess.run(launch_parse_command, shell=False,
+        launch_launch_command = "export UDN=/dors/capra_lab/users/mothcw/UDNtests/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
+
+        LOGGER.info("Running: %s" % launch_launch_command)
+
+        launch_launch_return = \
+            subprocess.run(launch_launch_command, shell=True, encoding='UTF-8',
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        LOGGER.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
+        LOGGER.debug("%s finshed with exit code %s", launch_launch_command, launch_launch_return.returncode)
+        def line_count(s: str):
+            if not s:
+                return 0
+            return s.count('\n') + 1
+        LOGGER.debug("#stdout lines = %d   #stderr lines = %d", line_count(launch_launch_return.stdout), line_count(launch_launch_return.stderr))
+
+
+        if launch_launch_return.returncode == 0: # Crank up slurm!
+            all_jobs_slurm_launch_command = "./launch_external_user_%s_%s.py" % (self.case_id,self.job_uuid)
+            LOGGER.info("Running: %s" % launch_launch_command)
+            all_libs_slurm_launch_return = \
+                subprocess.run(all_jobs_slurm_launch_command, shell=True, encoding='UTF-8',
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            LOGGER.debug("%s finshed with exit code %s", all_jobs_slurm_launch_command, all_jobs_slurm_launch_return.returncode)
+            LOGGER.debug("#stdout lines = %d   #stderr lines = %d", line_count(all_libs_slurm_launch_return.stdout), line_count(all_libs_slurm_launch_return.stderr))
+
+
+
+
+
+
+
+
+
+
+
+
         os.chdir(save_cwd)
 
-        self.last_module_launched = "parse"
-        self.last_module_returncode = launch_parse_return.returncode
+        self.last_module_launched = "launch"
+        self.last_module_returncode = launch_launch_return.returncode
 
         return self.last_module_returncode
 
@@ -314,9 +373,29 @@ def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.C
 #     psb_plan_run_return = \
 #         subprocess.run(psb_plan_command, shell=True,
 #                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
- 
+
+AUTH_BASIC_CREDENTIAL="vustruct_password"
+
+def require_authn(func):
+
+    @wraps(func)
+    def protected_endpoint(*args, **kwargs):
+        print("%s" % request.headers)
+        # We only accept posts from localhost OR via the special Trafik gateway setup by Eric Appelt
+        if (request.headers.get('Host','') != 'localhost:3080') and \
+           (request.headers.get('X-Forwarded-Host', '') != \
+    'api.vgi01.accre.vanderbilt.edu'):
+            abort(401)
+        # print("%s" % request.headers.get('Authorization', '') )
+        if request.headers.get('Authorization', '') != \
+    AUTH_BASIC_CREDENTIAL:
+            abort(401)
+        return func(*args, **kwargs)
+
+    return protected_endpoint
 
 @app.route('/get_uuid', methods=['POST'])
+@require_authn
 def get_uuid():
     """
     This first REST API call from the Wordpress functions.php
@@ -340,6 +419,7 @@ def get_uuid():
     return jsonify({"job_uuid": uuid_str})  # 'Hello ' #  + rq.get('name', 'No name'))
 
 @app.route('/launch_vustruct', methods = ['POST', 'GET'])
+@require_authn
 def launch_vustruct():
     """
     There are a variety of ways to launch a new VUstruct case - 
@@ -383,6 +463,7 @@ def launch_vustruct():
     return vustruct_job_json
 
 @app.route('/jobs_needing_refresh', methods = ['POST', 'GET'])
+@require_authn
 def jobs_needing_refresh():
     global job_uuids_needing_website_refresh
     # Reset the listof jobs needing website refresh so we don't keep going and going
@@ -392,6 +473,7 @@ def jobs_needing_refresh():
     return jsonify(jobs_needing_website_refresh)
 
 @app.route('/peek_jobs_needing_refresh', methods = ['POST', 'GET'])
+@require_authn
 def peek_jobs_needing_refresh():
     global job_uuids_needing_website_refresh
     jobs_needing_website_refresh = [vars(jobs_dict[uuid]) for uuid in job_uuids_needing_website_refresh]
@@ -401,10 +483,12 @@ def peek_jobs_needing_refresh():
 
 
 @app.route('/get_all_jobs', methods = ['POST'])
+@require_authn
 def get_all_jobs():
     return jsonify([vars(active_vustruct) for active_vustruct in jobs_dict.values()])
 
 @app.route('/add_job', methods = ['POST'])
+@require_authn
 def add_job():
     new_job_info = request.json
     LOGGER.info("add_job request json = %s" % new_job_info)
