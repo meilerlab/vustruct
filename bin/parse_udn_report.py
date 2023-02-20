@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """\
 This script will parse a UDN Patient Report (excel format) and 
 save all of the mutations to a structured .csv file which is
