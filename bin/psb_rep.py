@@ -103,6 +103,10 @@ cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirn
 
 cmdline_parser.add_argument("-s", "--slurm",
                             help="Create a slurm file to launch all the reports", action="store_true")
+cmdline_parser.add_argument("--embed_refresh",
+                            help="Set if created pages should auto refresh, i.e. are not final", action="store_true")
+cmdline_parser.add_argument("--seconds_remaining", nargs='?', type=int, metavar='int', 
+                            help="Add text to let user know how much longer report re-generation will continue", default=0)
 cmdline_parser.add_argument("projectORstructures", type=str,
                             help="The project ID UDN123456 to report on all mutations.  Else, a specific structures file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_structure_report.csv",
                             default=os.path.basename(os.getcwd()), nargs='?')
@@ -756,7 +760,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
                            'genome_headers': genome_headers,
                            'early_or_fail_message': early_or_fail_message,
-                           'refreshFlag': True,
+                           'refreshFlag': args.embed_refresh,
                            # 'firstGeneTable': html_table_generic,
                            # 'firstGeneReport': html_report_generic,
                            # 'secondGeneTable': html_table_familial,
@@ -790,6 +794,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         'case_missense_filename': os.path.basename(case_missense_filename),
         'case_missense_csv_data': missense_csv_data,
         'case_missense_df': df_all_mutations,
+        'refreshFlag': args.embed_refresh,
         'vustruct': vustruct_dict_for_jinja2
     }
 
