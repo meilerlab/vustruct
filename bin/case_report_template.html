@@ -3,6 +3,9 @@
 <html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
 	<meta charset="UTF-8">
+{% if refreshFlag %}
+   <meta http-equiv="refresh" content="30">
+{% endif %}
 	<title>Personal Structural Biology case {{case}}</title>
 
 	<!-- jQuery -->
@@ -98,7 +101,7 @@
 
 
 {% if refreshFlag %}
-	<body onload = "JavaScript:AutoRefresh(10000);">
+	<body> <!-- onload = "JavaScript:AutoRefresh(10000);"> -->
 {% else %}
 	<body>
 {% endif %}
@@ -124,11 +127,10 @@
 	</tr>
 
 </table>
-
-	</div>
+</div>
 
 {% if refreshFlag %}
-	<p>This page will refresh every 10 secondse</p>
+	<p>This page will refresh every 30 seconds</p>
 {% endif %}
 
 
@@ -555,4 +557,3 @@
 </div>
 </body>
 </html>
-
