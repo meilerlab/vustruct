@@ -25,6 +25,7 @@ from flask import jsonify
 import uuid
 import threading
 from datetime import datetime
+from datetime import timedelta
 import time
 import json
 import subprocess
@@ -55,6 +56,9 @@ from bsub import bsub_submit
 from psb_shared import psb_config
 from psb_shared import psb_perms
 
+app = Flask(__name__)
+app.logger.setLevel(logging.DEBUG)
+
 # UDN="/dors/capra_lab/users/mothcw/UDNtests/"
 UDN = os.getenv("UDN")
 if not UDN:
@@ -74,7 +78,7 @@ LOGGER = logging.getLogger()
 LOG_FORMAT_STRING = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 DATE_FORMAT_STRING = '%H:%M:%S'
 logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-datefmt='%d-%m:%H:%M:%S', )
+    datefmt='%d-%m:%H:%M:%S', )
 # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
 os.makedirs('log', exist_ok=True)
 log_filename = os.path.join('log', "vustruct_flask.log")
@@ -92,6 +96,8 @@ LOGGER.addHandler(local_fh)
 if needRoll:
     local_fh.doRollover()
 
+LOGGER.info("info test")
+
 # print("Level is %s " % os.getenv("FLASK_ENV"))
 if args.debug or (os.getenv("FLASK_ENV") == 'development'):
     print("Setting Debug level")
@@ -106,16 +112,15 @@ LOGGER.info("%s running web-input cases in %s", __file__, UDN)
 LOGGER.info("Initializing Flask(%s)", __name__)
 
 
-app = Flask(__name__)
 
-jobs_dict = {}
-job_uuids_needing_website_refresh = set()
+cases_dict = {}
+case_uuids_needing_website_refresh = set()
 
 
-class ActiveVUstructJob:
-    def __init__(self, case_id: str, job_uuid: str) -> None:
+class VUstructCaseManager:
+    def __init__(self, case_id: str, case_uuid: str) -> None:
         self.case_id = case_id
-        self.job_uuid = job_uuid
+        self.case_uuid = case_uuid
         # As we launch processes, we populate this with
         # the vustruct "proprocess", "plan", "launch", "report"
         self.last_module_launched = ""
@@ -131,7 +136,7 @@ class ActiveVUstructJob:
         # This prefix is used through to the website creation.
         # However, it is rather removed from the actual text of the webpages themselves
         # during final website installation
-        self.external_user_prefix = "external_user_%s_%s" % (case_id, job_uuid)
+        self.external_user_prefix = "external_user_%s_%s" % (case_id, case_uuid)
         self.working_directory = os.path.join(UDN, self.external_user_prefix)
         self.data_format = ""
 
@@ -151,7 +156,7 @@ class ActiveVUstructJob:
         response = _session.get(self.excel_file_URI)
 
         # Write out the UDN spreadsheet in the final directory where it will be run
-        with open("external_user_%s_%s.xlsx" % (self.case_id, self.job_uuid), "wb") as spreadsheet_f:
+        with open("%s.xlsx" % self.external_user_prefix, "wb") as spreadsheet_f:
             spreadsheet_f.write(response.content)
 
         parse_command_line = "parse_udn_report.py"
@@ -193,7 +198,7 @@ class ActiveVUstructJob:
             # NOT RIGHT FOR CLIPBOARD PASTE - LATER response = _session.get(self.asdf)
 
             # Write out the UDN spreadsheet in the final directory where it will be run
-            # NO with open("external_user_%s_%s.xlsx" % (self.case_id, self.job_uuid), "wb") as spreadsheet_f:
+            # NO with open("external_user_%s_%s.xlsx" % (self.case_id, self.case_uuid), "wb") as spreadsheet_f:
             # spreadsheet_f.write(response.content)
         else:
             if not os.path.exists(missense_filename):
@@ -214,154 +219,214 @@ class ActiveVUstructJob:
         return self.last_module_returncode
 
     def psb_launch(self) -> int:
+        # shell out to 
+        # $ singularity exec (psb_launch.py --nolaunch)
+        #
+        # Then run the generated ./launch_...case.py script
+        save_cwd = os.getcwd()
         LOGGER.info("chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
 
-        # launch_launch_command = "psb_launch.py --nolaunch"
+        # psb_launch_command = "psb_launch.py --nolaunch"
 
-        launch_launch_command = "export UDN=/dors/capra_lab/users/mothcw/UDNtests/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
+        psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/UDNtests/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
 
-        LOGGER.info("Running: %s" % launch_launch_command)
+        LOGGER.info("Running: %s" % psb_launch_command)
 
-        launch_launch_return = \
-            subprocess.run(launch_launch_command, shell=True, encoding='UTF-8',
+        psb_launch_return = \
+            subprocess.run(psb_launch_command, shell=True, encoding='UTF-8',
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        LOGGER.debug("%s finshed with exit code %s", launch_launch_command, launch_launch_return.returncode)
+        LOGGER.debug("%s finshed with exit code %s", psb_launch_command, psb_launch_return.returncode)
+
         def line_count(s: str):
             if not s:
                 return 0
             return s.count('\n') + 1
-        LOGGER.debug("#stdout lines = %d   #stderr lines = %d", line_count(launch_launch_return.stdout), line_count(launch_launch_return.stderr))
+        LOGGER.debug("#stdout lines = %d   #stderr lines = %d", line_count(psb_launch_return.stdout), line_count(psb_launch_return.stderr))
 
+        self.last_module_launched = "launch"
+        self.last_module_returncode = psb_launch_return.returncode
 
-        if launch_launch_return.returncode == 0: # Crank up slurm!
-            all_jobs_slurm_launch_command = "./launch_external_user_%s_%s.py" % (self.case_id,self.job_uuid)
-            LOGGER.info("Running: %s" % launch_launch_command)
-            all_libs_slurm_launch_return = \
-                subprocess.run(all_jobs_slurm_launch_command, shell=True, encoding='UTF-8',
+        generated_launch_command = "./launch_%s.py" % self.external_user_prefix
+        if psb_launch_return.returncode != 0: 
+            LOGGER.warn("Exiting psb_launch() without running: %s", generated_launch_command)
+        else:
+            # Crank up slurm! with the generated
+            # I.E. Run the launch_...py that was generated by psb_launch.py from 
+            # inside the container
+            LOGGER.info("Running: %s" % psb_launch_command)
+            all_jobs_slurm_launch_return = \
+                subprocess.run(generated_launch_command, shell=True, encoding='UTF-8',
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            LOGGER.debug("%s finshed with exit code %s", all_jobs_slurm_launch_command, all_jobs_slurm_launch_return.returncode)
-            LOGGER.debug("#stdout lines = %d   #stderr lines = %d", line_count(all_libs_slurm_launch_return.stdout), line_count(all_libs_slurm_launch_return.stderr))
+            LOGGER.debug("%s finshed with exit code %s", \
+                 generated_launch_command, \
+                 all_jobs_slurm_launch_return.returncode)
+            LOGGER.debug("#stdout lines = %d   #stderr lines = %d",  \
+                 line_count(all_jobs_slurm_launch_return.stdout), \
+                 line_count(all_jobs_slurm_launch_return.stderr))
 
-
-
-
-
-
-
-
-
-
-
+            self.last_module_returncode = all_jobs_slurm_launch_return.returncode
 
         os.chdir(save_cwd)
 
-        self.last_module_launched = "launch"
-        self.last_module_returncode = launch_launch_return.returncode
 
         return self.last_module_returncode
 
-    def psb_rep(self) -> int:
+    def psb_monitor(self) -> int:
         save_cwd = os.getcwd()
-        print("chdir(%s)" % self.working_directory)
+        LOGGER.info("psb_monitor: chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
-        print("Attempting to run psb_rep.py in %s" % self.working_directory)
 
-        psb_rep_command_line = "psb_rep.py"
-        print("Running: %s" % psb_rep_command_line)
+        psb_monitor_command_line = "psb_monitor.py"
+        LOGGER.info("psb_monitor: %s", psb_monitor_command_line)
+
+        self.last_psb_monitor_start = datetime.now().isoformat()
+        launch_psb_monitor_return = \
+            subprocess.run(psb_monitor_command_line, shell=False,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        LOGGER.info("psb_monitor finished with %d", launch_psb_monitor_return.returncode)
+        self.last_psb_monitor_end = datetime.now().isoformat()
+        os.chdir(save_cwd)
+
+        return launch_psb_monitor_return.returncode
+
+    def psb_rep(self, last_flag:bool=False, seconds_remaining:int=4*24*3600) -> int:
+        global case_uuids_needing_website_refresh
+        save_cwd = os.getcwd()
+        LOGGER.info("psb_rep: chdir(%s)", self.working_directory)
+        os.chdir(self.working_directory)
+
+        psb_rep_command_line = ['psb_rep.py']
+        if not last_flag:
+            psb_rep_command_line.append('--embed_refresh')
+            if seconds_remaining > 0:
+                psb_rep_command_line.extend(['--seconds_remaining','%d' % seconds_remaining])
+
+        LOGGER.info("psb_rep: %s", ' '.join(psb_rep_command_line))
 
         self.last_psb_rep_start = datetime.now().isoformat()
         launch_psb_rep_return = \
             subprocess.run(psb_rep_command_line, shell=False,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        print("%s finished" % psb_rep_command_line)
+        LOGGER.info("psb_rep: %s finished", ' '.join(psb_rep_command_line))
         self.last_psb_rep_end = datetime.now().isoformat()
         os.chdir(save_cwd)
-        job_uuids_needing_website_refresh.add(self.job_uuid)
+        case_uuids_needing_website_refresh.add(self.case_uuid)
+        LOGGER.info("case_uids needing refresh = %s", '\n'.join(case_uuids_needing_website_refresh))
 
         return launch_psb_rep_return.returncode
 
+def monitor_report_loop(vustruct_case: VUstructCaseManager):
+    # For 4 days loop, creating a new report every ?30? minutes
+    # as the cluster churns away.  This is a separate functio to support
+    # entry into _just_ this function (restart report creation)
+    vustruct_case.timeout_time = datetime.now() + timedelta(days=4)
 
-def launch_vustruct_case_thread(vustruct_job: ActiveVUstructJob) -> subprocess.CompletedProcess:
+    last_psb_rep = False
+
+    last_psb_retcd  = 0
+
+    while not last_psb_rep:
+        time_remaining = (vustruct_case.timeout_time - datetime.now()).total_seconds()
+        if time_remaining <= 0:
+            # Time's up - this is the last report run
+            time_remaining = 0
+            last_psb_rep = True
+
+        psb_monitor_retcd = vustruct_case.psb_monitor()
+
+        if psb_monitor_retcd != 0 :
+            LOGGER.error("psb_monitor.py for %s failed with %s" % (vustruct_case.case_uuid, launch_psb_rep_retcd))
+
+        # We will build a new report if psb_monitor was successful OR
+        # if this is the very last psb_rep run
+        if (psb_monitor_retcd == 0) or last_psb_rep :
+            psb_rep_retcd = vustruct_case.psb_rep(last_flag=last_psb_rep,seconds_remaining=time_remaining)
+  
+            if psb_rep_retcd == 0:
+                case_uuids_needing_website_refresh.add(vustruct_case.case_uuid)
+            else:
+                LOGGER.error("psb_rep for %s failed with %s" % (vustruct_case.case_uuid, launch_psb_rep_retcd))
+        time.sleep(30 * 60) # Wait 30 minutes before trying again (30 minutes * 60 seconds / minute... = 1800 seconds)
+
+    return last_psb_retcd
+
+
+
+def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subprocess.CompletedProcess:
     """
     This function is launched via the thread API.  "int he background" it will run the various components
     of the entire pipeline, and return in case of terminal failure, or completion.
     Along the way, the website files will slated for updated
     """
-    global job_uuids_needing_website_refresh
 
-    jobs_dict[vustruct_job.job_uuid] = vustruct_job
+    cases_dict[vustruct_case.case_uuid] = vustruct_case
 
     # If we need to preprocess (parse) an input to create a missense file
     # Jump on that first
-    vustruct_job.last_module_returncode = 0
-    if vustruct_job.data_format == 'Vanderbilt UDN Case Spreadsheet':
-        vustruct_job.last_module_launched = 'preprocess'
-        vustruct_job.last_module_returncode = vustruct_job.parse_udn_report()
-        vustruct_job.last_module_error_message = ""
-        if vustruct_job.last_module_returncode != 0:
-            vustruct_job.last_module_error_message = "LATER Add error message for parse_udn_report please"
+    vustruct_case.last_module_returncode = 0
+    if vustruct_case.data_format == 'Vanderbilt UDN Case Spreadsheet':
+        vustruct_case.last_module_launched = 'preprocess'
+        vustruct_case.last_module_returncode = vustruct_case.parse_udn_report()
+        vustruct_case.last_module_error_message = ""
+        if vustruct_case.last_module_returncode != 0:
+            vustruct_case.last_module_error_message = "LATER Add error message for parse_udn_report please"
         # After we complete the parse step, we definitely need to run the psb_rep program
         # so that the OTHER flask program will install the growing website if it comes to that.
         # HOWEVER, the psb_rep program must note if the parse process has terminated with bad exit code
         # and take that into consideration.  IT may not as of yet.
-        launch_psb_rep_retcd = vustruct_job.psb_rep()
+        launch_psb_rep_retcd = vustruct_case.psb_rep()
 
         if launch_psb_rep_retcd != 0:
-            vustruct_job.last_report_error = "psb_rep.py for %s failed with %s" % \
-                                             (vustruct_job.job_uuid, launch_psb_rep_retcd)
+            vustruct_case.last_report_error = "psb_rep.py for %s failed with %s" % \
+                                             (vustruct_case.case_uuid, launch_psb_rep_retcd)
 
 
-        if vustruct_job.last_module_returncode != 0:
+        if vustruct_case.last_module_returncode != 0:
             return None
 
     # Whether we parsed genomic coordinates or not, the NEXT thing
     # to do is run psb_plan.
-    vustruct_job.last_module_launched = 'plan'
-    vustruct_job.last_module_returncode = vustruct_job.psb_plan()
-    vustruct_job.last_module_error_message = ""
-    if vustruct_job.last_module_returncode != 0:
-        vustruct_job.last_module_error_message = "LATER Add error message for psb_plan please"
+    vustruct_case.last_module_launched = 'plan'
+    vustruct_case.last_module_returncode = vustruct_case.psb_plan()
+    vustruct_case.last_module_error_message = ""
+    if vustruct_case.last_module_returncode != 0:
+        vustruct_case.last_module_error_message = "LATER Add error message for psb_plan please"
 
     # Error or not with psb_plan...
     # Now that we did psb_plan, we need to report
-    launch_psb_rep_retcd = vustruct_job.psb_rep()
+    launch_psb_rep_retcd = vustruct_case.psb_rep()
 
     if launch_psb_rep_retcd != 0:
-        vustruct_job.last_report_error = "psb_rep.py for %s failed with %s" % \
-                                         (vustruct_job.job_uuid, launch_psb_rep_retcd)
+        vustruct_case.last_report_error = "psb_rep.py for %s failed with %s" % \
+                                         (vustruct_case.case_uuid, launch_psb_rep_retcd)
 
 
-    if vustruct_job.last_module_returncode != 0:
+    if vustruct_case.last_module_returncode != 0:
         return None
 
     # Now we need to do launch (create the .slurm files as first step)
+    # and the same code runs the generated ./launch...py outside the container
 
-    vustruct_job.last_module_launched = 'launch'
-    vustruct_job.last_module_returncode = vustruct_job.psb_launch()
-    vustruct_job.last_module_error_message = ""
-    if vustruct_job.last_module_returncode != 0:
-        vustruct_job.last_module_error_message = "LATER Add error message for psb_launch please"
+    vustruct_case.last_module_launched = 'launch'
+    vustruct_case.last_module_returncode = vustruct_case.psb_launch()
+    vustruct_case.last_module_error_message = ""
+    if vustruct_case.last_module_returncode != 0:
+        vustruct_case.last_module_error_message = "LATER Add error message for psb_launch please"
 
-    # Error or not with psb_plan...
+    # Error or not with psb_launch ...
     # Now that we did psb_plan, we need to report
-    launch_psb_rep_retcd = vustruct_job.psb_rep()
+    launch_psb_rep_retcd = vustruct_case.psb_rep()
 
     if launch_psb_rep_retcd != 0:
-        vustruct_job.last_report_error = "psb_rep.py for %s failed with %s" % \
-                                         (vustruct_job.job_uuid, launch_psb_rep_retcd)
-    if vustruct_job.last_module_returncode != 0:
+        vustruct_case.last_report_error = "psb_rep.py for %s failed with %s" % \
+                                         (vustruct_case.case_uuid, launch_psb_rep_retcd)
+    if vustruct_case.last_module_returncode != 0:
         return None
-    launch_psb_launch_retcd = vustruct_job.psb_rep()
 
-    psb_rep_retcd = vustruct_job.psb_rep()
-  
-    if launch_psb_rep_retcd == 0:
-        job_uuids_needing_website_refresh.add(vustruct_job.job_uuid)
-    else:
-        print("UUGH - psb_rep for %s failed with %s" % (vustruct_job.job_uuid, launch_psb_rep_retcd))
+    monitor_report_loop(vustruct_case)
 
-    return psb_rep_retcd
+    return 0 # For now - not sure what to do after 4 days psb_rep_retcd
 
 # def launch_vustruct_case(uuid_str: str):
 #     psb_plan_command = \
@@ -380,12 +445,18 @@ def require_authn(func):
 
     @wraps(func)
     def protected_endpoint(*args, **kwargs):
-        print("%s" % request.headers)
+        # print("%s" % request.headers)
         # We only accept posts from localhost OR via the special Trafik gateway setup by Eric Appelt
-        if (request.headers.get('Host','') != 'localhost:3080') and \
-           (request.headers.get('X-Forwarded-Host', '') != \
-    'api.vgi01.accre.vanderbilt.edu'):
-            abort(401)
+        if request.headers.get('X-Forwarded-Host', '') == 'api.vgi01.accre.vanderbilt.edu':
+            # Appears that this request coming through trafik - but let's be sure!
+            if request.headers.get('X-Forwarded-Server','') != 'vm-infr-traefik.vampire':
+                abort(401)
+            elif request.headers.get('X-Forwarded-For','') != '129.59.141.42':
+                abort(401)
+        #Only other option is that we are in development mode on local host
+        elif request.headers.get('Host','') != 'localhost:3080':
+            abort(405)
+
         # print("%s" % request.headers.get('Authorization', '') )
         if request.headers.get('Authorization', '') != \
     AUTH_BASIC_CREDENTIAL:
@@ -409,14 +480,14 @@ def get_uuid():
     curl -X POST http://localhost:5000/get_uuid
     """
 
-    # LOGGER.info ("get_uuid(): The request I got is: %s" % (request.json))
+    LOGGER.info ("get_uuid(): The request I got is: %s %s" % (request.data, request.json))
     # Launch psb_plan.py
 
     uuid_str = str(uuid.uuid4())
 
     LOGGER.info("POST to /getuuid returning %s", uuid_str)
 
-    return jsonify({"job_uuid": uuid_str})  # 'Hello ' #  + rq.get('name', 'No name'))
+    return jsonify({"case_uuid": uuid_str})  # 'Hello ' #  + rq.get('name', 'No name'))
 
 @app.route('/launch_vustruct', methods = ['POST', 'GET'])
 @require_authn
@@ -429,71 +500,114 @@ def launch_vustruct():
     curl -X POST http://localhost:5000/launch_vustruct \ 
         -H 'Content-Type: application/json' \
         -d'{"data_format": "Vanderbilt UDN Case Spreadsheet",
-            "job_uuid": "12435",
+            "case_uuid": "12435",
             "case_id": "test",
             "excel_file_URI": "file:////dors/capra_lab/users/mothcw/UDNtests/fakecase0/fakecase0.xlsx"}'
     """
 
-
     LOGGER.debug ("/launch_vustruct: request.json=%s", str(request.json))
 
-    for required_key in ['case_id', 'job_uuid', 'data_format']:
+    for required_key in ['case_id', 'case_uuid', 'data_format']:
         if not required_key in request.json:
             return "Request JSON is missing required key: " + required_key
 
-    vustruct_job = ActiveVUstructJob(
+    vustruct_case = VUstructCaseManager(
         case_id=request.json['case_id'],
-        job_uuid=request.json['job_uuid'])
-    vustruct_job.data_format = request.json['data_format']
+        case_uuid=request.json['case_uuid'])
+    vustruct_case.data_format = request.json['data_format']
 
     if 'excel_file_URI' in request.json:
-        vustruct_job.excel_file_URI = request.json['excel_file_URI']
+        vustruct_case.excel_file_URI = request.json['excel_file_URI']
 
     # This so far has been very quick.  Now run the background thread to run the entire pipeline
     # Return to caller immediately of course.
 
-    psb_plan_thread = threading.Thread(target=launch_vustruct_case_thread, args=(vustruct_job,))
+    psb_plan_thread = threading.Thread(target=launch_vustruct_case_thread, args=(vustruct_case,))
     psb_plan_thread.start()
 
     # Send back the entire json that was send to us AnD add a launch_status to the gemisch
     # json_to_return_after_launch = request.json | {"launch_status": "VUstruct now running on accre cluster"}
-    vustruct_job_json = jsonify(vars(vustruct_job))
-    LOGGER.debug("Sending back this json %s", vustruct_job_json )
+    vustruct_case_json = jsonify(vars(vustruct_case))
+    LOGGER.debug("Sending back this json %s", vustruct_case_json )
 
-    return vustruct_job_json
+    return vustruct_case_json
 
-@app.route('/jobs_needing_refresh', methods = ['POST', 'GET'])
+@app.route('/dev_monitor_report_loop', methods = ['POST'])
 @require_authn
-def jobs_needing_refresh():
-    global job_uuids_needing_website_refresh
+def dev_monitor_report_loop():
+    """
+    For development purposes, it can be very helpful to loop on psb_monitor.py and psb_rep.py after 
+    Therefore, there is this target to permit a "restart" of course
+    
+    An example curl command would be:
+    curl -X POST http://localhost:5000/report_vustruct \ 
+        -H 'Content-Type: application/json' \
+        -d'{"case_uuid": "12435",
+            "case_id": "test"
+    """
+
+    LOGGER.debug ("/dev_report_vustruct: request.json=%s", str(request.json))
+
+    for required_key in ['case_id', 'case_uuid']:
+        if not required_key in request.json:
+            return "Request JSON is missing required key: " + required_key
+
+    vustruct_case = VUstructCaseManager(
+        case_id=request.json['case_id'],
+        case_uuid=request.json['case_uuid'])
+
+    cases_dict[vustruct_case.case_uuid] = vustruct_case
+
+    vustruct_case.last_module_launched = 'launch'
+    vustruct_case.last_module_returncode = 0
+    vustruct_case.last_module_error_message = ""
+
+    # This so far has been very quick.  Now run the background thread to run the entire pipeline
+    # Return to caller immediately of course.
+
+    dev_report_vustruct_thread = threading.Thread(target=monitor_report_loop, args=(vustruct_case,))
+    dev_report_vustruct_thread.start()
+
+    # Send back the entire json that was send to us AnD add a launch_status to the gemisch
+    # json_to_return_after_launch = request.json | {"launch_status": "VUstruct now running on accre cluster"}
+    vustruct_case_json = jsonify(vars(vustruct_case))
+    LOGGER.debug("Sending back this json %s", vustruct_case_json )
+
+    return vustruct_case_json
+
+
+@app.route('/cases_needing_refresh', methods = ['POST', 'GET'])
+@require_authn
+def cases_needing_refresh():
+    global case_uuids_needing_website_refresh
     # Reset the listof jobs needing website refresh so we don't keep going and going
-    jobs_needing_website_refresh = [vars(jobs_dict[uuid]) for uuid in job_uuids_needing_website_refresh]
+    cases_needing_website_refresh = [vars(cases_dict[uuid]) for uuid in case_uuids_needing_website_refresh]
     # Clear out the set of jobs needing website refresh
-    job_uuids_needing_website_refresh = set()
-    return jsonify(jobs_needing_website_refresh)
+    case_uuids_needing_website_refresh = set()
+    return jsonify(cases_needing_website_refresh)
 
-@app.route('/peek_jobs_needing_refresh', methods = ['POST', 'GET'])
+@app.route('/peek_cases_needing_refresh', methods = ['POST', 'GET'])
 @require_authn
-def peek_jobs_needing_refresh():
-    global job_uuids_needing_website_refresh
-    jobs_needing_website_refresh = [vars(jobs_dict[uuid]) for uuid in job_uuids_needing_website_refresh]
+def peek_cases_needing_refresh():
+    global case_uuids_needing_website_refresh
+    cases_needing_website_refresh = [vars(cases_dict[uuid]) for uuid in case_uuids_needing_website_refresh]
     # With this peek_ call for testing, I do not clear out the set
-    LOGGER.info("peek_jobs_needing_refresh count=%d", len(jobs_needing_website_refresh))
-    return jsonify(jobs_needing_website_refresh)
+    LOGGER.info("peek_cases_needing_refresh count=%d", len(cases_needing_website_refresh))
+    return jsonify(cases_needing_website_refresh)
 
 
-@app.route('/get_all_jobs', methods = ['POST'])
+@app.route('/get_all_cases', methods = ['POST'])
 @require_authn
 def get_all_jobs():
-    return jsonify([vars(active_vustruct) for active_vustruct in jobs_dict.values()])
+    return jsonify([vars(active_vustruct) for active_vustruct in cases_dict.values()])
 
-@app.route('/add_job', methods = ['POST'])
+@app.route('/add_case', methods = ['POST'])
 @require_authn
 def add_job():
-    new_job_info = request.json
-    LOGGER.info("add_job request json = %s" % new_job_info)
-    active_vustruct = ActiveVUstructJob(new_job_info['case_id'], new_job_info['job_uuid'])
-    jobs_dict[new_job_info['job_uuid']] = active_vustruct
+    new_case_info = request.json
+    LOGGER.info("add_case request json = %s" % new_case_info)
+    active_vustruct = VUstructCaseManager(new_case_info['case_id'], new_case_info['case_uuid'])
+    cases_dict[new_case_info['case_uuid']] = active_vustruct
 
 
     return jsonify(vars(active_vustruct))
