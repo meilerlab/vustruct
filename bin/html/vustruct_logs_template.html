@@ -3,6 +3,9 @@
 <html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
 	<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
+{% if refreshFlag %}
+   <meta http-equiv="refresh" content="10">
+{% endif %}
     <title>Log Files for {{ case }}</title>
 </head>
 	<!-- jQuery -->
@@ -35,8 +38,17 @@
 </script>
 
 
-<body>
+{% if refreshFlag %}
+	<body> <!-- onload = "JavaScript:AutoRefresh(10000);"> -->
+{% else %}
+	<body>
+{% endif %}
+
 <h1>{{ case }} Log Files</h1>
+
+{% if refreshFlag %}
+	<p>This page will refresh every 10 seconds</p>
+{% endif %}
 
 {% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['logfile'] %}
 
