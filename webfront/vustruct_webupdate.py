@@ -5,7 +5,7 @@
 # A second flask program which
 # - runs local alongside the wordpress server and
 # - implements RESTAPI calls which:
-#   1. record job identifiers which are in process
+#   1. record case identifiers which are in process
 #   2. rebuild local websites in file system from emerging vustruct .tar.gz files
 #
 # For now, set the CASE...BASE directories in the lines below
@@ -16,8 +16,8 @@ VUSTRUCT_FLASK="https://api.vgi01.accre.vanderbilt.edu"
 import logging
 
 from flask import Flask
-jobs_dict = {}
-job_uuids_needing_website_refresh = set()
+case_dict = {}
+case_uuids_needing_website_refresh = set()
 
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -56,6 +56,9 @@ import inspect
 from psb_shared import psb_config
 from psb_shared import psb_perms
 
+app = Flask(__name__)
+app.logger.setLevel(logging.DEBUG)
+
 
 # UDN="/dors/capra_lab/users/mothcw/UDNtests/"
 UDN = os.getenv("UDN")
@@ -70,15 +73,27 @@ cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirn
 args, remaining_argv = cmdline_parser.parse_known_args()
 
 # sh = logging.StreamHandler()
-logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-datefmt='%d-%m:%H:%M:%S', )
 LOGGER = logging.getLogger()
 # LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 LOG_FORMAT_STRING = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 DATE_FORMAT_STRING = '%H:%M:%S'
-log_formatter = logging.Formatter(LOG_FORMAT_STRING, DATE_FORMAT_STRING)
+logging.basicConfig(format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+    datefmt='%d-%m:%H:%M:%S', )
+
+os.makedirs('log', exist_ok=True)
+log_filename = os.path.join('log', 'vustruct_webupdate.log')
+
+LOGGER.info("Additionally logging to file %s" % log_filename)
+needRoll = os.path.isfile(log_filename)
+
+local_fh = RotatingFileHandler(log_filename, backupCount=7)
+local_fh.setLevel(logging.DEBUG)
+LOGGER.addHandler(local_fh)
+
+if needRoll:
+    local_fh.doRollover()
 
 # print("Level is %s " % os.getenv("FLASK_ENV"))
 if args.debug or (os.getenv("FLASK_ENV") == 'development'):
@@ -90,14 +105,14 @@ else:
     LOGGER.setLevel(logging.WARNING)
 # LOGGER.setFormatter(log_formatter)
 
-LOGGER.info("%s running web-input cases in %s", __file__, UDN)
+
+
+LOGGER.info("%s updating the main website %s", __file__, UDN)
 LOGGER.info("Initializing Flask(%s)", __name__)
 
-app = Flask(__name__)
-
-# Create a mapping of the unique uuids for running jobs to user and job names
+# Create a mapping of the unique uuids for the running cases to user and job names
 # so that we know where to go fish out emerging websites.`
-jobs_dict = {}
+case_dict = {}
 
 @app.route('/health_check', methods=['POST'])
 def health_check():
@@ -105,101 +120,117 @@ def health_check():
     LOGGER.info("/health_check.. returning  %s", health_good_dict)
     return health_good_dict
 
-@app.route('/add_uuid', methods=['POST'])
-def add_uuid():
-    LOGGER.info("/add_uuid: %s" % request.json)
+# Create a "placeholder" webpage, quickly, and return the https:// URL
+# to the user so that after the [SUBMIT] the user can start to see their emerging 
+# page
+@app.route('/create_placeholder_webpage', methods=['POST'])
+def create_placeholder_webpage():
+    LOGGER.info("/create_placeholder_webpage: %s" % request.json)
 
     case_url = "None"
 
-    if not ('job_uuid' in request.json and 'case_id' in request.json):
-        LOGGER.info("/add_uuid: missing job_uuid or case_id")
+    if not ('case_uuid' in request.json and 'case_id' in request.json):
+        LOGGER.info("/create_placeholder_webpage: missing case_uuid or case_id")
         return {}
 
     case_url = os.path.join(CASE_URL_BASE,
-                            request.json['job_uuid'],
+                            request.json['case_uuid'],
                             request.json['case_id'])
 
     webpage_home = os.path.join(CASE_FILESYSTEM_BASE,
-                                request.json['job_uuid'],
+                                request.json['case_uuid'],
                                 request.json['case_id'])
     os.makedirs(webpage_home, exist_ok=True)
 
     index_html = os.path.join(webpage_home, "index.html")
     with open(index_html, "w") as initial_webpage_f:
-        initial_webpage_f.write("""\
+        local_refresh_variable_name = 'refresh_count_' + request.json['case_uuid']
+        initial_webpage_f.write(f"""\
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
         <meta charset="utf-8">
-        <title>Personal Structural Biology case %s</title>
+
+        <title>VUstruct case {request.json['case_id']}</title>
 
       <script type = "text/JavaScript">
-            var refreshCount = 0;
-            function AutoRefresh( t ) {
-               setTimeout("{refreshCount++; location.reload(true);}", t);
-            }
+            window.refreshCount = localStorage.getItem('{local_refresh_variable_name}');
+            if (window.refreshCount === null)
+                window.refreshCount = 0;
+            else
+                window.refreshCount = parseInt(window.refreshCount)"""
+
+            + f"""
       </script>
 </head>
-<body>
+   <body onload = "JavaScript:AutoRefresh(10000);">
 <img src="../../html/PSBgraphicHeader.png" alt="VUStruct Graphic"/>
-</body>
 <p>
 <hr>
+        <H1>VUstruct case {request.json['case_id']}</H1>
 <br>
 Webpage has been refreshed
-<script>document.write(refreshCount)</script>
-times
-        <H1>Personal Structural Biology case %s</H1>
-      <script type = "text/JavaScript">
-var date = new Date();
-        var current_time = date.getHours()+":"+date.getMinutes()+":"+ date.getSeconds();
-document.write("Time: " + current_time);
+<script type="text/JavaScript">
+function incrementRefreshCountAndReload() {{
+    localStorage.setItem(
+          '{local_refresh_variable_name}',
+           (window.refreshCount + 1).toString());
+    location.reload(true); 
+    }};
+
+
+function AutoRefresh( timeout_milliseconds ) {{
+   setTimeout( incrementRefreshCountAndReload, timeout_milliseconds);
+}}
+
+document.write(window.refreshCount.toString())
 </script>
+ times
 <button>
-    <a href="javascript:{refreshCount++; location.reload(true)}"> Click Refresh the Page</a>
+    <a href="javascript:{{incrementRefreshCountAndReload()}}"> Click Refresh the Page</a>
 </button>
 
- </head>
-   <body onload = "JavaScript:AutoRefresh(10000);">
       <p>Your Page will refresh every 10 seconds!</p>
    </body>
 </html>
-""" % ( request.json['case_id'], request.json['case_id'] ) )
+""")
 
 
     # Launch psb_plan.py
 
-    add_uuid_return = {'webpage_url': case_url}
-    LOGGER.info("/add_uuid: returning %s", add_uuid_return)
-    return add_uuid_return
+    create_placeholder_webpage_return = {'webpage_url': case_url}
+    LOGGER.info("/create_placeholder_webpage: returning %s", create_placeholder_webpage_return)
+    return create_placeholder_webpage_return
 
-def xfer_to_web_thread(job_needing_refresh) -> subprocess.CompletedProcess:
-    LOGGER.info("Updating website for case: %s  job_uuid: %s", job_needing_refresh['case_id'], job_needing_refresh['job_uuid'])
+def xfer_to_web_thread(case_needing_refresh) -> subprocess.CompletedProcess:
+    LOGGER.info("Updating website for case: %s  case_uuid: %s", case_needing_refresh['case_id'], case_needing_refresh['case_uuid'])
 
-    # LOGGER.info("Copying to live web: %s", job_needing_refresh)
-    job_uuids_needing_website_refresh.remove(job_needing_refresh['job_uuid'])
+    # LOGGER.info("Copying to live web: %s", case_needing_refresh)
+    case_uuids_needing_website_refresh.remove(case_needing_refresh['case_uuid'])
 
     internal_case_name = "external_user_%s_%s" % (
-        job_needing_refresh['case_id'],
-        job_needing_refresh['job_uuid'])
+        case_needing_refresh['case_id'],
+        case_needing_refresh['case_uuid'])
     tar_filename = os.path.join(
-                   job_needing_refresh['working_directory'],
+                   case_needing_refresh['working_directory'],
                    "%s.tar.gz" % internal_case_name)
 
     # open file
+    LOGGER.info("Extracting files in %s to %s", tar_filename, CASE_FILESYSTEM_BASE)
     with tarfile.open(tar_filename) as tar_f:
         tar_f.extractall(CASE_FILESYSTEM_BASE)
 
     webpage_home = os.path.join(CASE_FILESYSTEM_BASE,
-                                  job_needing_refresh['job_uuid'],
-                                  job_needing_refresh['case_id'])
+                                  case_needing_refresh['case_uuid'],
+                                  case_needing_refresh['case_id'])
     os.makedirs(webpage_home, exist_ok=True)
 
     # Now recursively move all the files in the tar x directory to the correct directory
     # LATER - make this a mv.  For now brute copy
     cp_source = os.path.join(CASE_FILESYSTEM_BASE, internal_case_name )
-    cp_dest = os.path.join(CASE_FILESYSTEM_BASE, job_needing_refresh['job_uuid'], job_needing_refresh['case_id']);
+    cp_dest = os.path.join(CASE_FILESYSTEM_BASE, case_needing_refresh['case_uuid'], case_needing_refresh['case_id']);
+    LOGGER.info("shutil.copytree(src=%s,dst=%s,dirs_exist_ok=True", cp_source, cp_dest)
     shutil.copytree(src=cp_source,dst=cp_dest,dirs_exist_ok=True)
     # for root, dirs, files in os.walk(os.path.join('/var/www/html/vustruct/')
 
@@ -210,41 +241,43 @@ def xfer_to_web_thread(job_needing_refresh) -> subprocess.CompletedProcess:
     index_html_content = ""
     with open(index_html_filename, 'r') as f:
         index_html_content = f.read();
-    index_html_content  = index_html_content.replace(internal_case_name, job_needing_refresh['case_id'])
+    index_html_content  = index_html_content.replace(internal_case_name, case_needing_refresh['case_id'])
     with open(index_html_filename,'w') as f:
         f.write(index_html_content);
 
 
-
     # Get rid of any old file that is there
+    LOGGER.info("Make sure that %s is totally removed now", cp_source)
 
 
 
     return None
 
 def refresh_case_websites():
-    # Go fetch the jobs that our vustruct_flask application is managing, and which have just
+    # Go fetch the cases that our vustruct_flask application is managing, and which have just
     # run psb_rep.py
-    jobs_needing_refresh = requests.get(
-        os.path.join(VUSTRUCT_FLASK,'jobs_needing_refresh'),
+    LOGGER.info("In refresh_case_websites()")
+    cases_needing_refresh = requests.get(
+        os.path.join(VUSTRUCT_FLASK,'cases_needing_refresh'),
         headers={'Authorization': 'vustruct_password'}
         )
-    if jobs_needing_refresh.status_code != 200:
-        LOGGER.warning("vustruct_flask.py not responding.  Check environment!")
+    if cases_needing_refresh.status_code != 200:
+        LOGGER.warning("vustruct_flask.py not responding (%d).  Check environment!", \
+            cases_needing_refresh.status_code)
     else:
-        jobs_needing_refresh = jobs_needing_refresh.json()
-        LOGGER.info("%d jobs need website transfers" % len(jobs_needing_refresh))
+        cases_needing_refresh = cases_needing_refresh.json()
+        LOGGER.info("%d cases need website transfers" % len(cases_needing_refresh))
 
-        for job_needing_refresh in jobs_needing_refresh:
-            LOGGER.info("%s", job_needing_refresh)
-            job_uuids_needing_website_refresh.add(job_needing_refresh['job_uuid'])
-            psb_plan_thread = threading.Thread(target=xfer_to_web_thread, args=(job_needing_refresh,))
+        for case_needing_refresh in cases_needing_refresh:
+            LOGGER.info("%s", case_needing_refresh)
+            case_uuids_needing_website_refresh.add(case_needing_refresh['case_uuid'])
+            psb_plan_thread = threading.Thread(target=xfer_to_web_thread, args=(case_needing_refresh,))
             psb_plan_thread.start()
     # sys.exit(0)
 
 refresh_case_websites()
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=refresh_case_websites, trigger="interval", seconds=10)
+scheduler.add_job(func=refresh_case_websites, trigger="interval", seconds=30)
 scheduler.start()
 
 # Shut down the scheduler when exiting the app
