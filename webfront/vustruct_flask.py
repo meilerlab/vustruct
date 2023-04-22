@@ -125,7 +125,7 @@ class VUstructCaseManager:
         # the vustruct "proprocess", "plan", "launch", "report"
         self.last_module_launched = ""
         self.last_module_returncode = 0
-        self.excel_file_URI = ""
+        self.upload_file_URI = ""
 
         # The running of psb_rep is particularly important.
         self.last_psb_rep_start = ""
@@ -142,41 +142,67 @@ class VUstructCaseManager:
 
         self.init_time = datetime.now().isoformat()
 
-    def parse_udn_report(self) -> int:
+        # Convenient to push the current directory, do work in the case, and pop back
+        self.save_cwd = None
+
+    def fetch_input_file(self,file_extension: str) -> None:
         os.makedirs(self.working_directory, exist_ok=True)
-        save_cwd = os.getcwd()
+        self.save_cwd = os.getcwd()
         LOGGER.info("chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
-        LOGGER.info("Attempting to load uploaded spreadsheet from %s", self.excel_file_URI)
+        LOGGER.info("Attempting to load uploaded file from %s", self.upload_file_URI)
 
         # Usually we "get" the spreadsheet from wordpress using http
         # It is convenient to be able to test all this with local files
         _session = requests.Session()
         _session.mount('file://', FileAdapter())
-        response = _session.get(self.excel_file_URI)
+        response = _session.get(self.upload_file_URI)
 
-        # Write out the UDN spreadsheet in the final directory where it will be run
-        with open("%s.xlsx" % self.external_user_prefix, "wb") as spreadsheet_f:
+        # Write out the uploaded spreadseet or vcf in the final directory where it will be run
+        with open("%s.%s" % (self.external_user_prefix, file_extension), "wb") as spreadsheet_f:
             spreadsheet_f.write(response.content)
 
-        parse_command_line = "parse_udn_report.py"
+        return
+
+    def run_coordinates_parser_command_line(self, parser_python_filename: str) -> subprocess.CompletedProcess:
+        LOGGER.info("Running: %s" % parser_python_filename)
+
+        parse_return = \
+            subprocess.run(parser_python_filename, shell=True, encoding='UTF-8',
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        LOGGER.debug("%s finshed with exit code %s", parser_python_filename, parse_return.returncode)
+        os.chdir(self.save_cwd)
+        self.save_cwd = None
+        return parse_return
+
+
+
+
+    def parse_udn_report(self) -> int:
+        self.fetch_input_file('xlsx')
+      
+        parse_return = self.run_coordinates_parser_command_line("parse_udn_report.py")
         #parse_command_line="""
         #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg parse_udn_report.py"""%\
         #self.working_directory
-
-        LOGGER.info("Running: %s" % parse_command_line)
-
-        parse_return = \
-            subprocess.run(parse_command_line, shell=True, encoding='UTF-8',
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        LOGGER.debug("%s finshed with exit code %s", parse_command_line, parse_return.returncode)
-        os.chdir(save_cwd)
 
         self.last_module_launched = "parse"
         self.last_module_returncode = parse_return.returncode
 
         return self.last_module_returncode
 
+    def vcf2missense(self) -> int:
+        self.fetch_input_file('vcf')
+      
+        parse_return = self.run_coordinates_parser_command_line("vcf2missense.py")
+        #parse_command_line="""
+        #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
+        #self.working_directory
+
+        self.last_module_launched = "parse"
+        self.last_module_returncode = parse_return.returncode
+
+        return self.last_module_returncode
 
     def psb_plan(self) -> int:
         os.makedirs(self.working_directory, exist_ok=True)
@@ -213,7 +239,7 @@ class VUstructCaseManager:
         LOGGER.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
         os.chdir(save_cwd)
 
-        self.last_module_launched = "parse"
+        self.last_module_launched = "plan"
         self.last_module_returncode = launch_parse_return.returncode
 
         return self.last_module_returncode
@@ -363,11 +389,18 @@ def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subproces
     cases_dict[vustruct_case.case_uuid] = vustruct_case
 
     # If we need to preprocess (parse) an input to create a missense file
-    # Jump on that first
+    # Jump on that first and set last_module_launched to 'preprocess'
     vustruct_case.last_module_returncode = 0
     if vustruct_case.data_format == 'Vanderbilt UDN Case Spreadsheet':
         vustruct_case.last_module_launched = 'preprocess'
         vustruct_case.last_module_returncode = vustruct_case.parse_udn_report()
+    elif vustruct_case.data_format == 'VCF GRCh38':
+        vustruct_case.last_module_launched = 'preprocess'
+        vustruct_case.last_module_returncode = vustruct_case.vcf2missense()
+
+
+    # Whatever we might have done with genomic starting coordinates... proceed!
+    if vustruct_case.last_module_launched == 'preprocess':
         vustruct_case.last_module_error_message = ""
         if vustruct_case.last_module_returncode != 0:
             vustruct_case.last_module_error_message = "LATER Add error message for parse_udn_report please"
@@ -384,6 +417,7 @@ def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subproces
 
         if vustruct_case.last_module_returncode != 0:
             return None
+    
 
     # Whether we parsed genomic coordinates or not, the NEXT thing
     # to do is run psb_plan.
@@ -502,7 +536,7 @@ def launch_vustruct():
         -d'{"data_format": "Vanderbilt UDN Case Spreadsheet",
             "case_uuid": "12435",
             "case_id": "test",
-            "excel_file_URI": "file:////dors/capra_lab/users/mothcw/UDNtests/fakecase0/fakecase0.xlsx"}'
+            "upload_file_URI": "file:////dors/capra_lab/users/mothcw/UDNtests/fakecase0/fakecase0.xlsx"}'
     """
 
     LOGGER.debug ("/launch_vustruct: request.json=%s", str(request.json))
@@ -516,8 +550,8 @@ def launch_vustruct():
         case_uuid=request.json['case_uuid'])
     vustruct_case.data_format = request.json['data_format']
 
-    if 'excel_file_URI' in request.json:
-        vustruct_case.excel_file_URI = request.json['excel_file_URI']
+    if 'upload_file_URI' in request.json:
+        vustruct_case.upload_file_URI = request.json['upload_file_URI']
 
     # This so far has been very quick.  Now run the background thread to run the entire pipeline
     # Return to caller immediately of course.
