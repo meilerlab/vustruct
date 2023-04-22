@@ -24,6 +24,7 @@ tool may be called from this master class."""
 import argparse,configparser
 import traceback
 import sys,os,csv,time,pdb,glob,gzip,shutil,getpass
+import errno
 import subprocess as sp
 from multiprocessing import cpu_count
 import pandas as pd
@@ -44,26 +45,78 @@ from logging import handlers
 from psb_shared import psb_config
 import pandas as pd
 
+# Now that we've added streamHandler, basicConfig will not add another handler (important!)
+log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
+date_format_string = '%H:%M:%S'
+log_formatter = logging.Formatter(log_format_string, date_format_string)
+LOGGER = logging.getLogger();
 
-sh = logging.StreamHandler()
-LOGGER = logging.getLogger()
-LOGGER.addHandler(sh)
+cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
+cmdline_parser.add_argument("vcffile",type=str,metavar="FILE",help="filename in vcf format",default=os.path.basename(os.getcwd())+".vcf",nargs='?')
+cmdline_parser.add_argument("--liftover",action='store_true',help="Pre-convert VCF file to GRCh38 from GRCh37 - hardcoded for capra lab")
+cmdline_parser.add_argument("project", type=str, help="Project ID (ex. UDN124356)",
+                            default=os.path.basename(os.getcwd()), nargs='?')
+args = cmdline_parser.parse_args()
+
+required_config_items = ['vep','vep_cache_dir','idmapping']
+config,config_dict = psb_config.read_config_files(args,required_config_items)
+udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
+collaboration_dir = os.path.join(udn_root_directory, args.project)
+
+def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
+    """
+    For many applications, we need a rotating file handler in log/
+    named for the mainline program.  Return the name of the create log_filename
+    """
+    program_name = os.path.splitext(os.path.basename(root_python_file_name))[0]
+
+    stream_handler = logging.StreamHandler()
+    root_logger = logging.getLogger()
+
+    _log_filename = os.path.join(collaboration_dir, "log", "%s.log" % program_name)
+    os.makedirs(os.path.dirname(_log_filename), exist_ok=True)
+
+    sys.stderr.write("Log file is %s\n" % _log_filename)
+    need_roll = os.path.isfile(_log_filename)
+
+    rotating_file_handler = RotatingFileHandler(_log_filename, backupCount=7)
+    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
+                              datefmt="%H:%M:%S")
+    rotating_file_handler.setFormatter(formatter)
+    rotating_file_handler.setLevel(logging.INFO)
+    root_logger.addHandler(rotating_file_handler)
+
+    root_logger.setLevel(logging.DEBUG)
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(log_formatter)
+    root_logger.addHandler(stream_handler)
+
+    if need_roll:
+        rotating_file_handler.doRollover()
+
+    root_logger.info("Log file opened by %s", root_python_file_name)
+
+    log_symlink = os.path.basename(_log_filename)
+    try:
+        os.remove(log_symlink)
+    except OSError as ex:
+        if ex.errno != errno.ENOENT:
+            raise
+
+    try:
+        os.symlink(_log_filename, log_symlink)
+    except:
+        LOGGER.info(f"Unable to complete os.symlink('{_log_filename}', '{log_symlink}')")
+        pass
+
+    return _log_filename
+
+log_filename = initialize_file_and_stderr_logging(__file__)
 
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
 
-LOGGER.setLevel(logging.DEBUG)
-sh.setLevel(logging.INFO)
-sh.setFormatter(log_formatter)
-
-cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
-cmdline_parser.add_argument("vcffile",type=str,metavar="FILE",help="filename in vcf format",default=os.path.basename(os.getcwd())+".vcf",nargs='?')
-cmdline_parser.add_argument("--liftover",action='store_true',help="Pre-convert VCF file to GRCh38 from GRCh37 - hardcoded for capra lab")
-args = cmdline_parser.parse_args()
-
-required_config_items = ['vep','vep_cache_dir','idmapping']
-config,config_dict = psb_config.read_config_files(args,required_config_items)
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
 pdbmap_vep = PDBMapVEP(config_dict)
 
@@ -155,7 +208,7 @@ raw_missense_df = pd.DataFrame(columns=['gene','chrom','pos','change','transcrip
 for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
     for CSQ in vcf_record.CSQ:
         unp = PDBMapProtein.enst2unp(CSQ['Feature'])
-        if type(unp) is list: # << This is typical
+        if unp and type(unp) is list: # << This is typical
             unp = unp[0]
         refseq = "NA"
         if not unp:
