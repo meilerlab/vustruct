@@ -204,6 +204,19 @@ class VUstructCaseManager:
 
         return self.last_module_returncode
 
+    def vcf2missense_with_liftover(self) -> int:
+        self.fetch_input_file('vcf')
+      
+        parse_return = self.run_coordinates_parser_command_line("vcf2missense.py --liftover")
+        #parse_command_line="""
+        #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
+        #self.working_directory
+
+        self.last_module_launched = "parse"
+        self.last_module_returncode = parse_return.returncode
+
+        return self.last_module_returncode
+
     def psb_plan(self) -> int:
         os.makedirs(self.working_directory, exist_ok=True)
         save_cwd = os.getcwd()
@@ -397,6 +410,9 @@ def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subproces
     elif vustruct_case.data_format == 'VCF GRCh38':
         vustruct_case.last_module_launched = 'preprocess'
         vustruct_case.last_module_returncode = vustruct_case.vcf2missense()
+    elif vustruct_case.data_format == 'VCF GRCh37i (runs liftover)':
+        vustruct_case.last_module_launched = 'preprocess'
+        vustruct_case.last_module_returncode = vustruct_case.vcf2missense_with_liftover()
 
 
     # Whatever we might have done with genomic starting coordinates... proceed!
