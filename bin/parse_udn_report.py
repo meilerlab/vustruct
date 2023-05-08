@@ -25,23 +25,8 @@ import unicodedata
 
 from vustruct import VUstruct
 
-
-# Now that we've added streamHandler, basicConfig will not add another handler (important!)
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string, date_format_string)
-
-# Send INFO and higher logging information to stderr
-# WARNING and higher log details are echoed to the log file
-root = logging.getLogger()
-root.setLevel(logging.INFO)
-
-LOGGER = logging.getLogger()
-
-
 def remove_unicode_control_characters(s):
     return "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
-
 
 def remove_ascii_control_characters(s):
     return ''.join(c for c in s if (32 <= ord(c) < 128))
@@ -67,67 +52,15 @@ config, config_dict = psb_config.read_config_files(args, required_items)
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory, args.project)
 
-vustruct = VUstruct('preprocess', args.project, __file__)
+vustruct = VUstruct('preprocess', args.project,  __file__)
 vustruct.stamp_start_time()
-
-
-def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
-    """
-    For many applications, we need a rotating file handler in log/
-    named for the mainline program.  Return the name of the create log_filename
-    """
-    program_name = os.path.splitext(os.path.basename(root_python_file_name))[0]
-
-    stream_handler = logging.StreamHandler()
-    root_logger = logging.getLogger()
-
-    _log_filename = os.path.join("./log", "%s.log" % program_name)
-    os.makedirs(os.path.dirname(_log_filename), exist_ok=True)
-
-    sys.stderr.write("Log file is %s\n" % _log_filename)
-    need_roll = os.path.isfile(_log_filename)
-
-    rotating_file_handler = RotatingFileHandler(_log_filename, backupCount=7)
-    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                                  datefmt="%H:%M:%S")
-    rotating_file_handler.setFormatter(formatter)
-    rotating_file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(rotating_file_handler)
-
-    root_logger.setLevel(logging.DEBUG)
-    stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(log_formatter)
-    root_logger.addHandler(stream_handler)
-
-    if need_roll:
-        rotating_file_handler.doRollover()
-
-    root_logger.info("Log file opened by %s", root_python_file_name)
-
-    log_symlink = os.path.basename(_log_filename)
-    try:
-        os.remove(log_symlink)
-    except OSError as ex:
-        if ex.errno != errno.ENOENT:
-            raise
-
-    try:
-        os.symlink(_log_filename, log_symlink)
-    except:
-        LOGGER.info(f"Unable to complete os.symlink('{_log_filename}', '{log_symlink}')")
-        pass
-
-    return _log_filename
-
-
-log_filename = initialize_file_and_stderr_logging(__file__)
+vustruct.initialize_file_and_stderr_logging(args.debug)
 
 LOGGER = logging.getLogger()
 
 # Prior to getting going, we save the vustruct filename
 # and then _if_ we die with an error, at least there is a record
 # and psb_rep.py should be able to create a web page to that effect
-vustruct.logfile = log_filename
 vustruct.exit_code = 1
 vustruct.write_file()
 
@@ -137,10 +70,10 @@ udn_excel_filename = os.path.join(udn_root_directory, args.project, args.project
 missense_csv_filename = os.path.join(udn_root_directory, args.project, args.project + "_missense.csv")
 genes_txt_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes.txt")
 genes_json_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes.json")
-LOGGER.info('Parsing Excel file: %s' % udn_excel_filename)
-LOGGER.info(' Writing csv file %s ' % missense_csv_filename)
-LOGGER.info(' Writing txt file %s ' % genes_txt_filename)
-LOGGER.info('Writing json file %s ' % genes_json_filename)
+LOGGER.info('Parsing Excel file: %s' , udn_excel_filename)
+LOGGER.info('Writing csv file %s ' , missense_csv_filename)
+LOGGER.info('Writing txt file %s ' , genes_txt_filename)
+LOGGER.info('Writing json file %s ' , genes_json_filename)
 
 df = pd.read_excel(udn_excel_filename, header=0)
 # Now read it again and map everything to strings
@@ -566,9 +499,8 @@ if csv_rows:
 
     LOGGER.info("==> %d rows successfully written to %s" % (len(df_with_original_lineno), missense_csv_filename))
     LOGGER.info("==> Compare contents to original input file %s" % udn_excel_filename)
-    LOGGER.info("==> These log entries are in %s", log_filename)
+    LOGGER.info("==> These log entries are in %s", vustruct.log_filename)
 
-    vustruct.logfile = log_filename
     vustruct.exit_code = 0
     vustruct.write_file()
 
