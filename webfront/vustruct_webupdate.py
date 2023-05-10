@@ -129,8 +129,8 @@ def create_placeholder_webpage():
 
     case_url = "None"
 
-    if not ('case_uuid' in request.json and 'case_id' in request.json):
-        LOGGER.info("/create_placeholder_webpage: missing case_uuid or case_id")
+    if not ('case_uuid' in request.json and 'case_id' in request.json and 'data_format' in request.json):
+        LOGGER.info("/create_placeholder_webpage: missing case_uuid, case_id, or data_format")
         return {}
 
     case_url = os.path.join(CASE_URL_BASE,
@@ -141,6 +141,18 @@ def create_placeholder_webpage():
                                 request.json['case_uuid'],
                                 request.json['case_id'])
     os.makedirs(webpage_home, exist_ok=True)
+
+    initial_task_information = "VUstruct processing is starting..."
+    if ('pasted_missense_csv' in request.json and request.json['pasted_missense_csv']):
+       missense_lines = len(request.json['pasted_missense_csv'].split('\n'))
+       missense_variants = missense_lines - 1 # Subtract one because we don't count the header
+       initial_task_information = "VUstruct is planning calculations on best available PDB and model structures for your "
+       if missense_variants == 1:
+           initial_task_information += "variant."
+       else:
+           initial_task_information += "%d variants." % missense_variants
+    else:
+       initial_task_information = "VUstruct is converting your (%s) genomic coordinates to protein variants" % request.json['data_format'];
 
     index_html = os.path.join(webpage_home, "index.html")
     with open(index_html, "w") as initial_webpage_f:
@@ -169,7 +181,12 @@ def create_placeholder_webpage():
 <p>
 <hr>
         <H1>VUstruct case {request.json['case_id']}</H1>
-<br>
+
+"""
+
++ "<p>" + initial_task_information+ "<p>" + 
+
+"""<br>
 Webpage has been refreshed
 <script type="text/JavaScript">
 function incrementRefreshCountAndReload() {{

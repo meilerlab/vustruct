@@ -230,15 +230,8 @@ class VUstructCaseManager:
         if self.data_format == 'MissenseCSV':
             LOGGER.info("Saving missense data from wordpress UI to local missense filename %s", missense_filename)
 
-            # Usually we "get" the spreadsheet from wordpress using http
-            # It is convenient to be able to test all this with local files
-            # NOT RIGHT FOR CLIPBOARD PASTE - LATER _session = requests.Session()
-            # NOT RIGHT FOR CLIPBOARD PASTE - LATER  _session.mount('file://', FileAdapter())
-            # NOT RIGHT FOR CLIPBOARD PASTE - LATER response = _session.get(self.asdf)
-
-            # Write out the UDN spreadsheet in the final directory where it will be run
-            # NO with open("external_user_%s_%s.xlsx" % (self.case_id, self.case_uuid), "wb") as spreadsheet_f:
-            # spreadsheet_f.write(response.content)
+            with open(missense_filename,'w') as f:
+                f.write(self.missense_csv);
         else:
             if not os.path.exists(missense_filename):
                 LOGGER.error('%s file must be present for psb_plan - but it is not there', os.path.join(self.working_directory,missense_filename))
@@ -410,7 +403,7 @@ def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subproces
     elif vustruct_case.data_format == 'VCF GRCh38':
         vustruct_case.last_module_launched = 'preprocess'
         vustruct_case.last_module_returncode = vustruct_case.vcf2missense()
-    elif vustruct_case.data_format == 'VCF GRCh37i (runs liftover)':
+    elif vustruct_case.data_format == 'VCF GRCh37 (runs liftover)':
         vustruct_case.last_module_launched = 'preprocess'
         vustruct_case.last_module_returncode = vustruct_case.vcf2missense_with_liftover()
 
@@ -530,7 +523,7 @@ def get_uuid():
     curl -X POST http://localhost:5000/get_uuid
     """
 
-    LOGGER.info ("get_uuid(): The request I got is: %s %s" % (request.data, request.json))
+    LOGGER.info ("In /get_uuid: Received data: %s json: %s" % (request.data, request.json))
     # Launch psb_plan.py
 
     uuid_str = str(uuid.uuid4())
@@ -565,6 +558,7 @@ def launch_vustruct():
         case_id=request.json['case_id'],
         case_uuid=request.json['case_uuid'])
     vustruct_case.data_format = request.json['data_format']
+    vustruct_case.missense_csv = request.json['missense_csv']
 
     if 'upload_file_URI' in request.json:
         vustruct_case.upload_file_URI = request.json['upload_file_URI']
