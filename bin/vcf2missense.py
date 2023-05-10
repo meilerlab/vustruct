@@ -44,12 +44,9 @@ from logging.handlers import RotatingFileHandler
 from logging import handlers
 from psb_shared import psb_config
 import pandas as pd
+from vustruct import VUstruct
 
-# Now that we've added streamHandler, basicConfig will not add another handler (important!)
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string, date_format_string)
-LOGGER = logging.getLogger();
+
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
 cmdline_parser.add_argument("vcffile",type=str,metavar="FILE",help="filename in vcf format",default=os.path.basename(os.getcwd())+".vcf",nargs='?')
@@ -58,64 +55,24 @@ cmdline_parser.add_argument("project", type=str, help="Project ID (ex. UDN124356
                             default=os.path.basename(os.getcwd()), nargs='?')
 args = cmdline_parser.parse_args()
 
+# Now that we've added streamHandler, basicConfig will not add another handler (important!)
+vustruct = VUstruct('preprocess', args.project,  __file__)
+vustruct.stamp_start_time()
+vustruct.initialize_file_and_stderr_logging(__file__)
+LOGGER = logging.getLogger();
+
+# Prior to getting going, we save the vustruct filename
+# and then _if_ we die with an error, at least there is a record
+# and psb_rep.py should be able to create a web page to that effect
+vustruct.exit_code = 1
+vustruct.write_file()
+
 required_config_items = ['vep','vep_cache_dir','idmapping']
 config,config_dict = psb_config.read_config_files(args,required_config_items)
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory, args.project)
-
-def initialize_file_and_stderr_logging(root_python_file_name: str) -> str:
-    """
-    For many applications, we need a rotating file handler in log/
-    named for the mainline program.  Return the name of the create log_filename
-    """
-    program_name = os.path.splitext(os.path.basename(root_python_file_name))[0]
-
-    stream_handler = logging.StreamHandler()
-    root_logger = logging.getLogger()
-
-    _log_filename = os.path.join(collaboration_dir, "log", "%s.log" % program_name)
-    os.makedirs(os.path.dirname(_log_filename), exist_ok=True)
-
-    sys.stderr.write("Log file is %s\n" % _log_filename)
-    need_roll = os.path.isfile(_log_filename)
-
-    rotating_file_handler = RotatingFileHandler(_log_filename, backupCount=7)
-    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                              datefmt="%H:%M:%S")
-    rotating_file_handler.setFormatter(formatter)
-    rotating_file_handler.setLevel(logging.INFO)
-    root_logger.addHandler(rotating_file_handler)
-
-    root_logger.setLevel(logging.DEBUG)
-    stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(log_formatter)
-    root_logger.addHandler(stream_handler)
-
-    if need_roll:
-        rotating_file_handler.doRollover()
-
-    root_logger.info("Log file opened by %s", root_python_file_name)
-
-    log_symlink = os.path.basename(_log_filename)
-    try:
-        os.remove(log_symlink)
-    except OSError as ex:
-        if ex.errno != errno.ENOENT:
-            raise
-
-    try:
-        os.symlink(_log_filename, log_symlink)
-    except:
-        LOGGER.info(f"Unable to complete os.symlink('{_log_filename}', '{log_symlink}')")
-        pass
-
-    return _log_filename
-
-log_filename = initialize_file_and_stderr_logging(__file__)
-
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string,date_format_string)
+vustruct = VUstruct('preprocess', args.project, __file__)
+vustruct.stamp_start_time()
 
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
 pdbmap_vep = PDBMapVEP(config_dict)
