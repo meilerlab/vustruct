@@ -7,6 +7,7 @@
 # Organization   : Vanderbilt Genetics Institute,
 #                : Vanderbilt University
 # Email          : mike.sivley@vanderbilt.edu
+#                  chris.moth@vanderbilt.edu Current Maintainer
 # Date           : 2017-01-22
 # Description    : Identifies available structures for a specific mutation
 #                : and generates a table of work for the computer cluster
@@ -32,8 +33,6 @@ The three output files for each gene include:
   workplan.csv
 """
 
-print("%s: Pipeline execution plan generator.  -h for detailed help" % __file__)
-
 import datetime
 import gzip
 import logging
@@ -43,47 +42,13 @@ import shutil
 import sys
 from io import StringIO
 from logging.handlers import RotatingFileHandler
-from typing import Dict
-
-from vustruct import VUstruct
-
-sh = logging.StreamHandler()
-LOGGER = logging.getLogger()
-global_fh = None  # Setup global fileHandler log when we get more info
-
-# Now that we've added streamHandler, basicConfig will not add another handler (important!)
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string, date_format_string)
-
-# Dictionary to map uniprot IDs for this case to a pre-loaded set of transcripts
-unp2transcript = {}
-
-
-def gene_specific_set_log_formatter(log_handler: logging.Handler, entry: int, gene: str) -> None:
-    log_format_string = '%3d %-7s' % (
-    entry, gene) + ' %(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-    date_format_string = '%H:%M:%S'
-
-    log_handler.setFormatter(logging.Formatter(log_format_string, date_format_string))
-
-
-LOGGER.setLevel(logging.DEBUG)
-sh.setLevel(logging.INFO)
-sh.setFormatter(log_formatter)
-LOGGER.addHandler(sh)
-
+from typing import Dict, Tuple
 import pandas as pd
 
-pd.options.mode.chained_assignment = 'raise'
-pd.set_option("display.max_columns", 100)
-pd.set_option("display.width", 1000)
 import numpy as np
 from lib import PDBMapSIFTSdb
 from lib import PDBMapProtein
 from lib import PDBMapSwiss
-# from lib import PDBMapModbase2016
-# from lib import PDBMapModbase2013
 from lib import PDBMapAlphaFold
 from lib import PDBMapModbase2020
 from lib import PDB36Parser
@@ -93,9 +58,21 @@ from lib.PDBMapAlignment import PDBMapAlignment
 # The planning phase will ask the DDG class about structure quality only
 from psb_shared.ddg_base import DDG_base
 import pprint
-# from jinja2 import Environment, FileSystemLoader
 
 from psb_shared import psb_config
+
+from vustruct import VUstruct
+
+# psb_plan.py is unique in that the log is much more readable when the entry #
+# and gene name fly by in the left column.  We create the log format here
+# and we ask vustruct to update its log format
+# 
+def gene_specific_set_log_formatter(entry: int, gene: str) -> None:
+    log_format_string = '%3d %-7s' % (
+    	entry, gene) + ' %(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
+    date_format_string = '%H:%M:%S'
+    vustruct.set_custom_log_formatter(log_format_string, date_format_string)
+
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)))
 
@@ -111,12 +88,22 @@ args, remaining_argv = cmdline_parser.parse_known_args()
 
 # infoLogging = False  Old/ancient idea about printing vs. logging.  Everything logged now
 
-if args.debug:
-    sh.setLevel(logging.DEBUG)
-elif args.verbose:
-    sh.setLevel(logging.INFO)
-else:
-    sh.setLevel(logging.INFO)
+vustruct = VUstruct('plan', args.project,  __file__)
+vustruct.stamp_start_time()
+vustruct.initialize_file_and_stderr_logging(args.debug)
+
+LOGGER = logging.getLogger()
+
+# Prior to getting going, we save the vustruct filename
+# and then _if_ we die with an error, at least there is a record
+# and psb_rep.py should be able to create a web page to that effect
+vustruct.exit_code = 1
+vustruct.write_file()
+
+
+pd.options.mode.chained_assignment = 'raise'
+pd.set_option("display.max_columns", 100)
+pd.set_option("display.width", 1000)
 
 # If neither option, then logging.WARNING (set at top of this code) will prevail for stdout
 
@@ -209,6 +196,9 @@ oneMutationOnly = args.gene or args.refseq or args.mutation
 # If this is a "global" run of psb_plan, then make a global log file in the collaboration directory
 if not oneMutationOnly:
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
+    pass
+    """
+    # All this here commented out conflicts with new vustruct logging method
     plan_wide_log_filename = os.path.join("./log", "psb_plan.log")
 
     sys.stderr.write("psb_plan log file is %s\n" % plan_wide_log_filename)
@@ -223,6 +213,7 @@ if not oneMutationOnly:
 
     if needRoll:
         global_fh.doRollover()
+    """
 
 # print "Command Line Arguments"
 # pprint.pprint(vars(args))
@@ -542,6 +533,9 @@ def makejob_ddg_cartesian(params):
 df_dropped = None
 
 
+# Dictionary to map uniprot IDs for this case to a pre-loaded set of transcripts
+unp2transcript = {}
+
 def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_model: str = None, unp: str = None):
     # Use the global database connection
     global io
@@ -550,6 +544,10 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     global df_dropped
 
     df_dropped = pd.DataFrame()
+
+    # The psb_plan.log is quite long
+    # Showing the missense.csv entry number and gene name at left makes for easier log reading
+    gene_specific_set_log_formatter(index, gene)
 
     LOGGER.info("Planning mutation for %s %s %s %s", args.project, gene, refseq, mutation)
     if user_model:
@@ -596,26 +594,14 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     psb_permissions.makedirs(mutation_log_dir)
 
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(mutation_log_dir, "psb_plan.log")
+
+    # We additionally echo the log to the directory of the specific mutation
+    temp_log_filename = vustruct.add_temp_logger_to_psb_plan(mutation_log_dir)
 
     if oneMutationOnly:
-        sys.stderr.write("psb_plan log file is %s\n" % log_filename)
+        sys.stderr.write("psb_plan log file is %s\n" % temp_log_filename)
     else:
-        LOGGER.info("Additionally logging to file %s" % log_filename)
-    needRoll = os.path.isfile(log_filename)
-
-    local_fh = RotatingFileHandler(log_filename, backupCount=7)
-    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                                  datefmt="%H:%M:%S")
-    local_fh.setFormatter(formatter)
-    local_fh.setLevel(logging.INFO)
-    LOGGER.addHandler(local_fh)
-
-    if needRoll:
-        local_fh.doRollover()
-
-    gene_specific_set_log_formatter(global_fh, index, gene)
-    gene_specific_set_log_formatter(sh, index, gene)
+        LOGGER.info("Additionally logging to file %s" , temp_log_filename)
 
     # LOGGER.info("MySQL: Marking psb_collab.MutationSummary incomplete for %s %s %s %s %s"%
     #         (args.project,gene,refseq,mutation,unp))
@@ -1988,11 +1974,10 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         LOGGER.warning("Removing prior workstatus file: %s" % workstatus_filename)
         os.remove(workstatus_filename)
 
-    # Close out the local log file for this mutation
-    local_fh.flush()
-    local_fh.close()
-    LOGGER.removeHandler(local_fh)
-    return df_all_jobs, workplan_filename, ci_df, df_dropped, log_filename
+    # End the selective echo logger for this mutation
+    vustruct.remove_temp_logger_from_psbplan()
+
+    return df_all_jobs, workplan_filename, ci_df, df_dropped, temp_log_filename
 
 
 def makejob_DiGePred(params, options: str):
@@ -2004,7 +1989,8 @@ def makejob_DiGePred(params, options: str):
                    options)  # Command line options
 
 
-def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
+def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple[str, str]:
+    """Plan DiGePred run, and anything else we may later add which is run against the _entire_ case"""
     # Use the global database connection
     global args
     global io
@@ -2018,24 +2004,6 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
     casewide_log_dir = casewide_dir  # os.path.join(casewide_dir,"log")
     psb_permissions.makedirs(casewide_log_dir)
 
-    # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(casewide_log_dir, "psb_plan.log")
-
-    if oneMutationOnly:
-        sys.stderr.write("psb_plan log file is %s\n" % log_filename)
-    else:
-        LOGGER.info("Additionally logging to file %s" % log_filename)
-    needRoll = os.path.isfile(log_filename)
-
-    local_fh = RotatingFileHandler(log_filename, backupCount=7)
-    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                                  datefmt="%H:%M:%S")
-    local_fh.setFormatter(formatter)
-    local_fh.setLevel(logging.INFO)
-    LOGGER.addHandler(local_fh)
-
-    if needRoll:
-        local_fh.doRollover()
 
     # whether we had some structures or not, we have our completed workplan to save - and then exit  
     workplan_filename = os.path.join(casewide_dir, "%s_workplan.csv" % casewideString)
@@ -2074,10 +2042,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
         os.remove(workstatus_filename)
 
     # Close out the local log file for this mutation
-    local_fh.flush()
-    local_fh.close()
-    LOGGER.removeHandler(local_fh)
-    return df_all_jobs, workplan_filename, log_filename
+    return df_all_jobs, workplan_filename
 
 
 if oneMutationOnly:
@@ -2090,8 +2055,6 @@ if oneMutationOnly:
     LOGGER.info("%3d structures/models were considered, but dropped." % len(df_dropped))
     LOGGER.info("Full details in %s", log_filename)
 else:
-    vustruct = VUstruct('plan', args.project, __file__)
-    vustruct.stamp_start_time()
 
     original_Vanderbilt_UDN_case_xlsx_filename = None
     if digepred_program:
@@ -2102,17 +2065,16 @@ else:
     df_all_jobs = pd.DataFrame()
     if original_Vanderbilt_UDN_case_xlsx_filename and os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename):
         LOGGER.info('Planning casewide work from %s' % original_Vanderbilt_UDN_case_xlsx_filename)
-        df_all_jobs, workplan_filename, log_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
+        df_all_jobs, workplan_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
     elif original_Vanderbilt_UDN_case_xlsx_filename:
         LOGGER.info('Vanderbilt-specific file %s not found.  No casewide work will be performed' % \
                     original_Vanderbilt_UDN_case_xlsx_filename)
 
     if len(df_all_jobs):
-        fulldir, filename = os.path.split(log_filename)
         fulldir, casewide_dir = os.path.split(fulldir)
         fulldir, project_dir = os.path.split(fulldir)
-        LOGGER.info(" %4d casewide jobs will run.  See: $UDN/%s" % (
-        len(df_all_jobs), os.path.join(project_dir, casewide_dir, filename)))
+        LOGGER.info(" %4d casewide jobs will run.  See: %s" , 
+                 len(df_all_jobs), vustruct.log_filename)
     else:
         LOGGER.info(" No casewide jobs will be run.")
 
@@ -2246,7 +2208,6 @@ else:
     # LOGGER.info("Saving %s file to %s", case_missense_filename, log_missense_filename)
     # shutil.copy(src=case_missense_filename, dst=log_missense_filename)
 
-    vustruct.logfile = plan_wide_log_filename
     vustruct.exit_code = 0
     vustruct.write_file()
 
