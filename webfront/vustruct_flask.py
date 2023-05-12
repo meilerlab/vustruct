@@ -328,7 +328,7 @@ class VUstructCaseManager:
         LOGGER.info("psb_rep: chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
 
-        psb_rep_command_line = ['psb_rep.py']
+        psb_rep_command_line = ['psb_rep.py','--tar_only']
         if not last_flag:
             psb_rep_command_line.append('--embed_refresh')
             if seconds_remaining > 0:
@@ -548,7 +548,7 @@ def launch_vustruct():
             "upload_file_URI": "file:////dors/capra_lab/users/mothcw/UDNtests/fakecase0/fakecase0.xlsx"}'
     """
 
-    LOGGER.debug ("/launch_vustruct: request.json=%s", str(request.json))
+    LOGGER.debug ("/launch_vustruct: request.json=\n%s", json.dumps(request.json,indent=3))
 
     for required_key in ['case_id', 'case_uuid', 'data_format']:
         if not required_key in request.json:
