@@ -50,7 +50,7 @@
 	<p>This page will refresh every 10 seconds</p>
 {% endif %}
 
-{% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['logfile'] %}
+{% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['log_filename'] %}
 
 <h3>
 <A href="{{ vustruct[module]['logfile'] }}" download>Download {{ vustruct[module]['logfile'] }}</A>
