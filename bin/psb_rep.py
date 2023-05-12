@@ -107,6 +107,8 @@ cmdline_parser.add_argument("--embed_refresh",
                             help="Set if created pages should auto refresh, i.e. are not final", action="store_true")
 cmdline_parser.add_argument("--seconds_remaining", nargs='?', type=int, metavar='int', 
                             help="Add text to let user know how much longer report re-generation will continue", default=0)
+cmdline_parser.add_argument("-t", "--tar_only",
+                            help="Do NOT create a .zip output of the website, just .tar", action="store_true")
 cmdline_parser.add_argument("projectORstructures", type=str,
                             help="The project ID UDN123456 to report on all mutations.  Else, a specific structures file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_structure_report.csv",
                             default=os.path.basename(os.getcwd()), nargs='?')
@@ -352,12 +354,12 @@ vustruct_dict_for_jinja2 = vustruct.dict_for_jinja2()
 # We need to get rid of log/ prefixes, because we generate index.html
 # down in the log directory
 for command_line_module in vustruct_dict_for_jinja2.keys():
-    if 'logfile' in vustruct_dict_for_jinja2[command_line_module]:
-        logfile_name = vustruct_dict_for_jinja2[command_line_module]['logfile']
-        if logfile_name:
-            website_filelist.append(logfile_name)
-            vustruct_dict_for_jinja2[command_line_module]['logfile'] = \
-                os.path.basename(logfile_name)
+    if 'log_filename' in vustruct_dict_for_jinja2[command_line_module]:
+        log_filename = vustruct_dict_for_jinja2[command_line_module]['log_filename']
+        if log_filename:
+            website_filelist.append(log_filename)
+            vustruct_dict_for_jinja2[command_line_module]['log_filename'] = \
+                os.path.basename(log_filename)
 
 
 # directly from a single mutation output file of psb_plan.py
@@ -836,15 +838,16 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 for website_file in website_filelist)))
         LOGGER.info("A filelist for creating a website is in %s", website_filelist_filename)
         website_zip_filename = "%s.zip" % args.projectORstructures
-        pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -' % (website_zip_filename,
-                                                                                  os.path.join(args.projectORstructures,
-                                                                                               website_filelist_filename),
-                                                                                  os.path.join(args.projectORstructures,
-                                                                                               website_zip_filename),
-                                                                                  os.path.join(args.projectORstructures,
-                                                                                               website_zip_filename))
-        LOGGER.info("Executing: %s", pkzip_maker)
-        subprocess.call(pkzip_maker, shell=True)
+        if (args.tar_only):
+            LOGGER.info("--tar_only requested.  %s will not be created." , website_zip_filename);
+        else:
+            pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -' % (
+                website_zip_filename,
+                os.path.join(args.projectORstructures, website_filelist_filename),
+                os.path.join(args.projectORstructures, website_zip_filename),
+                os.path.join(args.projectORstructures, website_zip_filename))
+            LOGGER.info("Creating .zip website file with: %s", pkzip_maker)
+            subprocess.call(pkzip_maker, shell=True)
 
         website_tar_filename = "%s.tar.gz" % args.projectORstructures
         tar_maker = 'rm -f %s; cd ..; tar cvzf %s --files-from %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -' % (
@@ -852,7 +855,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             os.path.join(args.projectORstructures, website_tar_filename),
             os.path.join(args.projectORstructures, website_filelist_filename),
             os.path.join(args.projectORstructures, website_tar_filename))
-        LOGGER.info("Executing: %s", tar_maker)
+        LOGGER.info("Creating .tar website file with: %s", tar_maker)
         subprocess.call(tar_maker, shell=True)
 
         print("Compressed website files are in %s and %s" % (website_zip_filename, website_tar_filename))
