@@ -125,7 +125,7 @@ def health_check():
 # page
 @app.route('/create_placeholder_webpage', methods=['POST'])
 def create_placeholder_webpage():
-    LOGGER.info("/create_placeholder_webpage: %s" % request.json)
+    LOGGER.info("/create_placeholder_webpage: %s\n" , json.dumps(request.json,indent=2))
 
     case_url = "None"
 
@@ -152,7 +152,7 @@ def create_placeholder_webpage():
        else:
            initial_task_information += "%d variants." % missense_variants
     else:
-       initial_task_information = "VUstruct is converting your (%s) genomic coordinates to protein variants" % request.json['data_format'];
+       initial_task_information = "VUstruct is converting your (%s) genomic coordinates to protein variants." % request.json['data_format'];
 
     index_html = os.path.join(webpage_home, "index.html")
     with open(index_html, "w") as initial_webpage_f:
@@ -168,13 +168,14 @@ def create_placeholder_webpage():
 
       <script type = "text/JavaScript">
             window.refreshCount = localStorage.getItem('{local_refresh_variable_name}');
-            if (window.refreshCount === null)
-                window.refreshCount = 0;
+            if (window.refreshCount)
+                window.refreshCount = parseInt(window.refreshCount)
             else
-                window.refreshCount = parseInt(window.refreshCount)"""
+                window.refreshCount = 0;
+      </script>
+"""
 
             + f"""
-      </script>
 </head>
    <body onload = "JavaScript:AutoRefresh(10000);">
 <img src="../../html/PSBgraphicHeader.png" alt="VUStruct Graphic"/>
@@ -187,8 +188,21 @@ def create_placeholder_webpage():
 + "<p>" + initial_task_information+ "<p>" + 
 
 """<br>
-Webpage has been refreshed
+      <p>This page will refresh every 10 seconds.</p>
+
 <script type="text/JavaScript">
+if (window.refreshCount > 0) {
+    document.write('This page has been refreshed ');
+    if (window.refreshCount == 1)
+        document.write('once');
+    else {
+        document.write(window.refreshCount.toString())
+        document.write(' times.');
+      }
+}
+"""
++
+   f""" 
 function incrementRefreshCountAndReload() {{
     localStorage.setItem(
           '{local_refresh_variable_name}',
@@ -200,15 +214,12 @@ function incrementRefreshCountAndReload() {{
 function AutoRefresh( timeout_milliseconds ) {{
    setTimeout( incrementRefreshCountAndReload, timeout_milliseconds);
 }}
-
-document.write(window.refreshCount.toString())
 </script>
- times
+
 <button>
     <a href="javascript:{{incrementRefreshCountAndReload()}}"> Click Refresh the Page</a>
 </button>
 
-      <p>Your Page will refresh every 10 seconds!</p>
    </body>
 </html>
 """)
