@@ -71,6 +71,7 @@ class VUstruct:
             command_line_module: {
                 'executable': '',
                 'start_time': '',
+                'end_time': '',
                 'log_filename': '',
                 'exit_code': 1  # Default file is marked as not exiting well
 
@@ -196,6 +197,14 @@ class VUstruct:
     @property
     def start_time(self):
         return self._vustruct_dict[self._module]['start_time']
+
+    def stamp_end_time(self):
+        self._vustruct_dict[self._module]['end_time'] = datetime.now().isoformat()
+
+    @property
+    def end_time(self):
+        return self._vustruct_dict[self._module]['end_time']
+
 
     @property
     def exit_code(self):
