@@ -490,17 +490,20 @@ if csv_rows:
             df_with_original_lineno = pd.concat([df_with_original_lineno, pd.DataFrame([row])], ignore_index=False)
 
     # Index our dataframe by original_lineno and drop that column.  Then append the unp column to the index (but keep unp column)
-    df_with_original_lineno \
+    df_without_original_lineno = df_with_original_lineno \
         .set_index('original_lineno') \
         .set_index('unp', append=True, drop=False) \
         .sort_index() \
-        .reset_index(drop=True) \
-        .to_csv(missense_csv_filename, header=True, encoding='ascii', sep=',')
+        .reset_index(drop=True) 
 
-    LOGGER.info("==> %d rows successfully written to %s" % (len(df_with_original_lineno), missense_csv_filename))
+    df_without_original_lineno.index = df_without_original_lineno.index+1
+    df_without_original_lineno.to_csv(missense_csv_filename, index_label = 'index', header=True, encoding='ascii', sep=',')
+
+    LOGGER.info("==> %d rows successfully written to %s" % (len(df_without_original_lineno), missense_csv_filename))
     LOGGER.info("==> Compare contents to original input file %s" % udn_excel_filename)
     LOGGER.info("==> These log entries are in %s", vustruct.log_filename)
 
     vustruct.exit_code = 0
+    vustruct.stamp_end_time()
     vustruct.write_file()
 

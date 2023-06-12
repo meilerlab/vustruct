@@ -207,6 +207,12 @@ for index,row in df_without_duplicates.iterrows():
     df_without_duplicates.at[index,'transcript'] = ';'.join(transcript_list)
 
 final_missense_filename = args.vcffile.split('.')[0]+'_missense.csv'
-df_without_duplicates.to_csv(final_missense_filename,sep=',')
+
+# For writing final dataframe, index from 1 (not zero)
+df_without_duplicates.index = df_without_duplicates.index + 1
+df_without_duplicates.to_csv(final_missense_filename,sep=',', index_label='index')
 # df = pd.DataFrame(columns=['gene','chrom','pos','transcript','unp','refseq','mutation'])
 LOGGER.info("%d rows written to %s" , len(df_without_duplicates) , final_missense_filename)
+vustruct.exit_code = 0
+vustruct.stamp_end_time()
+vustruct.write_file()
