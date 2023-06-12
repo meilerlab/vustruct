@@ -141,9 +141,9 @@ keep_pdbs = []
 if 'KeepPDBs' in config:
     keep_pdbs = dict(config.items('KeepPDBs'))['keeppdbs'].upper().split(',')
 
-digepred_program = None
+digepred_program_from_config = None
 if 'CaseWide' in config:
-    digepred_program = dict(config.items('CaseWide')).get('digepred', None)
+    digepred_program_from_config = dict(config.items('CaseWide')).get('digepred', None)
 
 from psb_shared import psb_perms
 
@@ -1983,7 +1983,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 def makejob_DiGePred(params, options: str):
     # Secondary structure prediction and sequence annotation
     return makejob("DiGePred",  # Flavor
-                   digepred_program,
+                   digepred_program_from_config,
                    # something like python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/Run_DiGePred_PSB.py
                    params,  # Parameters for dataframe
                    options)  # Command line options
@@ -2010,7 +2010,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
 
     workstatus_filename = os.path.join(casewide_dir, "%s_workstatus.csv" % casewideString)
 
-    df_all_jobs = pd.DataFrame()
+    df_casewide_jobs = pd.DataFrame()
     params = {"config": args.config, "userconfig": args.userconfig, "collab": config_dict['collaboration'],
               "case": args.project,
               "project": args.project,
@@ -2023,18 +2023,18 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
               "pdb_mutation": "N/A"}
 
     # DiGePred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
-    if digepred_program:
+    if digepred_program_from_config:
         digepred_options = "-n %s -e %s" % (args.project, original_Vanderbilt_UDN_case_xlsx_filename)
 
         # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-        # depcreated: df_all_jobs = df_all_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
-        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_DiGePred(params, digepred_options)])], ignore_index=True)
+        # depcreated: df_casewide_jobs = df_casewide_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
+        df_casewide_jobs = pd.concat([df_casewide_jobs,pd.DataFrame([makejob_DiGePred(params, digepred_options)])], ignore_index=True)
     else:
         LOGGER.info(
             "No digepred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
 
-    df_all_jobs.set_index('uniquekey', inplace=True);
-    df_all_jobs.sort_index().to_csv(workplan_filename, sep='\t')
+    df_casewide_jobs.set_index('uniquekey', inplace=True);
+    df_casewide_jobs.sort_index().to_csv(workplan_filename, sep='\t')
     LOGGER.info("Workplan written to %s" % workplan_filename)
 
     if os.path.exists(workstatus_filename):
@@ -2042,7 +2042,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
         os.remove(workstatus_filename)
 
     # Close out the local log file for this mutation
-    return df_all_jobs, workplan_filename
+    return df_casewide_jobs, workplan_filename
 
 
 if oneMutationOnly:
@@ -2055,33 +2055,37 @@ if oneMutationOnly:
     LOGGER.info("%3d structures/models were considered, but dropped." % len(df_dropped))
     LOGGER.info("Full details in %s", log_filename)
 else:
-
     original_Vanderbilt_UDN_case_xlsx_filename = None
-    if digepred_program:
+    if digepred_program_from_config:
         original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(case_dir, "%s.xlsx" % args.project)
+        if original_Vanderbilt_UDN_case_xlsx_filename and (not os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename)):
+            LOGGER.info('Vanderbilt-specific case file %s not found.  DiGePred will not be performed' % \
+                    original_Vanderbilt_UDN_case_xlsx_filename)
+            original_Vanderbilt_UDN_case_xlsx_filename = None
     else:
-        LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific UDN analysis will not be performed')
+        LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific DiGePred analysis will not be performed')
 
     df_all_jobs = pd.DataFrame()
-    if original_Vanderbilt_UDN_case_xlsx_filename and os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename):
+    # We already tested above that this xlsx file is in the case directory...
+    # AND that we have digepred_program_from_config set to an executable path
+    if original_Vanderbilt_UDN_case_xlsx_filename:
         LOGGER.info('Planning casewide work from %s' % original_Vanderbilt_UDN_case_xlsx_filename)
         df_all_jobs, workplan_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
-    elif original_Vanderbilt_UDN_case_xlsx_filename:
-        LOGGER.info('Vanderbilt-specific file %s not found.  No casewide work will be performed' % \
-                    original_Vanderbilt_UDN_case_xlsx_filename)
-
-    if len(df_all_jobs):
-        fulldir, casewide_dir = os.path.split(fulldir)
-        fulldir, project_dir = os.path.split(fulldir)
-        LOGGER.info(" %4d casewide jobs will run.  See: %s" , 
+        if len(df_all_jobs):
+            # fulldir, casewide_dir = os.path.split(fulldir)
+            # fulldir, project_dir = os.path.split(fulldir)
+            LOGGER.info(" %4d DiGePred jobs will run.  See: %s" , 
                  len(df_all_jobs), vustruct.log_filename)
+        else:
+            LOGGER.info("Following read of %s, no DiGePred work will be performed" ,  original_Vanderbilt_UDN_case_xlsx_filename)
     else:
-        LOGGER.info(" No casewide jobs will be run.")
+        pass  # We don't need another log entry.  We logged above if we lacked a config entry for DiGePred, or if xlsx file not found
+
 
     # Now plan the per-mutation jobs
     case_missense_filename = os.path.join(case_dir, "%s_missense.csv" % args.project)
     LOGGER.info("Retrieving project mutations from %s", case_missense_filename)
-    df_all_mutations = pd.read_csv(case_missense_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+    df_all_mutations = pd.read_csv(case_missense_filename, sep=',', index_col='index', keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
     LOGGER.info("Work for %d mutations will be planned" % len(df_all_mutations))
 
@@ -2209,6 +2213,7 @@ else:
     # shutil.copy(src=case_missense_filename, dst=log_missense_filename)
 
     vustruct.exit_code = 0
+    vustruct.stamp_end_time()
     vustruct.write_file()
 
 
