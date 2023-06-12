@@ -152,7 +152,8 @@ def create_placeholder_webpage():
        else:
            initial_task_information += "%d variants." % missense_variants
     else:
-       initial_task_information = "VUstruct is converting your (%s) genomic coordinates to protein variants." % request.json['data_format'];
+       initial_task_information = "VUstruct is converting file: <b>%s</b> (%s) genomic coordinates to protein variants." % (
+           os.path.basename(request.json['upload_file_URI']), request.json['data_format']);
 
     index_html = os.path.join(webpage_home, "index.html")
     with open(index_html, "w") as initial_webpage_f:
@@ -216,9 +217,11 @@ function AutoRefresh( timeout_milliseconds ) {{
 }}
 </script>
 
-<button>
+<!--
+ <button>
     <a href="javascript:{{incrementRefreshCountAndReload()}}"> Click Refresh the Page</a>
-</button>
+</button> 
+-->
 
    </body>
 </html>
@@ -273,11 +276,8 @@ def xfer_to_web_thread(case_needing_refresh) -> subprocess.CompletedProcess:
     with open(index_html_filename,'w') as f:
         f.write(index_html_content);
 
-
     # Get rid of any old file that is there
     LOGGER.info("Make sure that %s is totally removed now", cp_source)
-
-
 
     return None
 
@@ -297,7 +297,7 @@ def refresh_case_websites():
         LOGGER.info("%d cases need website transfers" % len(cases_needing_refresh))
 
         for case_needing_refresh in cases_needing_refresh:
-            LOGGER.info("%s", case_needing_refresh)
+            LOGGER.info("Details of case being refreshed to website:  %s", json.dumps(case_needing_refresh, indent=3))
             case_uuids_needing_website_refresh.add(case_needing_refresh['case_uuid'])
             psb_plan_thread = threading.Thread(target=xfer_to_web_thread, args=(case_needing_refresh,))
             psb_plan_thread.start()
