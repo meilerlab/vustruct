@@ -107,8 +107,12 @@ cmdline_parser.add_argument("--embed_refresh",
                             help="Set if created pages should auto refresh, i.e. are not final", action="store_true")
 cmdline_parser.add_argument("--seconds_remaining", nargs='?', type=int, metavar='int', 
                             help="Add text to let user know how much longer report re-generation will continue", default=0)
-cmdline_parser.add_argument("-t", "--tar_only",
+cmdline_parser.add_argument("--tar_only",
                             help="Do NOT create a .zip output of the website, just .tar", action="store_true")
+cmdline_parser.add_argument("--strip_uuid", type=str, nargs='?',
+                            help="If supplied, a uuid to remove from archived filenames (used after public website input")
+cmdline_parser.add_argument("--web_case_id", type=str, nargs='?',
+                            help="Case ID as input through user form")
 cmdline_parser.add_argument("projectORstructures", type=str,
                             help="The project ID UDN123456 to report on all mutations.  Else, a specific structures file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_structure_report.csv",
                             default=os.path.basename(os.getcwd()), nargs='?')
@@ -351,6 +355,15 @@ case_report_template_location = os.path.dirname(os.path.realpath(__file__))
 jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
 vustruct_logs_template = jinja2_environment.get_template("html/vustruct_logs_template.html")
 vustruct_dict_for_jinja2 = vustruct.dict_for_jinja2()
+
+# Change the displayed executable names from psb_ prefixes to vustruct_ prefixes
+# Because we have renamed these command line components
+# Also strip out any crazy leading path
+for phase in ['preprocess', 'plan', 'launch', 'report']:
+    if phase in vustruct_dict_for_jinja2:
+        python_exe_name = os.path.basename(vustruct_dict_for_jinja2[phase]['executable'])
+        vustruct_display_name = python_exe_name.replace("psb_","vustruct_")
+        vustruct_dict_for_jinja2[phase]['executable'] = vustruct_display_name
 # We need to get rid of log/ prefixes, because we generate index.html
 # down in the log directory
 for command_line_module in vustruct_dict_for_jinja2.keys():
@@ -358,7 +371,7 @@ for command_line_module in vustruct_dict_for_jinja2.keys():
         log_filename = vustruct_dict_for_jinja2[command_line_module]['log_filename']
         if log_filename:
             website_filelist.append(log_filename)
-            vustruct_dict_for_jinja2[command_line_module]['log_filename'] = \
+            vustruct_dict_for_jinja2[command_line_module]['log_basename'] = \
                 os.path.basename(log_filename)
 
 
@@ -385,6 +398,14 @@ else:
     df_all_mutations = pd.read_csv(StringIO(missense_csv_data), sep=',', index_col=None, keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
     df_all_mutations.fillna('NA', inplace=True)
+
+    vustruct_logs_info = {
+        'case_missense_filename': os.path.basename(case_missense_filename),
+        'case_missense_csv_data': missense_csv_data,
+        'case_missense_df': df_all_mutations,
+        'refreshFlag': args.embed_refresh,
+        'vustruct': vustruct_dict_for_jinja2
+    }
 
     if args.slurm:
         slurm_directory = os.path.join(case_root_dir, "slurm")
@@ -499,77 +520,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     variant_isoform_summary['Mutation'] = genome_variant_row['mutation']
                     variant_isoform_summaries.append(variant_isoform_summary)
 
-                    # Go to SQL to get the Gene ID for this gene.....
-                    genome_header['gene_id'] = variant_isoform_summary['gene_id']
-
-                    genome_header['ddG Monomer Min'] = min(
-                        [variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary[
-                             'ddG Monomer Min'] is not None],
-                        default=None)
-                    genome_header['ddG Monomer Max'] = max(
-                        [variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary[
-                             'ddG Monomer Max'] is not None],
-                        default=None)
-
-                    genome_header['ddG Cartesian Min'] = min(
-                        [variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary[
-                             'ddG Cartesian Min'] is not None],
-                        default=None)
-                    genome_header['ddG Cartesian Max'] = max(
-                        [variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary[
-                             'ddG Cartesian Max'] is not None],
-                        default=None)
-
-                    genome_header['AA_Len Min'] = min(
-                        [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
-                         if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
-                        default=None)
-
-                    genome_header['AA_Len Max'] = max(
-                        [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
-                         if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
-                        default=None)
-
-                    genome_header['disease1_pp Min'] = min(
-                        [variant_isoform_summary['disease1_pp Min'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'disease1_pp Min' in variant_isoform_summary and variant_isoform_summary[
-                             'disease1_pp Min'] is not None],
-                        default=None)
-                    genome_header['disease1_pp Max'] = max(
-                        [variant_isoform_summary['disease1_pp Max'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'disease1_pp Max' in variant_isoform_summary and variant_isoform_summary[
-                             'disease1_pp Max'] is not None],
-                        default=None)
-
-                    genome_header['disease2_pp Min'] = min(
-                        [variant_isoform_summary['disease2_pp Min'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'disease2_pp Min' in variant_isoform_summary and variant_isoform_summary[
-                             'disease2_pp Min'] is not None],
-                        default=None)
-                    genome_header['disease2_pp Max'] = max(
-                        [variant_isoform_summary['disease2_pp Max'] for variant_isoform_summary in
-                         variant_isoform_summaries \
-                         if 'disease2_pp Max' in variant_isoform_summary and variant_isoform_summary[
-                             'disease2_pp Max'] is not None],
-                        default=None)
-
-                    genome_header['Error'] = max(
-                        [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
-                         if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
-                        default=None)
-
-                    genome_headers.append(genome_header)
 
 
 
@@ -579,6 +529,80 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     if not infoLogging:
                         print(msg)
                     LOGGER.info(msg)
+
+            if variant_isoform_summaries:
+
+                # The Gene ID will be same for all isoform summaries
+                genome_header['gene_id'] = variant_isoform_summaries[0]['gene_id']
+
+                genome_header['ddG Monomer Min'] = min(
+                    [variant_isoform_summary['ddG Monomer Min'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'ddG Monomer Min' in variant_isoform_summary and variant_isoform_summary[
+                         'ddG Monomer Min'] is not None],
+                    default=None)
+                genome_header['ddG Monomer Max'] = max(
+                    [variant_isoform_summary['ddG Monomer Max'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'ddG Monomer Max' in variant_isoform_summary and variant_isoform_summary[
+                         'ddG Monomer Max'] is not None],
+                    default=None)
+
+                genome_header['ddG Cartesian Min'] = min(
+                    [variant_isoform_summary['ddG Cartesian Min'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'ddG Cartesian Min' in variant_isoform_summary and variant_isoform_summary[
+                         'ddG Cartesian Min'] is not None],
+                    default=None)
+                genome_header['ddG Cartesian Max'] = max(
+                    [variant_isoform_summary['ddG Cartesian Max'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'ddG Cartesian Max' in variant_isoform_summary and variant_isoform_summary[
+                         'ddG Cartesian Max'] is not None],
+                    default=None)
+
+                genome_header['AA_Len Min'] = min(
+                    [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
+                     if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
+                    default=None)
+
+                genome_header['AA_Len Max'] = max(
+                    [variant_isoform_summary['AA_len'] for variant_isoform_summary in variant_isoform_summaries \
+                     if 'AA_len' in variant_isoform_summary and variant_isoform_summary['AA_len'] is not None],
+                    default=None)
+
+                genome_header['disease1_pp Min'] = min(
+                    [variant_isoform_summary['disease1_pp Min'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'disease1_pp Min' in variant_isoform_summary and variant_isoform_summary[
+                         'disease1_pp Min'] is not None],
+                    default=None)
+                genome_header['disease1_pp Max'] = max(
+                    [variant_isoform_summary['disease1_pp Max'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'disease1_pp Max' in variant_isoform_summary and variant_isoform_summary[
+                         'disease1_pp Max'] is not None],
+                    default=None)
+
+                genome_header['disease2_pp Min'] = min(
+                    [variant_isoform_summary['disease2_pp Min'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'disease2_pp Min' in variant_isoform_summary and variant_isoform_summary[
+                         'disease2_pp Min'] is not None],
+                    default=None)
+                genome_header['disease2_pp Max'] = max(
+                    [variant_isoform_summary['disease2_pp Max'] for variant_isoform_summary in
+                     variant_isoform_summaries \
+                     if 'disease2_pp Max' in variant_isoform_summary and variant_isoform_summary[
+                         'disease2_pp Max'] is not None],
+                    default=None)
+
+                genome_header['Error'] = max(
+                    [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
+                     if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
+                    default=None)
+
+                genome_headers.append(genome_header)
 
     else:  # There are no chrom positions in this case.  Use the old format
         variant_isoform_summaries = []  # One line per variant
@@ -763,6 +787,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                            'genome_headers': genome_headers,
                            'early_or_fail_message': early_or_fail_message,
                            'refreshFlag': args.embed_refresh,
+                           'vustruct': vustruct_dict_for_jinja2,
+                           'vustruct_logs_info': vustruct_logs_info,
                            # 'firstGeneTable': html_table_generic,
                            # 'firstGeneReport': html_report_generic,
                            # 'secondGeneTable': html_table_familial,
@@ -782,6 +808,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
     html_out = case_report_template.render(final_gathered_info)
 
+    # Remove vustruct_logs_info from the structure before we do more with it
+    # Because we cannot convert the embedded dataframe to JSON here
+    del final_gathered_info['vustruct_logs_info']
+
     with open(case_summary_filename, "w") as f:
         f.write(html_out)
     last_message = "The case summary report is: " + case_summary_filename
@@ -792,13 +822,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
 
 
     LOGGER.info("Writing website log/ files")
-    vustruct_logs_info = {
-        'case_missense_filename': os.path.basename(case_missense_filename),
-        'case_missense_csv_data': missense_csv_data,
-        'case_missense_df': df_all_mutations,
-        'refreshFlag': args.embed_refresh,
-        'vustruct': vustruct_dict_for_jinja2
-    }
 
     html_out = vustruct_logs_template.render(vustruct_logs_info)
     vustruct_html_filename = os.path.join("log/", "index.html")
@@ -821,8 +844,13 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         except OSError:  # A-OK if file is not arleady there
             pass
         try:
+            index_html_symlink = case_summary_filename
+            # If our destiny is to later rename the main .html filename with the tar --transform to come, then
+            # we need to repoing index.html to the forthcoming renamed file
+            if args.strip_uuid and args.web_case_id:
+                index_html_symlink = args.web_case_id + '.html'
             # The symlink fails when we are running in some vm environments - so we just copy in those cases
-            os.symlink(case_summary_filename, 'index.html')
+            os.symlink(index_html_symlink, 'index.html')
         except PermissionError:
             LOGGER.info("Creating index.html as symlink failed in VM.  Attempting simpler cp operations")
             shutil.copy(src=case_summary_filename, dst='index.html')
@@ -838,7 +866,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 for website_file in website_filelist)))
         LOGGER.info("A filelist for creating a website is in %s", website_filelist_filename)
         website_zip_filename = "%s.zip" % args.projectORstructures
-        if (args.tar_only):
+        if args.tar_only:
             LOGGER.info("--tar_only requested.  %s will not be created." , website_zip_filename);
         else:
             pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -' % (
@@ -849,15 +877,36 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             LOGGER.info("Creating .zip website file with: %s", pkzip_maker)
             subprocess.call(pkzip_maker, shell=True)
 
+        # The temp filename has a hideous UTC timestamp on it
+        website_tar_temp_filename = "%s_%s.tar.gz" % (
+            args.projectORstructures, 
+            datetime.datetime.now().replace(microsecond=0).isoformat().translate(str.maketrans('','',string.punctuation)))
+
         website_tar_filename = "%s.tar.gz" % args.projectORstructures
-        tar_maker = 'rm -f %s; cd ..; tar cvzf %s --files-from %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -' % (
-            website_tar_filename,
-            os.path.join(args.projectORstructures, website_tar_filename),
+        tar_transformer = ''
+        if args.strip_uuid:
+            # We are replaceing the very complex uuid-embedded heirarchy filenames with user-friendly casename
+            case_id = args.web_case_id
+            uuid = args.strip_uuid
+            search_string = f"external_user_{case_id}_{uuid}/external_user_{case_id}_{args.strip_uuid}"
+            replace_string = f"external_user_{case_id}_{uuid}/{case_id}"
+            tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
+        tar_maker = 'cd ..; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -; mv %s %s; mv %s.stdout %s.stdout' % (
+            os.path.join(args.projectORstructures, website_tar_temp_filename),
             os.path.join(args.projectORstructures, website_filelist_filename),
-            os.path.join(args.projectORstructures, website_tar_filename))
+            tar_transformer,
+            os.path.join(args.projectORstructures, website_tar_temp_filename),
+            website_tar_temp_filename,website_tar_filename,
+            website_tar_temp_filename,website_tar_filename)
         LOGGER.info("Creating .tar website file with: %s", tar_maker)
         subprocess.call(tar_maker, shell=True)
 
-        print("Compressed website files are in %s and %s" % (website_zip_filename, website_tar_filename))
+        final_message = "Compressed website files are in "
+        if args.tar_only:
+            final_message += website_tar_filename
+        else:
+            final_message += "%s and %s" % ( website_zip_filename, website_tar_filename)
+
+        LOGGER.info(final_message);
 
 sys.exit(0)
