@@ -65,6 +65,15 @@ if not UDN:
     errormsg = "UDN environment variable must be defined before launch of %s" % UDN
     sys.exit(errormsg)
 
+config = {
+    'report_interval_initial_minutes': 1.0,
+    'report_interval_stretch_factor': 1.5,
+    'report_interval_max_minutes': 30,
+    'report_timeout_days': 4.0
+}
+    
+
+
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)))
 
@@ -186,10 +195,10 @@ class VUstructCaseManager:
         #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg parse_udn_report.py"""%\
         #self.working_directory
 
-        self.last_module_launched = "parse"
-        self.last_module_returncode = parse_return.returncode
+        # self.last_module_launched = "parse"
+        # self.last_module_returncode = parse_return.returncode
 
-        return self.last_module_returncode
+        return parse_return.returncode
 
     def vcf2missense(self) -> int:
         self.fetch_input_file('vcf')
@@ -199,10 +208,10 @@ class VUstructCaseManager:
         #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
         #self.working_directory
 
-        self.last_module_launched = "parse"
-        self.last_module_returncode = parse_return.returncode
+        # self.last_module_launched = "parse"
+        # self.last_module_returncode = parse_return.returncode
 
-        return self.last_module_returncode
+        return parse_return.returncode
 
     def vcf2missense_with_liftover(self) -> int:
         self.fetch_input_file('vcf')
@@ -212,10 +221,10 @@ class VUstructCaseManager:
         #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
         #self.working_directory
 
-        self.last_module_launched = "parse"
-        self.last_module_returncode = parse_return.returncode
+        # self.last_module_launched = "parse"
+        # self.last_module_returncode = parse_return.returncode
 
-        return self.last_module_returncode
+        return parse_return.returncode
 
     def psb_plan(self) -> int:
         os.makedirs(self.working_directory, exist_ok=True)
@@ -245,8 +254,6 @@ class VUstructCaseManager:
         LOGGER.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
         os.chdir(save_cwd)
 
-        self.last_module_launched = "plan"
-        self.last_module_returncode = launch_parse_return.returncode
 
         return self.last_module_returncode
 
@@ -328,7 +335,9 @@ class VUstructCaseManager:
         LOGGER.info("psb_rep: chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
 
-        psb_rep_command_line = ['psb_rep.py','--tar_only']
+        # When we run psb_rep, we want to --transform out the uuid from the filenames
+        # And we want the external_user filename prefixes to be removed as well.
+        psb_rep_command_line = ['psb_rep.py','--tar_only', '--strip_uuid', self.case_uuid, '--web_case_id', self.case_id]
         if not last_flag:
             psb_rep_command_line.append('--embed_refresh')
             if seconds_remaining > 0:
@@ -352,11 +361,12 @@ def monitor_report_loop(vustruct_case: VUstructCaseManager):
     # For 4 days loop, creating a new report every ?30? minutes
     # as the cluster churns away.  This is a separate functio to support
     # entry into _just_ this function (restart report creation)
-    vustruct_case.timeout_time = datetime.now() + timedelta(days=4)
+    vustruct_case.timeout_time = datetime.now() + timedelta(days=config['report_timeout_days'])
 
     last_psb_rep = False
 
     last_psb_retcd  = 0
+    report_sleep_seconds = 60 * config['report_interval_initial_minutes']
 
     while not last_psb_rep:
         time_remaining = (vustruct_case.timeout_time - datetime.now()).total_seconds()
@@ -379,7 +389,10 @@ def monitor_report_loop(vustruct_case: VUstructCaseManager):
                 case_uuids_needing_website_refresh.add(vustruct_case.case_uuid)
             else:
                 LOGGER.error("psb_rep for %s failed with %s" % (vustruct_case.case_uuid, launch_psb_rep_retcd))
-        time.sleep(30 * 60) # Wait 30 minutes before trying again (30 minutes * 60 seconds / minute... = 1800 seconds)
+        time.sleep(report_sleep_seconds) # Wait a few minutes before trying again 
+        report_sleep_seconds = min(
+            report_sleep_seconds * config['report_interval_stretch_factor'],
+            config['report_interval_max_minutes'] * 60.0)
 
     return last_psb_retcd
 
@@ -396,6 +409,8 @@ def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subproces
 
     # If we need to preprocess (parse) an input to create a missense file
     # Jump on that first and set last_module_launched to 'preprocess'
+    # If no preprocessing is required by the user, then we flow through 
+    # to psb_plan and process the missense.csv files...
     vustruct_case.last_module_returncode = 0
     if vustruct_case.data_format == 'Vanderbilt UDN Case Spreadsheet':
         vustruct_case.last_module_launched = 'preprocess'
