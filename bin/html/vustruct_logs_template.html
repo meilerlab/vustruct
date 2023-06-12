@@ -50,13 +50,16 @@
 	<p>This page will refresh every 10 seconds</p>
 {% endif %}
 
-{% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['log_filename'] %}
-
-<h3>
-<A href="{{ vustruct[module]['logfile'] }}" download>Download {{ vustruct[module]['logfile'] }}</A>
-</h3>
+{% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['log_basename'] %}
 <div id="{{module}}_div">
+<h3>
+<A href="{{ vustruct[module]['log_basename'] }}" >View {{ vustruct[module]['log_basename'] }}</A>
 <br>
+<A href="{{ vustruct[module]['log_basename'] }}" download>Download {{ vustruct[module]['log_basename'] }}</A>
+</h3>
+<br>
+{% endfor %}
+
 {% if case_missense_filename %}
 <A href="../{{case_missense_filename}}" download={{ case_missense_filename }}>Download {{case_missense_filename}}</A>
 
@@ -95,7 +98,5 @@ function missense_text_copy() {
 
 {% endif %}
 </div>
-<br>
-{% endfor %}
 </body>
 </html>
