@@ -5,3 +5,9 @@
 #gene_pairs_div {
     width: 35%;
 }
+
+caption {
+    text-align: left;
+    caption-side: left;
+    font-size: 2.0em;
+}
