@@ -133,6 +133,34 @@
 	<p>This page will refresh every 30 seconds</p>
 {% endif %}
 
+<table cellspacng="1" class="tablesorter" style="width:50%">
+   <caption align="left">Data Prep</caption>
+	<thead>
+		<tr>
+			<th>VUstruct Phase</th>
+			<th>Start Time</th>
+			<th>End Time</th>
+			<th>Log</th>
+      </tr>
+   </thead>
+	<tbody>
+
+{% for phase in ['preprocess', 'plan', 'launch'] %}
+{% if vustruct[phase] and vustruct[phase].executable and vustruct[phase].start_time %}
+		<tr>
+			<td>{{vustruct[phase].executable}}</td>
+			<td>{{vustruct[phase].start_time}}</td>
+			<td>{{vustruct[phase].end_time}}</td>
+			<td><A href="{{vustruct[phase].log_filename}}">Log File</A></td>
+      </tr>
+           
+{% endif %}
+{% endfor %}
+	</tbody>
+</table>
+
+
+
 
 <div id="main">
 	
@@ -475,6 +503,26 @@
 				{% endfor %}
 			</tbody>
 		</table>
+			{% elif vustruct_logs_info %}
+
+<TABLE cellspacing="1" class="tablesorter">
+    <THEAD>
+    {% for column_header in vustruct_logs_info.case_missense_df.columns %}
+    <TH>{{ column_header }}</TH>
+    {% endfor %}
+    </THEAD>
+
+    {% for index, row in vustruct_logs_info.case_missense_df.iterrows() %}
+    <TR>
+    {% for column_header in vustruct_logs_info.case_missense_df.columns %}<TD>
+            {{ row[column_header] }}
+        </TD>{% endfor %}
+    </TR>
+    {% endfor %}
+
+</TABLE>
+
+         
 					{% else %}
 					{# We are early in the pipeline.  Output the status message created in psbrep.py #}
 					<h1>{{ early_or_fail_message }}</h1>
