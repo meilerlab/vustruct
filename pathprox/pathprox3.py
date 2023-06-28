@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Project        : PathProx
 # Filename       : pathprox.py  
@@ -188,31 +188,35 @@ import sklearn.metrics
 # from sklearn.metrics import average_precision_score
 warnings.resetwarnings()
 
-from Bio.SubsMat.MatrixInfo import blosum100
+LOGGER.debug('PATH=%s', os.getenv('PATH'))
+LOGGER.debug('PERL5LIB=%s', os.getenv('PERL5LIB'))
 
+from Bio.Align import substitution_matrices
+# Use BLOMSUM90 (90% is quite high similarity and most appropriate for us)
+blosum90_raw = substitution_matrices.load("BLOSUM90")
+blosum90 = {}
 
-def normalize_reflect_and_symmetrize_blosum100_matrix():
+# 2023 June 22: Reworked to retain the old Biopython tuple lookups
+def normalize_reflect_and_symmetrize_blosum90_matrix():
     # I do not linke that we are modifying a resource from external library
-    blosum100_values_as_list = list(blosum100.values())
-    min_blosum100 = np.min(blosum100_values_as_list)
-    max_blosum100 = np.max(blosum100_values_as_list)
-    # The blosum100 keys are tuples of amino acid single letter codes
-    for aa_pair, blosum_score in list(blosum100.items()):
-        # Transform to 0..1, then invert so that severe mutations get high scores
-        blosum100[aa_pair] = 1.0 - ((float(blosum_score) - min_blosum100) / (max_blosum100 - min_blosum100))
-        # Store redundant copy with reversed amino acids, for easier queries
-        blosum100[tuple(reversed(aa_pair))] = blosum100[aa_pair]
+    blosum90_values_as_list = list(blosum90_raw.values())
+    min_blosum90 = np.min(blosum90_values_as_list)
+    max_blosum90 = np.max(blosum90_values_as_list)
+    # The blosum90 keys are tuples of amino acid single letter codes
+    for aa1_subscript in range(len(blosum90_raw.alphabet)):
+        aa1_letter = blosum90_raw.alphabet[aa1_subscript]
+        for aa2_subscript in range(aa1_subscript, len(blosum90_raw.alphabet)):
+            aa2_letter = blosum90_raw.alphabet[aa2_subscript]
+            blosum_score = blosum90_raw[aa1_letter][aa2_letter]
+            blosum90[(aa1_letter,aa2_letter)] = blosum90[(aa2_letter,aa1_letter)] = \
+                1.0 - ((float(blosum_score) - min_blosum90) / (max_blosum90 - min_blosum90)) 
 
 
-normalize_reflect_and_symmetrize_blosum100_matrix()
-LOGGER.info("Normalzation, reflection, and symmetrization of blosum100 complete")
+normalize_reflect_and_symmetrize_blosum90_matrix()
+assert(len(blosum90) == 24 * 24)  # Standard 20 amino acids coded by A..V... plus 4 BZX*
+LOGGER.info("Normalzation, reflection, and symmetrization of blosum90 complete")
 
 from lib import PDBMapProtein
-
-
-# from lib.amino_acids import longer_names
-
-
 
 # def uniprot_lookup(io,ac):
 #  """ Returns coordinate files for a UniProt AC """
@@ -765,9 +769,9 @@ def var2coord(s, p, n, c, q=[]):
     complex_df = complex_df_merged.drop_duplicates(["unp_pos", "pdb_pos", "chain", "ref", "alt", "dcode"]).reset_index(
         drop=True)
 
-    # Annotate each amino acid substitution with the blosum100 score
-    complex_df["blosum100"] = complex_df.apply(
-        lambda x: blosum100[(x["ref"], x["alt"])] if not np.isnan(x["dcode"]) else None, axis=1)
+    # Annotate each amino acid substitution with the blosum90 score
+    complex_df["blosum90"] = complex_df.apply(
+        lambda x: blosum90[(x["ref"], x["alt"])] if not np.isnan(x["dcode"]) else None, axis=1)
 
     # Fail if all variants outside structural coverage or mapped to missing residues
     message = None
@@ -2070,9 +2074,9 @@ if __name__ == "__main__":
     complex_df = complex_df_merged.drop_duplicates(["unp_pos", "resid", "chain", "ref", "alt", "dcode"]).reset_index(
         drop=True)
 
-    # Annotate each amino acid substitution with the blosum100 score
-    complex_df["blosum100"] = complex_df.apply(
-        lambda x: blosum100[(x["ref"], x["alt"])] if not np.isnan(x["dcode"]) else None, axis=1)
+    # Annotate each amino acid substitution with the blosum90 score
+    complex_df["blosum90"] = complex_df.apply(
+        lambda x: blosum90[(x["ref"], x["alt"])] if not np.isnan(x["dcode"]) else None, axis=1)
 
     # Fail if all variants outside structural coverage or mapped to missing residues
     message = None
@@ -2253,8 +2257,8 @@ if __name__ == "__main__":
     neutral_coordinates = complex_df.loc[complex_df["dcode"] == 0, ['x', 'y', 'z']]  # Neutral
     if not args.no_blosum:
         LOGGER.info("Integrating blosum-100 weights for all pathogenic and neutral residues")
-        pathogenic_blosum100_weights = complex_df.loc[complex_df["dcode"] == 1, "blosum100"]
-        neutral_blosum100_weights = complex_df.loc[complex_df["dcode"] == 0, "blosum100"]
+        pathogenic_blosum90_weights = complex_df.loc[complex_df["dcode"] == 1, "blosum90"]
+        neutral_blosum90_weights = complex_df.loc[complex_df["dcode"] == 0, "blosum90"]
 
     # Determine the radius or NeighborWeight parameters
     if args.radius == "NW":
@@ -2292,10 +2296,10 @@ if __name__ == "__main__":
             pathogenic_cross_validation_scores = pathprox(pathogenic_coordinates, pathogenic_coordinates,
                                                           neutral_coordinates,
                                                           nwlb=nwlb, nwub=nwub, cross_validation_flag="P", weights=(
-                    pathogenic_blosum100_weights, pathogenic_blosum100_weights, neutral_blosum100_weights))
+                    pathogenic_blosum90_weights, pathogenic_blosum90_weights, neutral_blosum90_weights))
             neutral_cross_validation_scores = pathprox(neutral_coordinates, pathogenic_coordinates, neutral_coordinates,
                                                        nwlb=nwlb, nwub=nwub, cross_validation_flag="N", weights=(
-                    neutral_blosum100_weights, pathogenic_blosum100_weights, neutral_blosum100_weights))
+                    neutral_blosum90_weights, pathogenic_blosum90_weights, neutral_blosum90_weights))
             fpr, tpr, roc_auc, prec, rec, pr_auc = calc_auc(pathogenic_cross_validation_scores,
                                                             neutral_cross_validation_scores)
         LOGGER.info("PathProx ROC AUC: %.2f" % roc_auc)
@@ -2317,7 +2321,7 @@ if __name__ == "__main__":
             ascores = uniprox(pathogenic_coordinates, neutral_coordinates, nwlb=nwlb,
                               nwub=nwub)  # ,w=(Aw,Bw)) DO NOT WEIGHT PATHOGENIC VARIANTS
             bscores = uniprox(neutral_coordinates, neutral_coordinates, nwlb=nwlb, nwub=nwub,
-                              weights=(neutral_blosum100_weights, neutral_blosum100_weights))
+                              weights=(neutral_blosum90_weights, neutral_blosum90_weights))
         fpr, tpr, roc_auc, prec, rec, pr_auc = calc_auc(list(1 - np.array(ascores)), list(1 - np.array(bscores)))
         LOGGER.info("Neutral Constraint ROC AUC: %.2f" % roc_auc)
         LOGGER.info("Neutral Constraint PR  AUC: %.2f" % pr_auc)
@@ -2334,7 +2338,7 @@ if __name__ == "__main__":
             ascores = uniprox(pathogenic_coordinates, pathogenic_coordinates, nwlb=nwlb,
                               nwub=nwub)  # ,w=(Aw,Aw)) DO NOT WEIGHT PATHOGENIC VARIANTS
             bscores = uniprox(neutral_coordinates, pathogenic_coordinates, nwlb=nwlb, nwub=nwub,
-                              weights=(neutral_blosum100_weights, pathogenic_blosum100_weights))
+                              weights=(neutral_blosum90_weights, pathogenic_blosum90_weights))
         fpr, tpr, roc_auc, prec, rec, pr_auc = calc_auc(ascores, bscores)
         LOGGER.info("Pathogenic Constraint ROC AUC: %.2f" % roc_auc)
         LOGGER.info("Pathogenic Constraint PR  AUC: %.2f" % pr_auc)
@@ -2352,10 +2356,10 @@ if __name__ == "__main__":
             complex_df["pathprox"] = pathprox(C, A, B, nwlb=nwlb, nwub=nwub)
         else:
             LOGGER.info("Calculating Blosum-100-weighted PathProx scores (and z-scores)...")
-            all_blosum100_weights = complex_df["blosum100"]
+            all_blosum90_weights = complex_df["blosum90"]
             complex_df["pathprox"] = pathprox(all_coordinates, pathogenic_coordinates, neutral_coordinates, nwlb=nwlb,
                                               nwub=nwub, weights=(
-                    neutral_blosum100_weights, pathogenic_blosum100_weights, neutral_blosum100_weights))
+                    neutral_blosum90_weights, pathogenic_blosum90_weights, neutral_blosum90_weights))
     # Calculate neutral constraint scores for all residues
     if sufficient_neutral_variants:
         LOGGER.info("Calculating neutral constraint scores (and z-scores)...")
@@ -2363,9 +2367,9 @@ if __name__ == "__main__":
         if args.no_blosum:
             complex_df["neutcon"] = 1 - np.array(uniprox(all_coordinates, neutral_coordinates, nwlb=nwlb, nwub=nwub))
         else:
-            all_blosum100_weights = complex_df["blosum100"]
+            all_blosum90_weights = complex_df["blosum90"]
             complex_df["neutcon"] = 1 - np.array(uniprox(all_coordinates, neutral_coordinates, nwlb=nwlb, nwub=nwub,
-                                                         weights=(all_blosum100_weights, neutral_blosum100_weights)))
+                                                         weights=(all_blosum90_weights, neutral_blosum90_weights)))
         # nneut = (complex_df["dcode"]==0).sum()
         # pneutcon = [uniprox(complex_df[['x','y','z']],
         #                     complex_df.ix[np.random.choice(complex_df.index,nneut),['x','y','z']],
