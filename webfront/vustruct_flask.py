@@ -179,7 +179,7 @@ class VUstructCaseManager:
         parse_return = \
             subprocess.run(parser_python_filename, shell=True, encoding='UTF-8',
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        LOGGER.debug("%s finshed with exit code %s", parser_python_filename, parse_return.returncode)
+        LOGGER.debug("%s finshed with exit code %d", parser_python_filename, parse_return.returncode)
         os.chdir(self.save_cwd)
         self.save_cwd = None
         return parse_return
@@ -266,9 +266,9 @@ class VUstructCaseManager:
         LOGGER.info("chdir(%s)", self.working_directory)
         os.chdir(self.working_directory)
 
-        # psb_launch_command = "psb_launch.py --nolaunch"
+        psb_launch_command = "psb_launch.py --nolaunch"
 
-        psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/UDNtests/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
+        # psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/UDNtests/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
 
         LOGGER.info("Running: %s" % psb_launch_command)
 
@@ -343,13 +343,15 @@ class VUstructCaseManager:
             if seconds_remaining > 0:
                 psb_rep_command_line.extend(['--seconds_remaining','%d' % seconds_remaining])
 
-        LOGGER.info("psb_rep: %s", ' '.join(psb_rep_command_line))
+        LOGGER.info("psb_rep: Starting %s", ' '.join(psb_rep_command_line))
 
         self.last_psb_rep_start = datetime.now().isoformat()
         launch_psb_rep_return = \
             subprocess.run(psb_rep_command_line, shell=False,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        LOGGER.info("psb_rep: %s finished", ' '.join(psb_rep_command_line))
+        LOGGER.info("psb_rep: Returned %d from %s", launch_psb_rep_return.returncode, ' '.join(psb_rep_command_line))
+        if launch_psb_rep_return.returncode != 0:
+            LOGGER.warn("psb_rep failure %d log is %s", launch_psb_rep_return.returncode, os.path.join(os.getcwd(),"psb_rep.log"))
         self.last_psb_rep_end = datetime.now().isoformat()
         os.chdir(save_cwd)
         case_uuids_needing_website_refresh.add(self.case_uuid)
