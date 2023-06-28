@@ -46,6 +46,7 @@ from bsub import bsub_submit
 from psb_shared import psb_config
 from psb_shared import psb_perms
 
+from vustruct import VUstruct
 
 # THIS BELOW IS CRAP
 try:
@@ -99,6 +100,17 @@ cmdline_parser.add_argument("-n", "--nolaunch",
                             action="store_true")
 
 args, remaining_argv = cmdline_parser.parse_known_args()
+vustruct = VUstruct('launch', args.projectORworkplan,  __file__)
+vustruct.stamp_start_time()
+vustruct.initialize_file_and_stderr_logging(args.debug)
+
+LOGGER = logging.getLogger()
+
+# Prior to getting going, we save the vustruct filename
+# and then _if_ we die with an error, at least there is a record
+# and psb_rep.py should be able to create a web page to that effect
+vustruct.exit_code = 1
+vustruct.write_file()
 
 if args.debug:
     sh.setLevel(logging.DEBUG)
@@ -1087,6 +1099,9 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
         LOGGER.info(user_launch_message)
         print("\n\n" + user_launch_message)
 
+    vustruct.exit_code = 0
+    vustruct.stamp_end_time()
+    vustruct.write_file()
 
 if __name__ == '__main__':
     main()
