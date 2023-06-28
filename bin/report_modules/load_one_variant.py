@@ -14,14 +14,34 @@
 
 import os
 import sys
+import string
+import json
 from typing import Dict
+from typing import List
 import logging
 import pandas as pd
+import numpy as np
 
 from lib import PDBMapGlobals
+from psb_shared.ddg_monomer import DDG_monomer
+from psb_shared.ddg_cartesian import DDG_cartesian
+from psb_shared.ddg_repo import DDG_repo
 
 LOGGER = logging.getLogger(__name__)
 from lib import PDBMapTranscriptBase
+
+def html_div_id_create(row_or_dict) -> str:
+    """"
+    It is convenient to be able to assemble an html div id from either a reporting dict or row
+    """
+    map_punct_to_None = dict.fromkeys(
+        string.punctuation)  # for each punctuation character as key, the value is None
+
+    return str("%s%s%s" % (row_or_dict.structure_id.strip(),
+                           row_or_dict.chain_id.strip(),
+                           '' if str(row_or_dict.mers.strip()) == 'monomer' else str(
+                               row_or_dict.mers.strip()))).translate(
+        str.maketrans(map_punct_to_None))
 
 # This complex routine gathers PathProx, and ddG results from the pipeline run, where available
 # It creates a single .html file representing the mutation, and returns a dictionary that is
@@ -36,25 +56,28 @@ class CalculationResultsLoader:
     def __init__(self, case_root_dir: str,
                  variant_directory_segment: str,
                  parent_report_row: Dict,
-                config_PathProx_dict: Dict):
+                 config_pathprox_dict: Dict):
         """
         @param variant_directory_segment, usually str of form "GENE_refseq_A123B"
         @param workstatus_filename:       Filename of status of all calculations, previously updated by psb_monitor.py,
         @param parent_report_row: In the event that no calculations were launched for the variant, then
            the unp from the parent row (on the main page report) populates variables so a minimal report can be
            completed
+        @param config_dict: The dictionary obtained from the command line by the caller
 
         Load all the calculation results from the filesystem, making them available as dataframes and dictionaries
         indexed by (method_structureid_chain_mers)
         """
         if not os.path.exists(
-                CalculationResultsLoader.case_root_dir_variant_directory_segment(variant_directory_segment)):
+                CalculationResultsLoader.case_root_dir_variant_directory_segment(case_root_dir,variant_directory_segment)):
             LOGGER.critical(
                 "The  variant directory %s has not been created by the pipeline under %s.",
                 variant_directory_segment, self._case_root_dir)
             sys.exit(1)
 
-        self._self._case_root_dir = self._case_root_dir
+        self._config_pathprox_dict = config_pathprox_dict
+
+        self._case_root_dir = case_root_dir
         self._variant_directory_segment = variant_directory_segment
 
         # This "full path" can be a spectacularly long entity - and
@@ -85,7 +108,7 @@ class CalculationResultsLoader:
 
         # it is possible that we only have a missense.csv file in the case directory so far,
         # In that case, we need to leave the constructor with all
-        if not os.path.exists(os.path.join(self._case_root_dir, variant_directory_segment)):
+        if not os.path.exists(self._variant_directory_fullpath):
             LOGGER.warning(
                 "The  variant directory %s has not been created by psb_plan.py under %s.",
                 variant_directory, self._case_root_dir)
@@ -110,6 +133,7 @@ class CalculationResultsLoader:
                                self.workstatus_filename,
                                len(self.workplan_df))
         else:
+            self._info_dict = parent_report_row
             LOGGER.info("No work was planned for this variant")
 
         # Throughout all rows of the workstatus file, these columns are unchanged.  So just grab them as a reference
@@ -235,8 +259,9 @@ class CalculationResultsLoader:
         return self._structure_report_df
 
     def load_Pathprox_results_dataframe(self, workplan_df_row: pd.Series, disease_1_or_2: str) -> (pd.Series, str):
-        disease_variant_set_sql_label = PDBMapGlobals.config['PathProx']['%s_variant_sql_label' % disease_1_or_2]
-        # variant_short_description = config_pathprox_dict['%s_variant_short_description'%disease_1_or_2]
+        disease_variant_set_sql_label = self._config_pathprox_dict['%s_variant_sql_label' % disease_1_or_2]
+        import pdb; pdb.set_trace()
+        # variant_short_description = self._config_pathprox_dict['%s_variant_short_description'%disease_1_or_2]
 
         # Define directory prefixes
         # This is where we'll search for those final pathprox .pdb files, etc
@@ -246,7 +271,7 @@ class CalculationResultsLoader:
             workplan_df_row['pdbid'],
             workplan_df_row['chain'],
             disease_variant_set_sql_label,
-            PDBMapGlobals.config['neutral_variant_sql_label'])
+            self._config_pathprox_dict['neutral_variant_sql_label'])
 
         # Load the Pathprox summary of results for this mutation
         pathprox_summary_filename = os.path.join(self._variant_directory_fullpath, output_flavor_directory,
@@ -330,7 +355,7 @@ class CalculationResultsLoader:
         return pathprox_summary_df, None
 
     def load_ddG_results_dataframe(self, workplan_df_row: pd.Series, calculation_flavor: str) -> (pd.DataFrame, str):
-        ddg_repo = DDG_repo(config_dict['ddg_config'],
+        ddg_repo = DDG_repo(PDBMapGlobals.config['ddg_config'],
                             calculation_flavor=calculation_flavor)
 
         structure_id = workplan_df_row['pdbid']
@@ -402,7 +427,7 @@ class CalculationResultsLoader:
                     LOGGER.critical(msg)
                     sys.exit(msg)
 
-                if workstatus_row['flavor'].endswith(config_PathProx_dict['disease1_variant_sql_label']):
+                if workstatus_row['flavor'].endswith(self._config_pathprox_dict['disease1_variant_sql_label']):
                     pathprox_disease1_results_df, msg = self.load_Pathprox_results_dataframe(
                         workstatus_row, 'disease1')
                     if pathprox_disease1_results_df is None:
@@ -411,7 +436,7 @@ class CalculationResultsLoader:
                         self.pathprox_disease1_results_dict_of_dfs[
                             method_pdbid_chain_mers_tuple] = pathprox_disease1_results_df
 
-                elif workstatus_row['flavor'].endswith(config_pathprox_dict['disease2_variant_sql_label']):
+                elif workstatus_row['flavor'].endswith(self._config_pathprox_dict['disease2_variant_sql_label']):
                     pathprox_disease2_results_df, msg = self.load_Pathprox_results_dataframe(
                         workstatus_row, 'disease2')
                     if pathprox_disease2_results_df is None:
@@ -435,8 +460,8 @@ class CalculationResultsLoader:
                 else:
                     die_msg = "flavor %s in workstatus row is neither %s nor %s nor ddG_monomer not ddG_cartesian - cannot continue:\n%s" % (
                         workstatus_row['flavor'],
-                        config_pathprox_dict['disease1_variant_sql_label'],
-                        config_pathprox_dict['disease2_variant_sql_label'],
+                        self._config_pathprox_dict['disease1_variant_sql_label'],
+                        self._config_pathprox_dict['disease2_variant_sql_label'],
                         str(workstatus_row))
                     LOGGER.critical(die_msg)
                     sys.exit(die_msg)
@@ -559,12 +584,20 @@ class CalculationResultsLoader:
                 rate4site_scores = json.load(json_f)
         return rate4site_scores
 
-    def load_structure_graphics_dicts(self):
+
+
+
+
+
+
+
+    def load_structure_graphics_dicts(self) -> List[str]:
         """
             self.structure_graphics_dicts will be populated in same structure sequence as self.structure_report_df
 
-        @return:
+        @return: additional_website_filelist to roll into the final website
         """
+        additional_website_filelist = []
 
         # For each structure, gather the supplementary program outputs, png files, PDB file
         # references created by the pathprox jobs.
@@ -601,6 +634,9 @@ class CalculationResultsLoader:
         structure_report_df_appended['html_div_id'] = ''
         # If the dataframe is empty, (i.e. no structural coverage) then do not run through the apply process,
         # because it returns a bad thing....
+
+
+
         if not structure_report_df_appended.empty:
             structure_report_df_appended['html_div_id'] = structure_report_df_appended.apply(
                 lambda df_row: html_div_id_create(df_row), axis=1)
@@ -697,7 +733,7 @@ class CalculationResultsLoader:
                             pathprox_result_series_for_structure['output_flavor_directory'],
                             pdbSSbasename)
 
-                        website_filelist.append(
+                        additional_website_filelist.append(
                             os.path.join(self._variant_directory_fullpath, structure_graphics_dict['pdbSSfilename']))
 
                         # This only works if we are running the report in the same directory system in
@@ -711,7 +747,7 @@ class CalculationResultsLoader:
                         if pathprox_results_key.endswith('_png'):
                             # IF we have a filename in this, and the filename does not contain neutral and
                             if pathprox_result_series_for_structure[pathprox_results_key]:
-                                website_filelist.append(os.path.join(
+                                additional_website_filelist.append(os.path.join(
                                     self._variant_directory_fullpath,
                                     pathprox_result_series_for_structure[pathprox_results_key]))
 
@@ -801,6 +837,7 @@ class CalculationResultsLoader:
                     # structure_graphics_dict['ngl_%s_pathprox_scores' % disease1_or_2] = pathprox_scores_all_residues
 
             self.structure_graphics_dicts.append(structure_graphics_dict)
+        return additional_website_filelist
 
     @staticmethod
     def case_root_dir_variant_directory_segment(case_root_dir: str, variant_directory_segment: str):
@@ -885,9 +922,9 @@ class CalculationResultsLoader:
                 thestruct['pdbid'] = row['pdbid']
                 thestruct['chain'] = row['chain']
                 thestruct['mers'] = row['mers']
-                if row['flavor'].endswith(config_pathprox_dict['disease1_variant_sql_label']):
+                if row['flavor'].endswith(self._config_pathprox_dict['disease1_variant_sql_label']):
                     thestruct['disease1'] = row.to_dict()
-                elif row['flavor'].endswith(config_pathprox_dict['disease2_variant_sql_label']):
+                elif row['flavor'].endswith(self._config_pathprox_dict['disease2_variant_sql_label']):
                     thestruct['disease2'] = row.to_dict()
                 elif 'SequenceAnnotation' == row['flavor']:
                     continue  # UDN Sequence annotations are NOT a part of generated reports
@@ -897,8 +934,8 @@ class CalculationResultsLoader:
                     thestruct['ddG_cartesian'] = row.to_dict()
                 else:
                     LOGGER.critical("flavor in row is neither %s nor %s nor ddG_monomer - cannot continue:\n%s",
-                                    config_pathprox_dict['disease1_variant_sql_label'],
-                                    config_pathprox_dict['disease2_variant_sql_label'], str(row))
+                                    self._config_pathprox_dict['disease1_variant_sql_label'],
+                                    self._config_pathprox_dict['disease2_variant_sql_label'], str(row))
                     sys.exit(1)
                 # This will often reassign over prior assignments - That's OK
                 struct_dict[method_pdbid_chain_mers_tuple] = thestruct

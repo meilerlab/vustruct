@@ -37,9 +37,6 @@ import time
 from array import array
 from logging.handlers import RotatingFileHandler
 
-from psb_shared.ddg_monomer import DDG_monomer
-from psb_shared.ddg_cartesian import DDG_cartesian
-from psb_shared.ddg_repo import DDG_repo
 import shutil
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
@@ -51,6 +48,8 @@ from lib import PDBMapSQLdb
 from lib import PDBMapTranscriptBase
 from lib import PDBMapTranscriptUniprot
 from lib import PDBMapTranscriptEnsembl
+from lib import PDBMapProtein
+from lib import PDBMapGlobals
 
 from vustruct import VUstruct
 from report_modules.rep_one_variant import report_one_variant_one_isoform
@@ -151,6 +150,11 @@ config_dict_shroud_password = {x: config_dict[x] for x in required_config_items}
 dbpass = config_dict.get('dbpass', '?')
 config_dict_shroud_password['dbpass'] = '*' * len(dbpass)
 LOGGER.info("Configuration File parameters:\n%s" % pprint.pformat(config_dict_shroud_password))
+
+LOGGER.info("Loading idmapping")
+PDBMapProtein.load_idmapping(config_dict['idmapping'])
+LOGGER.info("Loading done")
+
 
 try:
     slurmParametersAll = dict(config.items("SlurmParametersAll"))
@@ -321,23 +325,6 @@ def gene_interaction_report(case_root, case, CheckInheritance):
     return geneInteractions, html_table.getvalue(), html_report.getvalue(), text_report.getvalue()
 
 
-def html_div_id_create(row_or_dict) -> str:
-    """"
-    It is convenient to be able to assemble an html div id from either a reporting dict or row
-    """
-    map_punct_to_None = dict.fromkeys(
-        string.punctuation)  # for each punctuation character as key, the value is None
-
-    return str("%s%s%s" % (row_or_dict.structure_id.strip(),
-                           row_or_dict.chain_id.strip(),
-                           '' if str(row_or_dict.mers.strip()) == 'monomer' else str(
-                               row_or_dict.mers.strip()))).translate(
-        str.maketrans(map_punct_to_None))
-
-
-
-
-
 
 
 # =============================================================================
@@ -369,7 +356,7 @@ for phase in ['preprocess', 'plan', 'launch', 'report']:
 for command_line_module in vustruct_dict_for_jinja2.keys():
     if 'log_filename' in vustruct_dict_for_jinja2[command_line_module]:
         log_filename = vustruct_dict_for_jinja2[command_line_module]['log_filename']
-        if log_filename:
+        if log_filename: # Then add log_basename to in-memory dictionary
             website_filelist.append(log_filename)
             vustruct_dict_for_jinja2[command_line_module]['log_basename'] = \
                 os.path.basename(log_filename)
@@ -491,12 +478,13 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 variant_directory = "%s_%s_%s" % (
                     genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
                 variant_isoform_summary, additional_website_files = report_one_variant_one_isoform(
+                    args.projectORstructures,
                     case_root_dir= case_root_dir,
                     variant_directory_segment= variant_directory,
                     parent_report_row=genome_variant_row,
                     local_log_level= "debug" if args.debug else "info" if args.verbose else "warn",
                     vustruct_pipeline_launched= bool(vustruct_dict_for_jinja2['launch']['executable']),
-                    config_PathProx_dict= config.items('PathProx')
+                    config_pathprox_dict=config_pathprox_dict
                 )
                 if variant_isoform_summary:
                     website_filelist.extend(additional_website_files)
@@ -623,8 +611,17 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     args.config, args.userconfig, structure_report_filename, workstatus_filename))
             else:
                 variant_directory = "%s_%s_%s" % (variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
-                variant_isoform_summary = report_one_variant_one_isoform(variant_directory, variant_row)
+                variant_isoform_summary, additional_website_files = report_one_variant_one_isoform(
+                    args.projectORstructures,
+                    variant_directory, 
+                    parent_report_row=variant_row,
+                    local_log_level= "debug" if args.debug else "info" if args.verbose else "warn",
+                    vustruct_pipeline_launched= bool(vustruct_dict_for_jinja2['launch']['executable']),
+                    config_pathprox_dict=config_pathprox_dict
+                    )
+
                 if variant_isoform_summary:
+                    website_filelist.extend(additional_website_files)
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
                         msg = "%s %s %s report saved to %s" % (

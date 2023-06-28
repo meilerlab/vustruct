@@ -58,9 +58,6 @@ def _initialize_local_logging_in_variant_directory(
     else:
         local_fh.setLevel(logging.WARN)
 
-
-
-
     LOGGER.addHandler(local_fh)
     if _need_roll:
         local_fh.doRollover()
@@ -76,12 +73,14 @@ def _end_local_logging(local_fh: RotatingFileHandler):
 
 
 
-def report_one_variant_one_isoform(case_root_dir: str,
+def report_one_variant_one_isoform(project: str,
+                                   case_root_dir: str,
                                    variant_directory_segment: str,
                                    parent_report_row: Dict,
                                    local_log_level: str,
                                    vustruct_pipeline_launched: bool,
-                                   config_PathProx_dict) -> ( Dict,  List[str] ):
+                                   config_pathprox_dict: dict
+                                   ) -> ( Dict,  List[str] ):
     """
     Generate extensive structure analysis report .html for a single variant of a single transcript by
     reading all PathPRox/ddG/etc calculations into dataframes, transforming the data a bit, and then
@@ -111,8 +110,6 @@ def report_one_variant_one_isoform(case_root_dir: str,
             only top-level information about the transcript context, and the tabke of workstatus will not be
             consoluted to mine PathProx, ddG, etc results.
 
-    @config_PathProx_dict: Annoyingly, we have to get this from caller, at least for now.
-
     @return: 1 of 2) An variant_isoform_summary dictionary that can help the caller assemble the main report page.
              or {} if no caluclation results are available for any reason
              2 of 2) A list of the files that must be added to the final website tarball, by the caller.
@@ -123,14 +120,6 @@ def report_one_variant_one_isoform(case_root_dir: str,
         case_root_dir,
         variant_directory_segment)
 
-    variant = parent_report_row['mutation']
-    gene = parent_report_row['gene']
-    uniprot_id = None
-    unp_transcript = None
-    if 'unp' in parent_report_row and parent_report_row['unp']:
-        uniprot_id = parent_report_row['unp'].split('-')[0]
-        unp_transcript = PDBMapTranscriptUniprot(uniprot_id)
-
     if not os.path.exists(variant_directory_fullpath):
         LOGGER.warning("The variant directory has not even been created via psb_plan yet,")
         return {}, []
@@ -139,6 +128,16 @@ def report_one_variant_one_isoform(case_root_dir: str,
         case_root_dir,
         variant_directory_fullpath,
         local_log_level)
+
+    variant = parent_report_row['mutation']
+    gene = parent_report_row['gene']
+    uniprot_id = None
+    unp_transcript = None
+    if 'unp' in parent_report_row and parent_report_row['unp']:
+        uniprot_id = parent_report_row['unp']
+        unp_transcript = PDBMapTranscriptUniprot(uniprot_id)
+
+
 
     website_filelist = []
 
@@ -162,8 +161,9 @@ def report_one_variant_one_isoform(case_root_dir: str,
 
 
     cosmis_dict = {}
-    if 'unp' in parent_report_row and parent_report_row['unp']:
-        uniprot_id = parent_report_row['unp'].split('-')[0]
+    if uniprot_id:
+        # _load_one_cosmis_set below will return empty if non-canonical
+        # which is a very good thing
         cosmis_df = PDBMapComplex._load_one_cosmis_set(uniprot_id)
         if cosmis_df.empty:
             LOGGER.warning("No cosmis results were found for %s", uniprot_id)
@@ -182,9 +182,14 @@ def report_one_variant_one_isoform(case_root_dir: str,
     # progress
     calculation_results_loader = {}
     if vustruct_pipeline_launched:
-        calculation_results_loader = CalculationResultsLoader(variant_directory_segment, parent_report_row)
+        calculation_results_loader = CalculationResultsLoader(
+            case_root_dir,
+            variant_directory_segment, 
+            parent_report_row,
+            config_pathprox_dict)
         calculation_results_loader.load_dataframes()
-        calculation_results_loader.load_structure_graphics_dicts()
+        additional_website_files = calculation_results_loader.load_structure_graphics_dicts()
+        website_filelist.extend(additional_website_files)
 
     # Various data max/min/etc computations from the gathered data, which are great to return to the caller
     # and also useful to compose the report.
@@ -201,8 +206,12 @@ def report_one_variant_one_isoform(case_root_dir: str,
                                               if not (
                 key.startswith('_'))}  # -> don't exclude callable, you lose properties callable(value)))},
 
-        for attribute in ['project', 'gene', 'unp', 'variant', 'unp_transcript']:
+        for attribute in ['gene', 'unp', 'variant']: # No longer needed , 'project' and 'unp_transcript'] populated below
             calculation_results_loader_as_dict[attribute] = getattr(calculation_results_loader, attribute)
+         
+
+        calculation_results_loader_as_dict['unp_transcript'] = unp_transcript
+        calculation_results_loader_as_dict['project'] =project
 
     # Provide the file name now.  We'll create the file's contents
     # (the domain graphics) below.  However, this filename ONLY makes sense
@@ -220,7 +229,7 @@ def report_one_variant_one_isoform(case_root_dir: str,
         "today_date": time.strftime("%Y-%m-%d"),
         "pfamGraphicsIframe_fname": pfamGraphicsIframe_fname,
         # html template references disease variant strings like clinvar/cosmic...
-        'config_pathprox_dict': config_PathProx_dict,
+        'config_pathprox_dict': config_pathprox_dict,
         'rate4site_dict': rate4site_dict,
         'cosmis_dict': cosmis_dict
     }
@@ -233,7 +242,7 @@ def report_one_variant_one_isoform(case_root_dir: str,
             LOGGER.info("Creating NGL Viewer for %s", structure_graphics_dict['html_div_id'])
             structureIframe_out = structure_iframe_template.render(
                 {'structure': structure_graphics_dict,
-                 'config_pathprox_dict': config_PathProx_dict}
+                 'config_pathprox_dict': config_pathprox_dict}
             )
             structureIframe_base_filename = os.path.join(variant_directory_segment,
                                                          "%s_viewer.html" % structure_graphics_dict['html_div_id'])
@@ -325,7 +334,7 @@ def report_one_variant_one_isoform(case_root_dir: str,
 
     return variant_isoform_summary, website_filelist
 
-    jinja2_environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
+    """jinja2_environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
     isoform_variant_template = jinja2_environment.get_template("psb_report.html")
 
     if LOGGER.isEnabledFor(logging.DEBUG):
@@ -350,6 +359,7 @@ def report_one_variant_one_isoform(case_root_dir: str,
 
     with open(pfamGraphicsIframe_fname, "w") as html_f:
         html_f.write(htmlPfamGraphics)
+    """
 
     """write_pdfs = None
     if write_pdfs:
@@ -396,6 +406,7 @@ def report_one_variant_one_isoform(case_root_dir: str,
             LOGGER.info("wkhtmltopdf stderr:\n%s", err_legit)
     """
 
+    """
     # WE HAVE NOW RETURNED TO the psb_pipeline/bin directory
     os.chdir(save_cwd)
     # Close out the local log file for this mutation
@@ -403,6 +414,7 @@ def report_one_variant_one_isoform(case_root_dir: str,
     gathered_info['variant_report_directory'] = os.path.basename(variant_report_directory)
     gathered_info['html_fname'] = html_fname
     return gathered_info  # End of function report_one_variant_one_isoform()
+    """
 
 if __name__ == '__main__':
     print("Only for use as library")

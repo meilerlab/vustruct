@@ -60,7 +60,7 @@ class PfamDomainGraphics:
         """
 
         # xfam lacks graphics URLs for non-canonical isoforms.  We assemble those ourselves, elsewhere.
-        canonical_pfam_xfam_url = 'http://pfam.xfam.org/protein/{0}/graphic'.format(
+        canonical_pfam_xfam_url = 'http://pfam-legacy.xfam.org/protein/{0}/graphic'.format(
             self.unp.split(' ')[0].split('-')[0])
 
         LOGGER.debug("Attempting curl connection to %s to fetch canonical pfam graphics.  Timeout=%d\n",
@@ -91,7 +91,7 @@ class PfamDomainGraphics:
             domain_graphics_json = domain_graphics_json[1:-1]
         elif domain_graphics_json[0] == '<':
             # Sometimes we get back html in the response, to tell us that the PFAM website is down
-            LOGGER.warning("XML, not json, was returned from pfam:\n%s", domain_graphics_json)
+            LOGGER.warning("XML, not json, was returned from pfam:\n%s...", domain_graphics_json[0:60])
             return None
         LOGGER.debug("pfam sent us:\n%s", domain_graphics_json)
         return domain_graphics_json
