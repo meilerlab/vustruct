@@ -410,8 +410,12 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     # if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
-    if "DiGePred" in flavor and job['pdbid'] == 'N/A':
-        job['uniquekey'] = job['flavor']
+    if flavor in ["MusiteDeep", "ScanNet"] and job['pdbid'] == 'N/A':
+        job['uniquekey'] = "%s_%s_%s_%s" % (
+            job['gene'], job['refseq'], job['unp'], flavor)
+        job['outdir'] = os.path.join(params['mutation_dir'],flavor)
+    elif flavor in ["DiGePred", "DIEP"] and job['pdbid'] == 'N/A':
+        job['uniquekey'] = flavor
         job['outdir'] = params['mutation_dir']
     else:  # Most output directories have pdbid and chain suffixes
         if not job['chain'].strip() or job['chain'] == "''" or job['chain'] == "' '":
@@ -503,6 +507,18 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
 #     return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
 #           ("--config %(config)s --userconfig %(userconfig)s " +
 #            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
+
+def makejob_MusiteDeep(params: Dict[str, str]):
+    return makejob("MusiteDeep","run_MusiteDeep.py", params,
+                   ("--config %(config)s --userconfig %(userconfig)s " +
+                    "--unp %(unp)s") % params)
+
+
+def makejob_ScanNet(params: Dict[str, str]):
+    return makejob("ScanNet","run_ScanNet.py", params,
+                   ("--config %(config)s --userconfig %(userconfig)s " +
+                    "--unp %(unp)s --transcript_mutation %(transcript_mutation)s") % params)
+
 
 def _makejob_either_ddg(ddG_monomer_or_cartesian, ddg_run_command, params):
     # User models are odd in that the argument to ddg_run*.py is --usermodel full_filename
@@ -1136,7 +1152,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                                                                                               len(transcript.aa_seq),
                                                                                               ci.trans_mut_pos)
         else:
-            alphafold_modelid = alphafold.transcript_first_modelid(unp)
+            alphafold_modelid = alphafold.first_window_modelid(unp)
             model_seq_start = 1
 
         ci.struct_filename = alphafold.get_coord_filename(alphafold_modelid)
@@ -1874,6 +1890,13 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     # 2021-09-28 Remove SequenceAnnotation calculations
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
     # df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
+
+    # 2023 Dec - integrate Container-based run of MusiteDeep from Alican for all sequences
+    df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_MusiteDeep(params, )])], ignore_index=True)
+
+    # 2023 Dec - run ScanNet if this uniprot ID is canonical
+    if unp_is_canonical:
+        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ScanNet(params, )])], ignore_index=True)
 
     # LOGGER.info("%d Structures/models of %s %s (unp=%s)"%(len(df),refseq,gene,unp))
     # If no structures at all are available, then the work plan takes a very different course

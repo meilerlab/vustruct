@@ -26,7 +26,7 @@ class _DefaultOsInterface(object):
         assert read_or_write == 'r' or read_or_write == 'w'
 
         # file_create_mode =(self._file_create_mode if (read_or_write == 'w') else 0)
-        # file_create_mode = 0o660
+        file_create_mode = 0o660
 
         # old_umask = os.umask(0)
 

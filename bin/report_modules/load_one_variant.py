@@ -260,7 +260,7 @@ class CalculationResultsLoader:
 
     def load_Pathprox_results_dataframe(self, workplan_df_row: pd.Series, disease_1_or_2: str) -> (pd.Series, str):
         disease_variant_set_sql_label = self._config_pathprox_dict['%s_variant_sql_label' % disease_1_or_2]
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         # variant_short_description = self._config_pathprox_dict['%s_variant_short_description'%disease_1_or_2]
 
         # Define directory prefixes

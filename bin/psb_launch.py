@@ -159,9 +159,13 @@ LOGGER.info("Command Line Arguments:\n%s", pprint.pformat(vars(args)))
 launchParametersPathProx: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDDGCartesian: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+
+launchParametersMusiteDeep: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+launchParametersScanNet: Dict[str, Any] = copy.deepcopy(launchParametersAll)
   
 launchParametersUDNSequence: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 launchParametersDiGePred: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+launchParametersDIEP: Dict[str, Any] = copy.deepcopy(launchParametersAll)
 
 # Initialize the slurm/LSF parameters for each of the 4 possible calculation sets
 # Log the parameters (gathered from the config file
@@ -182,7 +186,9 @@ for launchParameterDictDesc, launchParameters in [
     ('ParametersDDGMonomer', launchParametersDDGMonomer),
     ('ParametersDDGCartesian', launchParametersDDGCartesian),
     ('ParametersUDNSequence', launchParametersUDNSequence),
-    ('ParametersDiGePred', launchParametersDiGePred)
+    ('ParametersMusiteDeep', launchParametersMusiteDeep),
+    ('ParametersDiGePred', launchParametersDiGePred),
+    ('ParametersDIEP', launchParametersDIEP)
 ]:
     # Update each flavor-specific dictionaryof parameters
     # with the flavor-specific overrides in the config file
@@ -276,7 +282,14 @@ class JobsLauncher:
         self._all_jobs_cwd = None
 
         # Whether by slurm, LSF or other, each job has s specific command line with arguments that must be run.
-        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'ddG_cartesian': [],'SequenceAnnotation': [], 'DiGePred': []}
+        self._launch_strings = {'PathProx': [], 
+            'ddG_monomer': [], 
+            'ddG_cartesian': [],
+            'SequenceAnnotation': [], 
+            'MusiteDeep': [], 
+            'ScanNet': [], 
+            'DIEP': [], 
+            'DiGePred': []}
 
         # After jobs are launched, we will create a 'submitted' file in the status directories for the jobs
         # Might collide with launched program though - so perhaps rethink a bit....
@@ -494,6 +507,10 @@ fi
                 slurm_dict = dict(launchParametersDDGMonomer)
             elif subdir == "ddG_cartesian":
                 slurm_dict = dict(launchParametersDDGCartesian)
+            elif subdir == "MusiteDeep":
+                slurm_dict = dict(launchParametersMusiteDeep)
+            elif subdir == "ScanNet":
+                slurm_dict = dict(launchParametersScanNet)
             # 2021-09-28: Remove SequenceAnnotaiton for time being
             # elif subdir == "SequenceAnnotation":
             #    slurm_dict = dict(launchParametersUDNSequence)
@@ -747,7 +764,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         # retail the list of all the .slurm or .bsub files getting launched.
         launch_filenames = []
 
-        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','SequenceAnnotation', 'DiGePred']:
+        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','MusiteDeep', 'ScanNet', 'SequenceAnnotation', 'DiGePred', 'DIEP']:
             if len(self._launch_strings[subdir]) == 0:
                 # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
                 if (self._gene == 'casewide' and subdir == 'DiGePred') or (
