@@ -60,7 +60,7 @@ app = Flask(__name__)
 app.logger.setLevel(logging.DEBUG)
 
 
-# UDN="/dors/capra_lab/users/mothcw/UDNtests/"
+# UDN="/dors/capra_lab/users/mothcw/VUStruct/"
 UDN = os.getenv("UDN")
 if not UDN:
     errormsg = "UDN environment variable must be defined before launch of %s" % UDN
