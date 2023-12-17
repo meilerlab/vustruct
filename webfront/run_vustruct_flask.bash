@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A sample of how to run vustruct_flask from bash shell
 export FLASK_APP=./vustruct_flask
-export UDN=/dors/capra_lab/users/mothcw/UDNtests
+export UDN=/dors/capra_lab/users/mothcw/VUStruct
 export PATH=/dors/capra_lab/users/mothcw/psbadmin/bin:$PATH
 export PYTHONPATH=/dors/capra_lab/users/mothcw/psbadmin/pdbmap:/dors/capra_lab/users/mothcw/psbadmin/bin
 
