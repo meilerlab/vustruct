@@ -59,7 +59,7 @@ from psb_shared import psb_perms
 app = Flask(__name__)
 app.logger.setLevel(logging.DEBUG)
 
-# UDN="/dors/capra_lab/users/mothcw/UDNtests/"
+# UDN="/dors/capra_lab/users/mothcw/VUStruct/"
 UDN = os.getenv("UDN")
 if not UDN:
     errormsg = "UDN environment variable must be defined before launch of %s" % UDN
@@ -192,7 +192,7 @@ class VUstructCaseManager:
       
         parse_return = self.run_coordinates_parser_command_line("parse_udn_report.py")
         #parse_command_line="""
-        #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg parse_udn_report.py"""%\
+        #export UDN=/dors/capra_lab/users/mothcw/VUStruct; cd %s; singularity exec ../development.simg parse_udn_report.py"""%\
         #self.working_directory
 
         # self.last_module_launched = "parse"
@@ -205,7 +205,7 @@ class VUstructCaseManager:
       
         parse_return = self.run_coordinates_parser_command_line("vcf2missense.py")
         #parse_command_line="""
-        #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
+        #export UDN=/dors/capra_lab/users/mothcw/VUStruct; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
         #self.working_directory
 
         # self.last_module_launched = "parse"
@@ -218,7 +218,7 @@ class VUstructCaseManager:
       
         parse_return = self.run_coordinates_parser_command_line("vcf2missense.py --liftover")
         #parse_command_line="""
-        #export UDN=/dors/capra_lab/users/mothcw/UDNtests; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
+        #export UDN=/dors/capra_lab/users/mothcw/VUStruct; cd %s; singularity exec ../development.simg vcf2missense.py"""%\
         #self.working_directory
 
         # self.last_module_launched = "parse"
@@ -268,7 +268,7 @@ class VUstructCaseManager:
 
         psb_launch_command = "psb_launch.py --nolaunch"
 
-        # psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/UDNtests/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
+        # psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/VUStruct/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
 
         LOGGER.info("Running: %s" % psb_launch_command)
 
@@ -490,7 +490,7 @@ def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subproces
 
 # def launch_vustruct_case(uuid_str: str):
 #     psb_plan_command = \
-#         ("export UDN=/dors/capra_lab/users/mothcw/UDNtests/; " +
+#         ("export UDN=/dors/capra_lab/users/mothcw/VUStruct/; " +
 #          "mkdir -p cd $UDN/fakecase_%s; " % uuid_str) + \
 #         "singularity exec --bind /dors/capra_lab/ $UDN/development.simg psb_plan.py"
 #     print("UUID = %s" % uuid_str )
@@ -562,7 +562,7 @@ def launch_vustruct():
         -d'{"data_format": "Vanderbilt UDN Case Spreadsheet",
             "case_uuid": "12435",
             "case_id": "test",
-            "upload_file_URI": "file:////dors/capra_lab/users/mothcw/UDNtests/fakecase0/fakecase0.xlsx"}'
+            "upload_file_URI": "file:////dors/capra_lab/users/mothcw/VUStruct/fakecase0/fakecase0.xlsx"}'
     """
 
     LOGGER.debug ("/launch_vustruct: request.json=\n%s", json.dumps(request.json,indent=3))
