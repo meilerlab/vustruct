@@ -1,0 +1,50 @@
+# Dockerfile to build MusiteDeep container to supplement the psb pipeline
+# The conda environment is loaded in /opt/miniconda.  We do NOT want to use a
+# ~ or /root user directory, because downstream as we create a singularity
+# container this is automounted back to the host OS
+
+FROM centos:7
+
+# This large .sh file must be preloaded before attempting the build
+# Be sure to update line below with latest filename from anaconda
+
+# The miniconda installer will possibly modify the root .profile
+# to include PATH=/opt/conda/bin.  HOWEVER, we ususally run
+# the container as non-root - so we have to sort that out
+# with additional ENV here
+ENV PATH="/opt/miniconda/bin:$PATH"
+
+RUN echo Loading Miniconda && \
+  echo 'PATH=/opt/miniconda/bin:${PATH}' >> /etc/environment && \
+  echo 'PATH="/root/miniconda/bin:$PATH"' > /etc/profile.d/pipeline_setpath0.sh && \
+  yum -y install wget && \
+  yum -y install make && \
+  yum -y install which && \
+  yum -y install gcc && \
+  yum -y install git && \
+  git clone https://github.com/duolinwang/MusiteDeep_web && \
+  yum -y install libatomic && \
+  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ./miniconda.sh && \
+  bash ./miniconda.sh -b -u -p /opt/miniconda && \
+  rm ./miniconda.sh && \
+  echo "Running $(conda --version)" && \
+  conda init bash && \
+  . /root/.bashrc && \
+  conda create -n MusiteDeep python=3.6 && \
+  conda activate MusiteDeep && \
+  python3 -m pip install --upgrade pip && \
+  python3 -m pip install --upgrade setuptools && \
+  python3 -m pip install numpy && \
+  python3 -m pip install scipy && \
+  python3 -m pip install scikit-learn && \
+  python3 -m pip install pillow && \
+  python3 -m pip install "h5py<3.0.0" && \
+  python3 -m pip install pandas && \
+  python3 -m pip install keras==2.2.4 && \
+  python3 -m pip install tensorflow==1.12.0
+
+
+CMD [ "/bin/bash" ]
+
+#  conda activate ScanNet && \
+#  ln -s /root/miniconda/etc/profile.d/conda.sh /etc/profile.d/conda.sh 
