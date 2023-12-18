@@ -1,0 +1,18 @@
+# Dockerfile to build the psbpipeline executables on centos7 and anaconda
+# In phase 0 we build up the centos environment and Anaconda distribution so we don't have to keep downloading that
+# as we fix downstream images.
+
+FROM centos:7
+
+RUN yum -y install zip && \
+  yum -y install bzip2 && \
+  yum -y install wget && \
+  yum -y install gcc && \
+  yum -y install java-1.8.0-openjdk-headless && \
+  cd / && \
+  wget http://pmglab.top/diep/Coding_predict_fixed.tar.gz && \
+  wget http://pmglab.top/diep/transfer.jar && \
+  tar -zxvf Coding_predict_fixed.tar.gz && \
+  rm Coding_predict_fixed.tar.gz
+
+CMD [ "/bin/bash" ]
