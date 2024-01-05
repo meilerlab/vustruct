@@ -4,7 +4,7 @@
 <head>
 	<meta charset="UTF-8">
 {% if refreshFlag %}
-   <meta http-equiv="refresh" content="30">
+   <meta http-equiv="refresh" content="{{ refresh_interval_seconds }}">
 {% endif %}
 	<title>Personal Structural Biology case {{case}}</title>
 
@@ -101,7 +101,7 @@
 
 
 {% if refreshFlag %}
-	<body> <!-- onload = "JavaScript:AutoRefresh(10000);"> -->
+	<body> <!-- onload = "JavaScript:AutoRefresh({{ 1000 * refresh_interval_seconds }} );"> -->
 {% else %}
 	<body>
 {% endif %}
@@ -129,12 +129,29 @@
 </table>
 </div>
 
+{% if seconds_remaining %}
+<p id='ShowEndTime'>placeholder</p>
+<script type="text/javascript" id="js">
+var currentTime = new Date()
+var futureTime = currentTime
+futureTime.setSeconds(currentTime.getSeconds() + {{seconds_remaining}});
+function showEndTime() {
+    document.getElementById("ShowEndTime").innerHTML = "Maximum Cluster Compute End " + futureTime.toLocaleDateString() + " " + futureTime.toLocaleTimeString();
+}
+window.onload = showEndTime;
+</script>
+{% endif %}
+
 {% if refreshFlag %}
-	<p>This page will refresh every 30 seconds</p>
+        {% if refresh_interval_seconds > 60 %}
+	   <p>This page will refresh every {{ "%.1f"|format(refresh_interval_seconds/60.0)|float }} minutes</p>
+        {% else %}
+	   <p>This page will refresh every {{ refresh_interval_seconds }} seconds </p>
+        {% endif %}
 {% endif %}
 
 <table cellspacng="1" class="tablesorter" style="width:50%">
-   <caption align="left">Data Prep</caption>
+   <caption align="left">Data Preprocessing Logs</caption>
 	<thead>
 		<tr>
 			<th>VUstruct Phase</th>
@@ -164,7 +181,9 @@
 
 <div id="main">
 	
-	<h1>{{ case }}</h1>
+	<h1>{{ case }}{% if not (vustruct['plan'] and vustruct['plan'].executable and vustruct['plan'].start_time) %}: Structures and being selected.  Compute jobs are being planned.
+{% endif %}
+</h1>
 		
 			{% if genome_headers %}
 				<table cellspacing="1" class="tablesorter">
@@ -377,6 +396,7 @@
 			{% endfor %}
 			</tbody>
 			</thead>
+			</table>
 			{% elif variant_isoform_summaries %}
 					<table>
 			{# This is the second major case report structure.  Here, there are no genomic headers
@@ -503,7 +523,7 @@
 				{% endfor %}
 			</tbody>
 		</table>
-			{% elif vustruct_logs_info %}
+{% elif vustruct_logs_info %}
 
 <TABLE cellspacing="1" class="tablesorter">
     <THEAD>
@@ -600,6 +620,10 @@
 {% if secondGeneReport %}
     <h3>Familial Gene Interactions Report</h3>
     {{ secondGeneReport }} 
+{% endif %}
+{% if diep_png_plot_filename %}
+<h3>DIEP Digenic Interaction Analysis Heatmap</h3>
+<img src={{ diep_png_plot_filename }} alt="DIEP Heatmap" style="display block; width:50%; height: auto;"/>
 {% endif %}
 	
 </div>
