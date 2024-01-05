@@ -70,10 +70,14 @@ udn_excel_filename = os.path.join(udn_root_directory, args.project, args.project
 missense_csv_filename = os.path.join(udn_root_directory, args.project, args.project + "_missense.csv")
 genes_txt_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes.txt")
 genes_json_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes.json")
+genes_inheritance_zygosity_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes_inheritance_zygosity.csv")
 LOGGER.info('Parsing Excel file: %s' , udn_excel_filename)
 LOGGER.info('Writing csv file %s ' , missense_csv_filename)
 LOGGER.info('Writing txt file %s ' , genes_txt_filename)
 LOGGER.info('Writing json file %s ' , genes_json_filename)
+LOGGER.info('Writing gene/inh/zyg file %s ' , genes_inheritance_zygosity_filename)
+
+genes_inheritance_zygosity_df = pd.DataFrame(columns=['gene','inheritance','zygosity'])
 
 df = pd.read_excel(udn_excel_filename, header=0)
 # Now read it again and map everything to strings
@@ -115,6 +119,59 @@ HeadersList = []
 i = 0
 csv_rows = []
 
+# Inheritance information is parsed following the example from Souhrid Mukherjee's
+# DiGePred parser code
+# By default, proband, mom, and dad are missing from the spreadsheet (column=-1)
+inheritance_columns = { 
+    'proband': -1, 
+    'mom': -1,
+    'dad': -1}
+relatives=[]
+
+# Souhrid pulls apart an excpl spreadsheet row with this code, which I have integrated
+def get_inheritance_zygosity(row):
+    inheritance = ''
+    zyg = ''
+    proband_column = inheritance_columns['proband']
+    dad_column = inheritance_columns['dad']
+    mom_column = inheritance_columns['mom']
+    if row[proband_column] is not None:
+        # Fetch the little graphics characters
+        proband_inheritance_g = row[proband_column].split()[0].strip().rstrip()
+        mom_inheritance_g = row[mom_column].split()[0].strip().rstrip() if mom_column > 0 else None
+        dad_inheritance_g = row[dad_column].split()[0].strip().rstrip() if dad_column > 0 else None
+        if '\u25cf' in proband_inheritance_g or '\u006f' in proband_inheritance_g or '-' in proband_inheritance_g or '\u25cb' in proband_inheritance_g or 'need data' in \
+                row[proband_column]:
+            if mom_column > 0 and mom_inheritance_g is not None:
+                if '\u25cf' in mom_inheritance_g:
+                    inheritance += 'mom'
+                elif str(proband_inheritance_g) == str(mom_inheritance_g):
+                    inheritance += 'mom'
+
+            if dad_column > 0 and dad_inheritance_g is not None:
+                if '\u25cf' in dad_inheritance_g:
+                    inheritance += 'dad'
+                elif str(proband_inheritance_g) == str(dad_inheritance_g):
+                    inheritance += 'dad'
+
+            if 'y' in str(proband_inheritance_g).lower():
+                zyg += 'X-linked'
+            elif str(proband_inheritance_g).lower().count('\u25cf') == 1:
+                zyg += 'heterozygous'
+            elif str(proband_inheritance_g).lower().count('\u25cf') >= 2:
+                zyg += 'homozygous'
+
+            if len(set(relatives).intersection(['mom', 'dad'])) < 2:
+                inheritance += 'NA'
+            elif 'mom' in inheritance and 'dad' in inheritance:
+                inheritance = 'mom, dad'
+            elif inheritance == '':
+                inheritance = 'de novo'
+
+    return inheritance, zyg
+
+
+
 genome = 'GRCh38'
 while i < dfRows:
     row = df.iloc[i]
@@ -122,16 +179,35 @@ while i < dfRows:
     try:
         if type(row[0]) == str and row[0].find('hg19') != -1:
             genome = 'hg19'
+        # Inheritance and other key information is found in the spreadsheet to the right
+        # of a cell containing 'Gene'
         if type(row[0]) == str and row[0].find('Gene') != -1:
             position_right1_down1 = str(df.iloc[i + 1][1])
+            # Try to extract genome - though this is not really used any more
             if 'Position' in position_right1_down1 and 'hg19' in position_right1_down1:
                 genome = 'hg19'
+            # Scan to the right for headers for proband, mother, father
+            # Not all headers may be there
+            for column_number, column_entry in enumerate(row):
+                print("%s %s" % (column_number,column_entry))
+                if column_entry is not None:
+                    relative = str(column_entry).lower()
+                    if 'proband' in relative:
+                        inheritance_columns['proband'] = column_number
+                    elif 'mother' in relative or 'mom' in relative:
+                        inheritance_columns['mom'] = column_number
+                        relatives.append('mom')
+                    elif 'father' in relative or 'dad' in relative:
+                        inheritance_columns['dad'] = column_number
+                        relatives.append('dad')
+            
             GeneWordEncountered = True
             HeadersList = [str(x).strip().split()[0] for x in row]
             i += 1
             continue
 
     except (TypeError, IndexError):
+        # LOGGING.exception("TypeError or indexError parsing Gene row")
         pass
 
     if not GeneWordEncountered:
@@ -207,6 +283,7 @@ while i < dfRows:
             if gene not in genes:
                 genes[gene] = {}
 
+            # Here is some harmless older code - not sure widely used
             for j in range(len(HeadersList)):
                 if row[j] in gene_patterns:
                     rel = HeadersList[j]
@@ -216,6 +293,15 @@ while i < dfRows:
                     elif status not in genes[gene][rel]:
                         genes[gene][rel].append(status)
 
+            inheritance, zygosity = get_inheritance_zygosity(row)
+            genes_inheritance_zygosity_series = pd.Series(
+                {'gene': gene, 
+                 'inheritance': inheritance,
+                 'zygosity': zygosity});
+            genes_inheritance_zygosity_df = pd.concat(
+                [genes_inheritance_zygosity_df,genes_inheritance_zygosity_series.to_frame().T],
+                ignore_index=True)
+           
             if "missense" not in effect.lower():
                 LOGGER.info("Row %3d: %-8s skipped, non mis-sense mutation(%s)" % (i, gene, effect.replace('\n', '')))
                 i += 2
@@ -333,6 +419,8 @@ with open(genes_txt_filename, 'w') as fp:
         fp.write(gene + '\n')
 LOGGER.info("%d genes written to %s" % (len(genes), genes_txt_filename))
 
+genes_inheritance_zygosity_df.to_csv(genes_inheritance_zygosity_filename,sep=',')
+LOGGER.info("%d genes written to %s" % (len(genes_inheritance_zygosity_df), genes_inheritance_zygosity_filename))
 if csv_rows:  # This needs to be argument controlled
     original_df = pd.DataFrame(csv_rows,
                                columns=["gene", "genome", "chrom", "pos", "change", "refseq", "mutation", "unp"])
