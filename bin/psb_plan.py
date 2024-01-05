@@ -142,8 +142,10 @@ if 'KeepPDBs' in config:
     keep_pdbs = dict(config.items('KeepPDBs'))['keeppdbs'].upper().split(',')
 
 digepred_program_from_config = None
+diep_program_from_config = None
 if 'CaseWide' in config:
     digepred_program_from_config = dict(config.items('CaseWide')).get('digepred', None)
+    diep_program_from_config = dict(config.items('CaseWide')).get('diep', None)
 
 from psb_shared import psb_perms
 
@@ -411,6 +413,7 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
     if flavor in ["MusiteDeep", "ScanNet"] and job['pdbid'] == 'N/A':
+        # import pdb; pdb.set_trace()
         job['uniquekey'] = "%s_%s_%s_%s" % (
             job['gene'], job['refseq'], job['unp'], flavor)
         job['outdir'] = os.path.join(params['mutation_dir'],flavor)
@@ -486,7 +489,7 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             else:
                 structure_designation = "--%s=%s " % ("biounit" if multimer else "pdb", params['structure_id'].lower())
             pathprox_job_series = makejob(pathprox_flavor, "pathprox3.py", params,
-                        ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_mutation)s' " +
+                        ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_variant)s' " +
                          "--chain%(chain)sunp='%(unp)s' " +
                          structure_designation +
                          ("--chain='%s' " % ci_row['chain_id'] if not multimer else "") +
@@ -506,18 +509,18 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
 #     # Secondary structure prediction and sequence annotation
 #     return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
 #           ("--config %(config)s --userconfig %(userconfig)s " +
-#            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
+#            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_variant)s")%params)
 
 def makejob_MusiteDeep(params: Dict[str, str]):
     return makejob("MusiteDeep","run_MusiteDeep.py", params,
                    ("--config %(config)s --userconfig %(userconfig)s " +
-                    "--unp %(unp)s") % params)
+                    "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
 
 
 def makejob_ScanNet(params: Dict[str, str]):
     return makejob("ScanNet","run_ScanNet.py", params,
                    ("--config %(config)s --userconfig %(userconfig)s " +
-                    "--unp %(unp)s --transcript_mutation %(transcript_mutation)s") % params)
+                    "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
 
 
 def _makejob_either_ddg(ddG_monomer_or_cartesian, ddg_run_command, params):
@@ -1880,7 +1883,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
               "mers": "N/A",
               "gene": gene, "refseq": refseq, "unp": unp, 'mutation_dir': mutation_dir,
               "mutation": mutation,
-              "transcript_mutation": mutation,
+              "transcript_variant": mutation,
               "pdb_mutation": "N/A"  # Replace for ddG and Pathprox when we have coverage
               }
 
@@ -2004,10 +2007,17 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 
 
 def makejob_DiGePred(params, options: str):
-    # Secondary structure prediction and sequence annotation
+    # Souhrid Mukherjee's digenic interaction predictor
     return makejob("DiGePred",  # Flavor
                    digepred_program_from_config,
                    # something like python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/Run_DiGePred_PSB.py
+                   params,  # Parameters for dataframe
+                   options)  # Command line options
+
+def makejob_DIEP(params, options: str):
+    # Alternate digenic interaction program
+    return makejob("DIEP",  # Flavor
+                   diep_program_from_config,
                    params,  # Parameters for dataframe
                    options)  # Command line options
 
@@ -2042,7 +2052,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
               "mers": "N/A",
               "gene": casewideString, "refseq": "N/A", "unp": "N/A", 'mutation_dir': casewide_dir,
               "mutation": "N/A",
-              "transcript_mutation": "N/A",
+              "transcript_variant": "N/A",
               "pdb_mutation": "N/A"}
 
     # DiGePred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
@@ -2055,6 +2065,15 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
     else:
         LOGGER.info(
             "No digepred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
+
+    # DIEP is an addition analysis to prediction digenic interactions
+    if diep_program_from_config:
+        diep_options = "--genesfile=%s_genes_inheritance_zygosity.csv" % args.project
+
+        df_casewide_jobs = pd.concat([df_casewide_jobs,pd.DataFrame([makejob_DIEP(params, diep_options)])], ignore_index=True)
+    else:
+        LOGGER.info(
+            "No diep entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
 
     df_casewide_jobs.set_index('uniquekey', inplace=True);
     df_casewide_jobs.sort_index().to_csv(workplan_filename, sep='\t')
