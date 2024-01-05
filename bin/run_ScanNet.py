@@ -79,8 +79,11 @@ cmdline_parser.add_argument(
                 help="Uniprot ID for alphafold model selection")
 
 cmdline_parser.add_argument(
-                "--transcript_mutation", type=str,
+                "--transcript_variant", type=str,
                 help="Transcript offset of variant of unknown significance")
+
+cmdline_parser.add_argument("--collate_only", required=False, action='store_true', default=False,
+                            help="Skip the calling of ScanNet, and jump directly to processing output files")
 
 args = cmdline_parser.parse_args()
 
@@ -136,7 +139,7 @@ transcript_uniprot = PDBMapTranscriptUniprot(args.unp)
 alphafold = PDBMapAlphaFold(config_dict)
 
 # For now, we don't have a trans_mut_pos - but we might integrate this later...
-trans_mut_pos = int(args.transcript_mutation[1:-1])
+trans_mut_pos = int(args.transcript_variant[1:-1])
 if trans_mut_pos:
     model_seq_start, model_seq_end, alphafold_modelid = alphafold.best_covering_model(
         args.unp,
@@ -155,7 +158,9 @@ if not os.path.exists(alphafold_cif_filename):
 # This is so annoying - but we need to save the .cif as a .pdb to feed into scannet
 cif_pos = alphafold_cif_filename.find(".cif")
 # LOGGER.info("cifpos = %s" % cif_pos)
-alphafold_local_pdb = alphafold_cif_filename[0:cif_pos] + ".pdb"
+alphafold_filename_stem = os.path.basename(alphafold_cif_filename[0:cif_pos])
+
+alphafold_local_pdb = alphafold_filename_stem + ".pdb"
 alphafold_local_pdb = os.path.join(args.outdir,os.path.basename(alphafold_local_pdb))
 
 def _open_for_extension(file_name: str):
@@ -191,118 +196,69 @@ def load_structure_and_mmcif_dict(alphafold_cif_filename, alphafold_modelid):
 
 
 LOGGER.info("struct filename is %s %s" % (alphafold_cif_filename, alphafold_local_pdb) )
-
-alphafold_structure, alphafold_mmcif_dict = load_structure_and_mmcif_dict(alphafold_cif_filename,alphafold_modelid)
-
-# Get a count of residues for the display.  Assumes (always) only one model and chain in the alphafold
-for model in alphafold_structure:
-    for chain in model:
-        break
-
-LOGGER.info("%s loaded with %d residues" % (alphafold_cif_filename, len(chain)))
-
-io=PDBIO()
-io.set_structure(alphafold_structure)
-io.save(alphafold_local_pdb)
-LOGGER.info("structure saved as PDB in %s" % alphafold_local_pdb)
-
-
-singularity_command_list = [
-    'singularity',
-    'exec',
-    '/dors/capra_lab/users/mothcw/VUStruct/ScanNet.simg',
-    '/bin/bash']
-container_stdin_list = [
-   'PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-   'python3 /ScanNet/predict_bindingsites.py %s --noMSA --predictions_folder %s --mode interface' % (
-              alphafold_local_pdb,
-              os.path.join(args.outdir,"ScanNet"))
-    ]
-
-container_stdin_list.append("exit\n")
-
-container_stdin_str = "\n".join(container_stdin_list)
-
-LOGGER.info("Launching container with %s " % ' '.join(singularity_command_list))
-LOGGER.info("stdin=%s" % container_stdin_str)
-
-completed_process = subprocess.run(
-    singularity_command_list,
-    input=container_stdin_str,
-    shell=False,
-    text=True, 
-    # env=environment_override, 
-    capture_output=True)
-LOGGER.info("returncode = %d" % completed_process.returncode);
-LOGGER.info("stdout = %s" % completed_process.stdout);
-LOGGER.info("stderr = %s" % completed_process.stderr);
-LOGGER.info("Successful end of ScanNet.py")
-if completed_process.returncode == 0:
-    psb_status_manager.write_info("Success")
-    psb_status_manager.mark_complete()
-else:
-    psb_status_manager.write_info(completed_process.stderr)
-    psb_status_manager.mark_failed()
-exit(0)
-
-
-
-
-
-# transcript_uniprot.load_aa_seq_from_sql()
-fasta_filename = args.unp + '.fasta'
-fasta_fullpath = os.path.join(args.outdir,fasta_filename)
-LOGGER.info("Writing " + args.unp + " in fasta format to " + fasta_fullpath)
-with open(fasta_fullpath,'w') as fasta_f:
-    fasta_f.write(transcript_uniprot.fasta_aa_seq)
-
-
-
-musite_model_prefix_list = [
-    "Hydroxylysine",
-    "Hydroxyproline",
-    "Methylarginine",
-    "Methyllysine",
-    "N6-acetyllysine",
-    "N-linked_glycosylation",
-    "O-linked_glycosylation",
-    "Phosphoserine_Phosphothreonine",
-    "Phosphotyrosine",
-    "Pyrrolidone_carboxylic_acid",
-    "S-palmitoyl_cysteine",
-    "SUMOylation",
-    "Ubiquitination"]
-
-
-
-
-for musite_model_prefix in musite_model_prefix_list:
-    container_stdin_list.append(" ".join([
-        'python3',
-        'predict_multi_batch.py',
-         '-input', fasta_fullpath,
-         '-output', os.path.join(args.outdir, args.unp + '_' + musite_model_prefix ),
-         '-model-prefix', os.path.join("models", musite_model_prefix)
-        ]))
-
-
-
+if args.collate_only:
+    LOGGER.info("Skipping containerized calls to ScanNet, assuming already run")
+else: # We're running musite deep as usual
+    alphafold_structure, alphafold_mmcif_dict = load_structure_and_mmcif_dict(alphafold_cif_filename,alphafold_modelid)
     
-
-
-"""
-        fail_message = None
-        if completed_process.returncode == 0:
-            LOGGER.info("%s completed successfully (exit 0)", binary_program_basename)
-        else:
-            fail_message = "%s failed with exit %d" % (binary_program_basename, completed_process.returncode)
-            LOGGER.critical(fail_message)
-"""
-
-
-# Resume by figuring out that we should keep everything or whatever
-# this case of a SHEEP protein...
-
-LOGGER.info("Successful end of ScanNet.py")
-psb_status_manager.mark_complete()
+    # Get a count of residues for the display.  Assumes (always) only one model and chain in the alphafold
+    for model in alphafold_structure:
+        for chain in model:
+            break
+    
+    LOGGER.info("%s loaded with %d residues" % (alphafold_cif_filename, len(chain)))
+    
+    io=PDBIO()
+    io.set_structure(alphafold_structure)
+    io.save(alphafold_local_pdb)
+    LOGGER.info("structure saved as PDB in %s" % alphafold_local_pdb)
+    
+    
+    singularity_command_list = [
+        'singularity',
+        'exec',
+        '/dors/capra_lab/users/mothcw/VUStruct/ScanNet.simg',
+        '/bin/bash']
+    container_stdin_list = [
+       'PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+       'cd /ScanNet',
+       'export PYTHONPATH=/ScanNet/$PYTHONPATH',
+       'python3 /dors/capra_lab/users/mothcw/psbadmin/external_apps/ScanNet/predict_bindingsites.py %s --noMSA --predictions_folder %s --mode interface' % (
+                  alphafold_local_pdb,
+                  args.outdir)
+        # os.path.join(args.outdir,"ScanNet"))
+        ]
+    
+    container_stdin_list.append("exit\n")
+    
+    container_stdin_str = "\n".join(container_stdin_list)
+    
+    LOGGER.info("Launching container with %s " % ' '.join(singularity_command_list))
+    LOGGER.info("stdin=%s" % container_stdin_str)
+    
+    completed_process = subprocess.run(
+        singularity_command_list,
+        input=container_stdin_str,
+        shell=False,
+        text=True, 
+        # env=environment_override, 
+        capture_output=True)
+    LOGGER.info("returncode = %d" % completed_process.returncode);
+    LOGGER.info("stdout = %s" % completed_process.stdout);
+    LOGGER.info("stderr = %s" % completed_process.stderr);
+    LOGGER.info("Successful end of ScanNet.py")
+    if completed_process.returncode == 0:
+        psb_status_manager.write_info("Success")
+        psb_status_manager.mark_complete()
+    else:
+        psb_status_manager.write_info(completed_process.stderr)
+        psb_status_manager.mark_failed()
+# Continuing regarless of args.collate_only setting
+scannet_predictions_filename = os.path.join(args.outdir, alphafold_filename_stem + "_single_ScanNet_interface_noMSA/predictions_" + alphafold_filename_stem + ".csv")
+scannet_df = pd.read_csv(scannet_predictions_filename,sep=',',index_col='Residue Index')
+ppi_row_trans_mut_pos = scannet_df.loc[1+trans_mut_pos-model_seq_start]
+scannet_ppi_outfile = os.path.join(args.outdir, "ScanNet_PPI_prediction.csv")
+# Now write 
+LOGGER.info("Writing ScanNet PPI prediction %f for residue %d to %s", ppi_row_trans_mut_pos['Binding site probability'], trans_mut_pos, scannet_ppi_outfile)
+pd.DataFrame(ppi_row_trans_mut_pos).T.to_csv(scannet_ppi_outfile, sep='\t')
 sys.exit(0)
