@@ -271,8 +271,54 @@ img {
         </tbody>
     </table>
     {% endfor %}
-
 </div>
+
+<div class="container">
+{% if calculation_results.musite_deep_neighborhood_dict %}
+    <h3><a href="https://doi.org/10.1093/nar/gkaa275">MusiteDeep</a> (PTMs) within 8.0A of {{ variant[:-1] }} </h3>
+    <table cellspacing="1" class="tablesorter" style="width: auto;">
+        <thead>
+        <tr style="width: auto;">
+            <th class="sorter-false">PTM Residue</th>
+            <th class="sorter-false">PTM Type</th>
+            <th class="sorter-false">Probability</th>
+        </tr>
+        </thead>
+        <tbody>
+{% for ptm_row in  calculation_results.musite_deep_neighborhood_dict %}
+        <tr style="width: auto;">
+        <td>{{ ptm_row['PTM Residue'] }}</td>
+        <td>{{ ptm_row['PTM Type'] }}</td>
+        <td>{{ "%.1f"|format(ptm_row['PTM Probability']|float) }}</td>
+        </tr>
+{% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <h3>No <a href="https://doi.org/10.1093/nar/gkaa275">MusiteDeep</a> (PTMs) predicted within 8.0A of {{ variant[:-1] }} </h3>
+
+{% endif %}
+</div>
+{% if calculation_results.scannet_prediction_dict %}
+<div class="container">
+    <h3><a href="https://www.nature.com/articles/s41592-022-01490-7">ScanNet</a> Prediction of {{ variant[:-1] }} participation in a PPI </h3>
+    <table cellspacing="1" class="tablesorter" style="width: auto;">
+        <thead>
+        <tr style="width: auto;">
+            <th class="sorter-false">Binding Site Probability</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr style="width: auto;">
+        <td>{{ "%.1f"|format(calculation_results.scannet_prediction_dict[0]['Binding site probability']|float)  }}</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+
+
 <!-- Present a table of all structures analyzed for the transcript -->
 <hr id="StructureReport">
 <div class="container">
