@@ -360,10 +360,21 @@ class JobsLauncher:
                 # Create the meat of the slurm script for this job
                 # ddG monomer and cartesian are simpler because they is not managed by the pipeline
                 launch_string = "%(command)s %(options)s" % row
-                LOGGER.info("%s %s", row['flavor'], launch_string)
-                if 'ddG' not in row['flavor']:
-                    launch_string += " --outdir %(outdir)s/%(flavor)s --uniquekey %(uniquekey)s" % row
 
+                # Only ddG lacks an _outdir because it runs from a repository
+                # Note that the status directory is only added to the non ddG calculations, as well
+                _final_outdir = None
+                if 'ddG' not in row['flavor']:
+                    # For ScanNet and MusiteDeep, do NOT re-append the flavor
+                    # Retain this behavior for our pathprox runs, however
+                    if ('ScanNet' in row['flavor']) or ('Musite' in row['flavor']):
+                        _final_outdir = row['outdir']
+                    else: # Pathprox has the specific COSMIC/Clinvar etc flavor subdirectory
+                        _final_outdir = os.path.join(row['outdir'], row['flavor'])
+
+                    launch_string += " --outdir " + _final_outdir + " --uniquekey " + row['uniquekey']
+
+                LOGGER.info("%s: %s", row['flavor'], launch_string)
                 uniquekey_launch_string = (row['uniquekey'], launch_string)
                 # Launch PathProx Clinvar and COSMIC both with same parameters
                 # out of same .slurm file
@@ -375,30 +386,31 @@ class JobsLauncher:
                     print("I don't know this job flavor: ", row['flavor'])
                     sys.exit(1)
 
-                # Before launching a job, make path to its
+                # Before launching a non-ddG job, make path to its
                 # status directory and erase all files from that
                 # directory if any there from previous run
-                status_dir = os.path.join(row['outdir'], row['flavor'], "status")
-                old_umask = os.umask(2)
-                os.makedirs(status_dir, exist_ok=True)
-                os.umask(old_umask)
-                set_capra_group_sticky(status_dir)
+                if _final_outdir:
+                    status_dir = os.path.join(_final_outdir, "status")
+                    old_umask = os.umask(2)
+                    os.makedirs(status_dir, exist_ok=True)
+                    os.umask(old_umask)
+                    set_capra_group_sticky(status_dir)
 
-                # Since we are launching anew, clear out ANY old junk files hanging around'
-                # the status_dir of the jobs
-                for the_file in os.listdir(status_dir):
-                    file_path = os.path.join(status_dir, the_file)
-                    LOGGER.info('Deleting old file %s', file_path)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.unlink(file_path,)
-                    except OSError:
-                        LOGGER.exception("Unable to delete %s in status directory", file_path)
-                        sys.exit(1)
+                    # Since we are launching anew, clear out ANY old junk files hanging around'
+                    # the status_dir of the jobs
+                    for the_file in os.listdir(status_dir):
+                        file_path = os.path.join(status_dir, the_file)
+                        LOGGER.info('Deleting old file %s', file_path)
+                        try:
+                            if os.path.isfile(file_path):
+                                os.unlink(file_path,)
+                        except OSError:
+                            LOGGER.exception("Unable to delete %s in status directory", file_path)
+                            sys.exit(1)
 
-                # Well, we have not _actually_ submitted it _quite_ yet - but just save this dirname
-                # to mark later
-                self._status_dir_list.append(status_dir)
+                    # Well, we have not _actually_ submitted it _quite_ yet - but just save this dirname
+                    # to mark later as submitted
+                    self._status_dir_list.append(status_dir)
 
     def _update_job_statuses_from_prior_exit0s(self):
         for index, row in self._df_all_jobs.iterrows():
@@ -516,14 +528,23 @@ fi
             #    slurm_dict = dict(launchParametersUDNSequence)
             elif subdir == "DiGePred":
                 slurm_dict = dict(launchParametersDiGePred)
+            elif subdir == "DIEP":
+                slurm_dict = dict(launchParametersDIEP)
             else:
                 print("I don't know what flavor(subdir) is: ", subdir)
                 sys.exit(1)
 
-            slurm_dict['output'] = "%s/%s.out" % (
-                launch_stdout_directory, "%s_%%A_%%a" % self._geneRefseqMutation_OR_casewideString)
-            slurm_dict['job-name'] = "%s_%s" % (self._geneRefseqMutation_OR_casewideString, subdir)
             job_count = len(self._launch_strings[subdir])
+            # If we are going to create a slurm array then include the slurm
+            # %a array number in the output capture stdout filename
+            # But if only one job, then don't do this, as it is not property initialized to 0
+            # by slurm and looks like 2^32 instead
+            slurm_dict['output'] = "%s/%s.out" % (
+                launch_stdout_directory, 
+                (self._geneRefseqMutation_OR_casewideString + '_' +
+                    ('%A_%a' if (job_count > 1) else '%A'))
+                )
+            slurm_dict['job-name'] = "%s_%s" % (self._geneRefseqMutation_OR_casewideString, subdir)
 
             # Build a slurm array file if jobCount > 1
             if job_count > 1:
@@ -573,6 +594,9 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 container_exec_prefix = 'singularity exec %s ' % SINGULARITY_IMAGE
             else:
                 container_exec_prefix = ''
+                if "PathProx" in subdir:
+                    ## TERRIBLE HACK FOR NAR
+                    container_exec_prefix='singularity exec /dors/capra_lab/users/mothcw/UDNtests/development.simg '
 
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
@@ -622,6 +646,8 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
             #    bsub_dict = dict(launchParametersUDNSequence)
             elif subdir == "DiGePred":
                 bsub_dict = dict(launchParametersDiGePred)
+            elif subdir == "DIEP":
+                bsub_dict = dict(launchParametersDIEP)
             else:
                 print("I don't know what flavor(subdir) is: ", subdir)
                 sys.exit(1)
