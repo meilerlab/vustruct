@@ -197,7 +197,10 @@ def monitor_one_mutation(workstatus_filename: str):
             # We dig down to the status directory outputs
             # The most reliable source of Exit=0 is the arrival of a completed file in the status directory
             progress_file_found = False
-            statusdir = "%s/%s/status"%(row['outdir'],row['flavor'])
+            if "PP_" in row['flavor']:
+                statusdir = os.path.join(row['outdir'],row['flavor'],"status")
+            else: # For MusiteDeep and ScanNet we don't have an additional flavor directory
+                statusdir = os.path.join(row['outdir'],"status")
             try:
                 with open("%s/progress"%statusdir) as progressfile:
                     status_text = progressfile.read().replace('\n','')
