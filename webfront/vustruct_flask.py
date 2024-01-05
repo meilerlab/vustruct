@@ -329,7 +329,7 @@ class VUstructCaseManager:
 
         return launch_psb_monitor_return.returncode
 
-    def psb_rep(self, last_flag:bool=False, seconds_remaining:int=4*24*3600) -> int:
+    def psb_rep(self, last_flag:bool=False, seconds_remaining:int=4*24*3600, refresh_interval_seconds=30) -> int:
         global case_uuids_needing_website_refresh
         save_cwd = os.getcwd()
         LOGGER.info("psb_rep: chdir(%s)", self.working_directory)
@@ -340,6 +340,7 @@ class VUstructCaseManager:
         psb_rep_command_line = ['psb_rep.py','--tar_only', '--strip_uuid', self.case_uuid, '--web_case_id', self.case_id]
         if not last_flag:
             psb_rep_command_line.append('--embed_refresh')
+            psb_rep_command_line.extend(['--refresh_interval_seconds', "%d" % refresh_interval_seconds])
             if seconds_remaining > 0:
                 psb_rep_command_line.extend(['--seconds_remaining','%d' % seconds_remaining])
 
