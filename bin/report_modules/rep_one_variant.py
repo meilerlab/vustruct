@@ -255,6 +255,7 @@ def report_one_variant_one_isoform(project: str,
         LOGGER.debug("Dictionary to render:\n%s" % pp.pformat(template_render_dict))
 
     template_render_dict['variant'] = variant
+    template_render_dict['uniprot_id'] = uniprot_id
 
     variant_report_html_out = variant_isoform_template.render(template_render_dict)
 

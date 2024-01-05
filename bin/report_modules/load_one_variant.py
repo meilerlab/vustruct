@@ -99,6 +99,8 @@ class CalculationResultsLoader:
         self.ddG_cartesian_results_dict_of_dfs = {}
         self.pathprox_disease1_results_dict_of_dfs = {}
         self.pathprox_disease2_results_dict_of_dfs = {}
+        self.musite_deep_neighborhood_dict = None
+        self.scannet_prediction_dict = None
 
         # self.rate4site_results_dict = {}
 
@@ -385,6 +387,27 @@ class CalculationResultsLoader:
 
         return ddg_results_df, None
 
+    def load_MusiteDeep_neighborhood_dataframe(self, workplan_df_row: pd.Series) -> (pd.Series, str):
+        musite_deep_neighborhood_filename = os.path.join(workplan_df_row['outdir'], "PTM_neighborhood.csv")
+        musite_deep_neighborhood_df = None
+        try:
+            musite_deep_neighborhood_df = pd.read_csv(musite_deep_neighborhood_filename, '\t', index_col=0)
+        except FileNotFoundError:
+            return None, "MusiteDeep neighborhood file not found: %s" % musite_deep_neighborhood_filename
+
+        return musite_deep_neighborhood_df, None
+ 
+    def load_ScanNet_dataframe(self, workplan_df_row: pd.Series) -> (pd.Series, str):
+        scannet_prediction_filename = os.path.join(workplan_df_row['outdir'], "ScanNet_PPI_prediction.csv")
+        scannet_prediction_df = None
+        try:
+            scannet_prediction_df = pd.read_csv(scannet_prediction_filename, '\t', index_col=0)
+        except FileNotFoundError:
+            return None, "ScanNet neighborhood file not found: %s" % scannet_prediction_filename
+
+        return scannet_prediction_df, None
+ 
+
     def load_dataframes(self):
         """
         Iterate through the workplan file, xfer to workstatus, and load numerical outputs for all
@@ -418,6 +441,23 @@ class CalculationResultsLoader:
                 # Today, Sequence Annotation results are not included in web outputs
                 if workstatus_row['flavor'] == 'SequenceAnnotation':
                     continue
+
+
+                if workstatus_row['flavor'] == 'ScanNet':
+                    scannet_prediction_df,msg = self.load_ScanNet_dataframe(workstatus_row)
+                    if scannet_prediction_df is None:
+                        workstatus_row['Notes'] = msg
+                    else:
+                       self.scannet_prediction_dict = scannet_prediction_df.to_dict(orient='records')
+                    continue # To next row in the varian's workplan
+
+                if workstatus_row['flavor'] == 'MusiteDeep':
+                    musite_deep_neighborhood_df,msg = self.load_MusiteDeep_neighborhood_dataframe(workstatus_row)
+                    if musite_deep_neighborhood_df is None:
+                        workstatus_row['Notes'] = msg
+                    else:
+                       self.musite_deep_neighborhood_dict = musite_deep_neighborhood_df.to_dict(orient='records')
+                    continue # To next row in the varian's workplan
 
                 try:
                     structure_row = structure_report_df_indexed.loc[method_pdbid_chain_mers_tuple]

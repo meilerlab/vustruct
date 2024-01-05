@@ -104,6 +104,8 @@ cmdline_parser.add_argument("-s", "--slurm",
                             help="Create a slurm file to launch all the reports", action="store_true")
 cmdline_parser.add_argument("--embed_refresh",
                             help="Set if created pages should auto refresh, i.e. are not final", action="store_true")
+cmdline_parser.add_argument("--refresh_interval_seconds", nargs='?', type=int, metavar='int', 
+                            help="Set the interval in which the page should reload itself", default=0)
 cmdline_parser.add_argument("--seconds_remaining", nargs='?', type=int, metavar='int', 
                             help="Add text to let user know how much longer report re-generation will continue", default=0)
 cmdline_parser.add_argument("--tar_only",
@@ -739,7 +741,9 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         if not vustruct.plan['executable']:
             early_or_fail_message = "The plan phase has not been run.  Check logs for errors"
 
+    ##########################################################################
     # Was there a generated .html file from DiGePred?
+    ##########################################################################
     digepred_html_filename = os.path.join('casewide', 'DiGePred',
                                           '%s_all_gene_pairs_summary.html' % (
                                               args.projectORstructures,))
@@ -776,6 +780,18 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 gene_pair_dict[key] = row[key]
             digepred_gene_pairs.append(gene_pair_dict)
 
+    ##########################################################################
+    # Was there a generated .png file from DIEP
+    ##########################################################################
+
+    diep_png_plot_filename = os.path.join('casewide','DIEP','DIEP.png')
+    if os.path.exists(os.path.join(case_root_dir, diep_png_plot_filename)):
+        website_filelist.append(diep_png_plot_filename)
+        LOGGER.info("Integrating DIEP plot: %s", diep_png_plot_filename)
+    else:
+        LOGGER.warning("DIEP %s missing.  Did you run DIEP?", diep_png_plot_filename)
+        diep_png_plot_filename = None
+
     case_report_template_location = os.path.dirname(os.path.realpath(__file__))
     jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
     case_report_template = jinja2_environment.get_template("case_report_template.html")
@@ -784,6 +800,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                            'genome_headers': genome_headers,
                            'early_or_fail_message': early_or_fail_message,
                            'refreshFlag': args.embed_refresh,
+                           'refresh_interval_seconds': args.refresh_interval_seconds,
+                           'seconds_remaining': args.seconds_remaining,
                            'vustruct': vustruct_dict_for_jinja2,
                            'vustruct_logs_info': vustruct_logs_info,
                            # 'firstGeneTable': html_table_generic,
@@ -797,7 +815,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                            'disease2_variant_short_description': config_pathprox_dict[
                                'disease2_variant_short_description'],
                            'digepred_html_filename': digepred_html_filename,
-                           'digepred_gene_pairs': digepred_gene_pairs
+                           'digepred_gene_pairs': digepred_gene_pairs,
+                           'diep_png_plot_filename': diep_png_plot_filename
                            }
     if LOGGER.isEnabledFor(logging.DEBUG):
         pp = pprint.PrettyPrinter(indent=1)
