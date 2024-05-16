@@ -10,10 +10,11 @@
 # 4) inform vustruct_webupdate of running job IDs which are needing a web refresh.
 # 
 #     Because vustruct_flask will launch prep tasks and cluster tasks, 
-#     vustrucT_flask is executed outside the container.
+#     vustruct_flask is executed outside the container.
 #
 # curl samples can be found with the various calls, just search for "curl"
 # in the source code below
+from __future__ import annotations
 
 import logging
 
@@ -24,6 +25,7 @@ from flask import request
 from flask import jsonify
 import uuid
 import threading
+from io import StringIO
 from datetime import datetime
 from datetime import timedelta
 import time
@@ -125,9 +127,31 @@ LOGGER.info("Initializing Flask(%s)", __name__)
 cases_dict = {}
 case_uuids_needing_website_refresh = set()
 
+class VUStructCaseManager:
+    # We need to be able to save case management information to disk when this process is terminated
+    # and restore it on restart.
+    # We'll leverage python's getattr and setattr machinery to speed transition to and from an
+    # external dictionary.  Time and other non-json elements will get special treatment
 
-class VUstructCaseManager:
+    _static_vustruct_member_strings_and_ints = [
+        'case_id',
+        'case_uuid',
+        'last_module_launched',
+        'last_module_returncode',
+        'upload_file_URI',
+        'last_psb_rep_start',
+        'last_psb_rep_end',
+        'external_user_prefix',
+        'working_directory',
+        'data_format',
+        'init_time',
+        'save_cwd',
+        'launched_jobs']
+
     def __init__(self, case_id: str, case_uuid: str) -> None:
+        for member_name in VUStructCaseManager._static_vustruct_member_strings_and_ints:
+            setattr(self, member_name, "")
+
         self.case_id = case_id
         self.case_uuid = case_uuid
         # As we launch processes, we populate this with
@@ -153,6 +177,28 @@ class VUstructCaseManager:
 
         # Convenient to push the current directory, do work in the case, and pop back
         self.save_cwd = None
+
+        # After the launch, launched jobs are triples that contain the job id and array id and the uniquekey of the jobs
+        self.launched_jobs = [] # pd.DataFrame(columns=['unique_key', 'jobid', 'arrayid'])
+
+    def to_dict(self) -> Dict:
+        """ Serialize a VUStructCaseManager instance to JSON ready dictionary """
+        as_dict = {}
+        for member_name in VUStructCaseManager._static_vustruct_member_strings_and_ints:
+            as_dict[member_name] = getattr(self, member_name)
+        return as_dict
+
+    @classmethod
+    def from_dict(cls, dict) -> VUStructCaseManager:
+        """ Build a VUStructCaseManager from a dictionary read from json """
+        new_VUStructCaseManager = cls(dict['case_id'],dict['case_uuid'])
+        for member_name in VUStructCaseManager._static_vustruct_member_strings_and_ints:
+            if member_name in dict:
+                setattr(new_VUStructCaseManager, member_name, dict[member_name])
+        return new_VUStructCaseManager
+
+
+        
 
     def fetch_input_file(self,file_extension: str) -> None:
         os.makedirs(self.working_directory, exist_ok=True)
@@ -257,6 +303,70 @@ class VUstructCaseManager:
 
         return self.last_module_returncode
 
+    def psb_load_jobids_from_workstatus_file(self):
+        # Called as part of psb_launch, this code harvests the job IDs from the workstatus files, and 
+        # builds an in-memory database of ids which are monitored and reported to websites via restapi calls
+        missense_csv_data = ""
+        missense_filename = self.external_user_prefix + "_missense.csv"
+        with open(missense_filename,'r') as f:
+            missense_csv_data = f.read()
+            df_all_mutations = pd.read_csv(StringIO(missense_csv_data), sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+                                       comment='#', skipinitialspace=True)
+            df_all_mutations.fillna('NA', inplace=True)
+            for index,row in df_all_mutations.iterrows():
+                if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
+                    row['refseq'] = 'NA'
+                collaboration_dir = os.getcwd() # Unlike in psb_monitor.py, we are in the right directory at this point
+                mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
+                if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
+                    logging.critical("Skipping missing mutation directory %s which should have been created by psb_launch.py" % mutation_dir)
+                    continue
+        
+                workstatus_filename = "%s/%s_%s_%s_workstatus.csv"%(mutation_dir,row['gene'],row['refseq'],row['mutation'])
+                try:
+                    df_all_jobs_status = pd.read_csv(workstatus_filename,delimiter='\t',dtype=str,keep_default_na=False)
+                except FileNotFoundError:
+                    df_all_jobs_status = pd.DataFrame() # The empty dataframe will not be iterated below
+
+                # While kludgy, the first thing we have to do is to figure out which of the job IDs appear multiple times
+                # which simply means that we launched an array of them
+                jobid_count = {}
+                array_index = {}
+
+                # PASS 1 through workstatus: Figure out slurm array indices
+                for job_status_index,job_status_row in df_all_jobs_status.iterrows():
+                    jobid_int = int(job_status_row['jobid'])
+                    if jobid_int > 0:
+                        if jobid_int in jobid_count:
+                            jobid_count[jobid_int] += 1
+                        else: # We are starting first entry...
+                            jobid_count[jobid_int] = 1
+                            array_index[jobid_int] = 0
+                       
+                # PASS 2 through workstatus: Save job uniquekeys, jobid, array id, 
+                # for future processing when squeue is called periodically
+                for job_status_index,job_status_row in df_all_jobs_status.iterrows():
+                    jobid_int = int(job_status_row['jobid'])
+                    job_array_index = -1 # We retain -1 if this job is NOT part of slurm _array_
+                    if job_id_count[jobid_int] > 1:
+                        array_index[jobid_int] += 1
+                        job_array_index += 1
+
+                    # launched_job_series = pd.Series({
+                    #     'uniquekey': job_status_row['uniquekey'],
+                    #     'jobid': job_status_row['jobid'],
+                    #     'arrayid': job_array_index})
+
+                    self.launched_jobs.append(
+                        job_status_row['uniquekey'], 
+                        job_status_row['job_id'],
+                        job_array_index)
+
+        LOGGER.info("WOW - what did we get for the actual job ids????")
+        LOGGER.info("The dataframe of jobs is\n%s" % self.launched_jobs.to_string())
+                 
+                 
+
     def psb_launch(self) -> int:
         # shell out to 
         # $ singularity exec (psb_launch.py --nolaunch)
@@ -306,8 +416,11 @@ class VUstructCaseManager:
 
             self.last_module_returncode = all_jobs_slurm_launch_return.returncode
 
-        os.chdir(save_cwd)
+            if self.last_module_returncode == 0:
+                self.psb_load_jobids_from_workstatus_file()
 
+
+        os.chdir(save_cwd)
 
         return self.last_module_returncode
 
@@ -360,7 +473,7 @@ class VUstructCaseManager:
 
         return launch_psb_rep_return.returncode
 
-def monitor_report_loop(vustruct_case: VUstructCaseManager):
+def monitor_report_loop(vustruct_case: VUStructCaseManager):
     # For 4 days loop, creating a new report every ?30? minutes
     # as the cluster churns away.  This is a separate functio to support
     # entry into _just_ this function (restart report creation)
@@ -401,7 +514,7 @@ def monitor_report_loop(vustruct_case: VUstructCaseManager):
 
 
 
-def launch_vustruct_case_thread(vustruct_case: VUstructCaseManager) -> subprocess.CompletedProcess:
+def launch_vustruct_case_thread(vustruct_case: VUStructCaseManager) -> subprocess.CompletedProcess:
     """
     This function is launched via the thread API.  "int he background" it will run the various components
     of the entire pipeline, and return in case of terminal failure, or completion.
@@ -554,7 +667,7 @@ def get_uuid():
 @require_authn
 def launch_vustruct():
     """
-    There are a variety of ways to launch a new VUstruct case - 
+    There are a variety of ways to launch a new VUStruct case - 
     Some start frmo the missense.csv.  Others from a spreadsheet format.
     
     An example curl command would be:
@@ -572,7 +685,7 @@ def launch_vustruct():
         if not required_key in request.json:
             return "Request JSON is missing required key: " + required_key
 
-    vustruct_case = VUstructCaseManager(
+    vustruct_case = VUStructCaseManager(
         case_id=request.json['case_id'],
         case_uuid=request.json['case_uuid'])
     vustruct_case.data_format = request.json['data_format']
@@ -588,7 +701,8 @@ def launch_vustruct():
     psb_plan_thread.start()
 
     # Send back the entire json that was send to us AnD add a launch_status to the gemisch
-    # json_to_return_after_launch = request.json | {"launch_status": "VUstruct now running on accre cluster"}
+    # json_to_return_after_launch = request.json | {"launch_status": "VUStruct now running on accre cluster"}
+    import pdb; pdb.set_trace()
     vustruct_case_json = jsonify(vars(vustruct_case))
     LOGGER.debug("Sending back this json %s", vustruct_case_json )
 
@@ -614,7 +728,7 @@ def dev_monitor_report_loop():
         if not required_key in request.json:
             return "Request JSON is missing required key: " + required_key
 
-    vustruct_case = VUstructCaseManager(
+    vustruct_case = VUStructCaseManager(
         case_id=request.json['case_id'],
         case_uuid=request.json['case_uuid'])
 
@@ -631,7 +745,7 @@ def dev_monitor_report_loop():
     dev_report_vustruct_thread.start()
 
     # Send back the entire json that was send to us AnD add a launch_status to the gemisch
-    # json_to_return_after_launch = request.json | {"launch_status": "VUstruct now running on accre cluster"}
+    # json_to_return_after_launch = request.json | {"launch_status": "VUStruct now running on accre cluster"}
     vustruct_case_json = jsonify(vars(vustruct_case))
     LOGGER.debug("Sending back this json %s", vustruct_case_json )
 
@@ -668,8 +782,33 @@ def get_all_jobs():
 def add_job():
     new_case_info = request.json
     LOGGER.info("add_case request json = %s" % new_case_info)
-    active_vustruct = VUstructCaseManager(new_case_info['case_id'], new_case_info['case_uuid'])
+    active_vustruct = VUStructCaseManager(new_case_info['case_id'], new_case_info['case_uuid'])
     cases_dict[new_case_info['case_uuid']] = active_vustruct
 
 
     return jsonify(vars(active_vustruct))
+
+vus = VUStructCaseManager('id','uuid')
+vus_dict = vus.to_dict()
+
+vus2 = VUStructCaseManager.from_dict(vus_dict)
+
+print("%s\n%s" % (vus_dict,vars(vus2)))
+
+@app.teardown_appcontext
+def save_management_context(error):
+    """When we rip down the application, we want flask to save all the current dictionaries"""
+    print("WE're GOING DOWN NOW %s" % error)
+
+def perform_server_shutdown():
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        raise RuntimeError('Not running with the Werkzeug Server')
+    func()
+
+@app.route('/shutdown')
+def server_shutdown():
+    perform_server_shutdown()
+
+perform_server_shutdown()
+
