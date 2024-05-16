@@ -90,7 +90,7 @@ class DDG_base(object):
             else:  # The much more common case of format S456T
                 mutation_resid = (' ', int(mutation[1:-1]), ' ')
             assert mutation_resid in self._ddg_repo.residue_to_clean_xref, (
-                    "mutation %s is not in source structure" % str(mutation_resid))
+                    "mutation %s is not in source structure %s" % (str(mutation_resid),  self._ddg_repo.structure_id) )
             mutation_resids.append(mutation_resid)
 
         for mutation, mutation_resid in zip(self._mutations, mutation_resids):

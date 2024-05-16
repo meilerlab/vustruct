@@ -546,7 +546,7 @@ class DDG_repo():
 
     def slurm_directory_makedirs(self):
         LOGGER.info("Creating slurm directory: %s", self.slurm_dir)
-        self.makedirs(self.slurm_dir, mode=0o770, exist_ok=True)
+        self.makedirs(self.slurm_dir, exist_ok=True)
         return self.slurm_dir
 
 
