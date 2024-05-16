@@ -165,10 +165,10 @@ def monitor_one_mutation(workstatus_filename: str):
             LOGGER.info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(row['ExitCode'])))
             continue
 
-        if 'ddG' in row['flavor'] and 'repo' in row['outdir']:
-            calculation_flavor = 'ddG_cartesian' if 'cartesian' in row['flavor'] else 'ddG_monomer'
+        if 'Ddg' in row['flavor'] and 'repo' in row['outdir']:
+            repo_calculation_flavor = 'ddG_cartesian' if 'artesian' in row['flavor'] else 'ddG_monomer'
             ddg_repo = DDG_repo(config_dict['ddg_config'],
-                    calculation_flavor=calculation_flavor)
+                    calculation_flavor=repo_calculation_flavor)
 
             if row['method'] == 'swiss':
                 ddg_repo.set_swiss(row['pdbid'],row['chain'])
@@ -184,7 +184,7 @@ def monitor_one_mutation(workstatus_filename: str):
             ddg_repo.set_variant(row['pdbmut'])
 
             ddg_monomer_or_cartesian = \
-                DDG_monomer(ddg_repo,row['pdbmut']) if calculation_flavor == 'ddG_monomer' else \
+                DDG_monomer(ddg_repo,row['pdbmut']) if repo_calculation_flavor == 'ddG_monomer' else \
                 DDG_cartesian(ddg_repo,row['pdbmut'])
                 
 
