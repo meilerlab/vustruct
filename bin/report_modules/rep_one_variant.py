@@ -23,9 +23,11 @@ import logging
 import numpy as np
 import json
 from jinja2 import Environment, FileSystemLoader
+from lib import PDBMapProtein
 from lib import PDBMapGlobals
 from lib import PDBMapComplex
 from lib import PDBMapTranscriptUniprot
+from lib import PDBMapAlphaMissense
 from logging.handlers import RotatingFileHandler
 
 from .pfam_graphic import PfamDomainGraphics
@@ -80,7 +82,7 @@ def report_one_variant_one_isoform(project: str,
                                    local_log_level: str,
                                    vustruct_pipeline_launched: bool,
                                    config_pathprox_dict: dict
-                                   ) -> ( Dict,  List[str] ):
+                                   ) -> ( Dict, Dict, List[str] ):
     """
     Generate extensive structure analysis report .html for a single variant of a single transcript by
     reading all PathPRox/ddG/etc calculations into dataframes, transforming the data a bit, and then
@@ -133,9 +135,26 @@ def report_one_variant_one_isoform(project: str,
     gene = parent_report_row['gene']
     uniprot_id = None
     unp_transcript = None
+    alphamissense_score = None
+
     if 'unp' in parent_report_row and parent_report_row['unp']:
         uniprot_id = parent_report_row['unp']
         unp_transcript = PDBMapTranscriptUniprot(uniprot_id)
+        if PDBMapProtein.isCanonicalByUniparc(uniprot_id):
+            alphamissense_score = PDBMapAlphaMissense.score_from_uniprot_id(uniprot_id,variant)
+            LOGGER.info("Alphamissense for %s %s = %s" % (uniprot_id, variant, alphamissense_score))
+    if alphamissense_score is None: # Try to use ENST transcripts to get alphafold
+        enst_transcript_ids = parent_report_row['transcript'].split(';')
+        for transcript_id in enst_transcript_ids:
+            alphamissense_score = PDBMapAlphaMissense.score_from_ENSEMBL_isoform_id(transcript_id, variant)
+            LOGGER.info("Alphamissense for %s %s = %s" % (transcript_id, variant, alphamissense_score))
+            if alphamissense_score is not None:
+                break
+    
+    if alphamissense_score is not None:            
+        alphamissense_score = np.round(alphamissense_score,2)
+
+       
 
 
 
@@ -194,6 +213,7 @@ def report_one_variant_one_isoform(project: str,
     # Various data max/min/etc computations from the gathered data, which are great to return to the caller
     # and also useful to compose the report.
     variant_isoform_summary = {}
+    variant_isoform_details = {} # Carries specific per-structure calculations to pass to caller
 
     # Load the template psb_report.html that is one directory above where this file is sourced from
     jinja2_environment = Environment(loader=FileSystemLoader(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
@@ -256,6 +276,7 @@ def report_one_variant_one_isoform(project: str,
 
     template_render_dict['variant'] = variant
     template_render_dict['uniprot_id'] = uniprot_id
+    template_render_dict['alphamissense_score'] = alphamissense_score
 
     variant_report_html_out = variant_isoform_template.render(template_render_dict)
 
@@ -301,6 +322,12 @@ def report_one_variant_one_isoform(project: str,
     variant_isoform_summary['ddG Cartesian Max'] = variant_isoform_summary['ddG Cartesian Min'] = None
     variant_isoform_summary['disease1_pp Min'] = variant_isoform_summary['disease1_pp Max'] = None
     variant_isoform_summary['disease2_pp Min'] = variant_isoform_summary['disease2_pp Max'] = None
+    variant_isoform_summary['MusiteiDeepPTM'] = None
+    variant_isoform_summary['ScanNetPPI'] = None
+
+    variant_isoform_details['ddG Monomer'] = {}
+    variant_isoform_details['ddG Cartesian'] = {}
+   
 
     if vustruct_pipeline_launched and calculation_results_loader.ddG_monomer_results_dict_of_dfs:
         ddG_list = [calculation_results_loader.ddG_monomer_results_dict_of_dfs[ddg_results_key].ddG \
@@ -308,11 +335,28 @@ def report_one_variant_one_isoform(project: str,
         variant_isoform_summary['ddG Monomer Max'] = max(ddG_list)
         variant_isoform_summary['ddG Monomer Min'] = min(ddG_list)
 
+        # Added 2024 May to return individual structure results to include on the final spreadsheet
+        _ddG_details = {ddg_results_key: 
+            calculation_results_loader.ddG_monomer_results_dict_of_dfs[ddg_results_key].ddG \
+                    for ddg_results_key in calculation_results_loader.ddG_monomer_results_dict_of_dfs}
+        variant_isoform_details['ddG Monomer'] = _ddG_details
+         
+
     if vustruct_pipeline_launched and calculation_results_loader.ddG_cartesian_results_dict_of_dfs:
         ddG_list = [calculation_results_loader.ddG_cartesian_results_dict_of_dfs[ddg_results_key].total \
                     for ddg_results_key in calculation_results_loader.ddG_cartesian_results_dict_of_dfs]
         variant_isoform_summary['ddG Cartesian Max'] = max(ddG_list)
         variant_isoform_summary['ddG Cartesian Min'] = min(ddG_list)
+        # Added 2024 May to return individual structure results to include on the final spreadsheet
+        _ddG_details = {ddg_results_key: 
+            calculation_results_loader.ddG_cartesian_results_dict_of_dfs[ddg_results_key].total \
+                    for ddg_results_key in calculation_results_loader.ddG_cartesian_results_dict_of_dfs}
+        variant_isoform_details['ddG Cartesian'] = _ddG_details
+
+    if vustruct_pipeline_launched and calculation_results_loader.scannet_prediction_dict:
+        variant_isoform_summary['ScanNetPPI'] = calculation_results_loader.scannet_prediction_dict
+    if vustruct_pipeline_launched and calculation_results_loader.musite_deep_neighborhood_dict:
+        variant_isoform_summary['MusiteDeepPTM'] = calculation_results_loader.musite_deep_neighborhood_dict
 
     def nan_to_None(x: np.float64):
         return None if np.isnan(x) else x
@@ -333,7 +377,10 @@ def report_one_variant_one_isoform(project: str,
         variant_isoform_summary['disease2_pp Max'] = nan_to_None(np.nanmax(np.array(pathprox_list)))
         variant_isoform_summary['disease2_pp Min'] = nan_to_None(np.nanmin(np.array(pathprox_list)))
 
-    return variant_isoform_summary, website_filelist
+    if alphamissense_score: 
+        variant_isoform_summary['alphamissense_score'] = alphamissense_score 
+
+    return variant_isoform_summary, variant_isoform_details, website_filelist
 
     """jinja2_environment = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.realpath(__file__)))))
     isoform_variant_template = jinja2_environment.get_template("psb_report.html")
