@@ -425,8 +425,8 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
             pdb_chain_segment = job['pdbid']
         else:
             pdb_chain_segment = "%s_%s" % (job['pdbid'], job['chain'])
-        if "ddG" in flavor:
-            job['outdir'] = "ddG repository"
+        if "Ddg" in flavor:
+            job['outdir'] = "Ddg repository"
         else:
             job['outdir'] = os.path.join(params['mutation_dir'], pdb_chain_segment)
         job['uniquekey'] = "%s_%s_%s_%s_%s" % (
@@ -523,7 +523,7 @@ def makejob_ScanNet(params: Dict[str, str]):
                     "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
 
 
-def _makejob_either_ddg(ddG_monomer_or_cartesian, ddg_run_command, params):
+def _makejob_either_ddg(ddgmonomer_or_cartesian, ddg_run_command, params):
     # User models are odd in that the argument to ddg_run*.py is --usermodel full_filename
     if params['label'] == 'usermodel':
         structure_id_argument = params['struct_filename']
@@ -533,18 +533,18 @@ def _makejob_either_ddg(ddG_monomer_or_cartesian, ddg_run_command, params):
     # Just catch in case some nut tries to have crazy model name
     assert '%' not in structure_id_argument
 
-    return makejob(ddG_monomer_or_cartesian, ddg_run_command, params,  # command
+    return makejob(ddgmonomer_or_cartesian, ddg_run_command, params,  # command
                    ("--config %(config)s --userconfig %(userconfig)s " +
                     "--%(label)s " + structure_id_argument + ' ' +
                     "--chain %(chain)s --variant %(pdb_mutation)s") % params)  # options
 
 
 def makejob_ddg_monomer(params):
-    return _makejob_either_ddg('ddG_monomer', 'ddg_run.py', params)
+    return _makejob_either_ddg('DdgMonomer', 'ddg_run.py', params)
 
 
 def makejob_ddg_cartesian(params):
-    return _makejob_either_ddg('ddG_cartesian', 'ddg_run_cartesian.py', params)
+    return _makejob_either_ddg('DdgCartesian', 'ddg_run_cartesian.py', params)
 
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
@@ -722,12 +722,19 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                     self.analyzable = 'No'
 
                 resid = alignment.seq_to_resid.get(self.trans_mut_pos, None)
+
                 if resid:
                     self.continuous_to_left = 0
                     self.continuous_to_right = 0
                     self.mut_pdb_res = resid[1]
                     self.mut_pdb_icode = resid[2]
-                    chain_aa_letter = seq1(structure[0][self.chain_id][resid].get_resname().lower())
+                    # It is wonderful to have a resolved resdiue in the 
+                    # deposited structure.  BUT, rosetta will still have trouble
+                    # if the side chain is missing
+                    residue_3d = structure[0][self.chain_id][resid]
+                    if self.method.find('SOLUTION SCATTERING') > -1:
+                       self.analyzable = 'No'
+                    chain_aa_letter = seq1(residue_3d.get_resname().lower())
                     while True:
                         test_left = self.trans_mut_pos - self.continuous_to_left - 1
                         if (test_left <= 0) or (test_left not in alignment.seq_to_resid):
@@ -738,7 +745,12 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                         if (test_right > transcript.len) or (test_right not in alignment.seq_to_resid):
                             break
                         self.continuous_to_right += 1
-                else:
+                else: # resid is Falsey
+                    # 2024 Feb 16 Chris Moth
+                    # If we have a missing residue, say in a PDB structure, then we need to 
+                    # make sure that covering structures override this one in selection process
+                    if self.analyzable == 'Yes':
+                        self.analyzable = 'Maybe'
                     LOGGER.info("No resolved residue is present in %s for transcript position %d" % (
                     structure.id, trans_mut_pos))
 
@@ -968,7 +980,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 
         first_swiss_chain_id = next(swiss_structure[0].get_chains()).get_id()
 
-        # We have the task of figuring out the best chain ID to run ddG on - typically
+        # We have the task of figuring out the best chain ID to run Ddg on - typically
         # we run best on the template chain  in the structure name... but only bother 
         # to try to figure this out if we have a multimeric swiss model
 
@@ -1238,7 +1250,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         ci.set_alignment_profile(alignment, alphafold_structure)
         # The very weird thing is that for alpha fold models, the residue ID
         # residue that is in the disk file... and that _could_ be different
-        # if we are, for example running a ddG deep inside a -F8- named partial window model
+        # if we are, for example running a Ddg deep inside a -F8- named partial window model
         if model_seq_start > 1:
             ci.mut_pdb_res -= (model_seq_start - 1)
         return ci
