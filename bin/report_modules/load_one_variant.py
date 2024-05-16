@@ -99,8 +99,8 @@ class CalculationResultsLoader:
         self.ddG_cartesian_results_dict_of_dfs = {}
         self.pathprox_disease1_results_dict_of_dfs = {}
         self.pathprox_disease2_results_dict_of_dfs = {}
-        self.musite_deep_neighborhood_dict = None
-        self.scannet_prediction_dict = None
+        self.musite_deep_neighborhood_dict = {}
+        self.scannet_prediction_dict = {}
 
         # self.rate4site_results_dict = {}
 
@@ -357,8 +357,9 @@ class CalculationResultsLoader:
         return pathprox_summary_df, None
 
     def load_ddG_results_dataframe(self, workplan_df_row: pd.Series, calculation_flavor: str) -> (pd.DataFrame, str):
+        repo_calculation_flavor = 'ddG_cartesian' if 'artesian' in calculation_flavor else 'ddG_monomer'
         ddg_repo = DDG_repo(PDBMapGlobals.config['ddg_config'],
-                            calculation_flavor=calculation_flavor)
+                            calculation_flavor=repo_calculation_flavor)
 
         structure_id = workplan_df_row['pdbid']
         chain_id = workplan_df_row['chain']
@@ -376,7 +377,7 @@ class CalculationResultsLoader:
         variant = workplan_df_row['pdbmut']
         ddg_repo.set_variant(variant)
         ddg_monomer_or_cartesian = DDG_monomer(ddg_repo,
-                                               variant) if calculation_flavor == 'ddG_monomer' else DDG_cartesian(
+                                               variant) if 'onomer' in calculation_flavor  else DDG_cartesian(
             ddg_repo, variant)
 
         ddg_results_df = ddg_monomer_or_cartesian.retrieve_result()
@@ -487,26 +488,33 @@ class CalculationResultsLoader:
                         self.pathprox_disease2_results_dict_of_dfs[
                             method_pdbid_chain_mers_tuple] = pathprox_disease2_results_df
 
-                elif workstatus_row['flavor'] in ['ddG_monomer', 'ddG_cartesian']:
+                elif workstatus_row['flavor'] in ['DdgMonomer', 'DdgCartesian']:
                     ddg_results_df, msg = self.load_ddG_results_dataframe(workstatus_row, workstatus_row['flavor'])
                     if ddg_results_df is None:
                         workstatus_row['Notes'] = msg
                     else:
-                        if workstatus_row['flavor'] == 'ddG_monomer':
+                        if workstatus_row['flavor'] == 'DdgMonomer':
                             # structure_row['ddG_monomer'] = ddg_results_df['ddG']
                             self.ddG_monomer_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = ddg_results_df
                         else:
                             self.ddG_cartesian_results_dict_of_dfs[method_pdbid_chain_mers_tuple] = ddg_results_df
                 else:
-                    die_msg = "flavor %s in workstatus row is neither %s nor %s nor ddG_monomer not ddG_cartesian - cannot continue:\n%s" % (
+                    die_msg = "In file %s, flavor %s in workstatus row is invalaid.  Halting:\n%s" % (
+                        self.workstatus_filename,
                         workstatus_row['flavor'],
-                        self._config_pathprox_dict['disease1_variant_sql_label'],
-                        self._config_pathprox_dict['disease2_variant_sql_label'],
                         str(workstatus_row))
                     LOGGER.critical(die_msg)
                     sys.exit(die_msg)
             else:
-                workstatus_row['Notes'] = workstatus_row['JobState']
+                # This code really cannot work because JobState is not presently populated
+                # as we don't take time to call slurm scontrol in the monitor phase
+                # Nonetheless... keep the code for now:
+                if 'JobState' in workstatus_row:
+                   workstatus_row['Notes'] = workstatus_row['JobState']
+                else:
+                   workstatus_row['Notes'] = ''
+              
+
 
     def _load_pathprox_residues_of_interest_json(self, pathprox_result: pd.Series) -> Dict:
         """
