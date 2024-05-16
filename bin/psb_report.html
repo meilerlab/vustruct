@@ -218,6 +218,12 @@ img {
 		<th style="text-align:right">Variant</th>
 		<td>{{ variant }}</td>
 	</tr>
+{% if alphamissense_score %}
+	<tr>
+		<th style="text-align:right">AF Missense</th>
+		<td>{{ "%.2f"|format(alphamissense_score|float) }}</td>
+	</tr>
+{% endif %}
 </table>
 <iframe  height="100%" width="100%" style="width:100%; height:100%; border: none; overflow:hidden; " src="{{ pfamGraphicsIframe_fname }}" onload="resizeIframe(this)" scrolling="no">
 </iframe>
@@ -239,6 +245,11 @@ img {
         <tbody>
         <tr>
             <td>Normalized:</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['score']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_low']|float) }},
+                {{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_high']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['std']|float) }}</td>
+            <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['msa']|float) }}/100</td>
             <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['score']|float) }}</td>
             <td>{{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_low']|float) }},
                 {{ "%.2f"|format(rate4site_dict[ensembl_transcript_id]['qq-interval_high']|float) }}</td>
@@ -328,6 +339,7 @@ img {
         <tr>
             <th>Method</th>
             <th>Structure Id</th>
+            <th>Multimer?</th>
             <th>Chain</th>
             <th>PDB<br />Template</th>
             <th>PDB<br />Resolution</th>
@@ -350,7 +362,9 @@ img {
             {% for structure in calculation_results.structure_graphics_dicts%} {#  structure_report_df_appended.iterrows() %} #}
     <tr>
         <td>{{ structure.method }}</td>
-        <td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A></td>
+        {# <td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A> {{ structure.mers }} </td> #}
+        <td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A> </td> 
+        <td>{{ structure.mers }} </td> 
         <td>{{ structure.chain_id }}</td>
         <td>{{ structure.pdb_template }}</td>
         <td>{{ structure.resolution }}</td>

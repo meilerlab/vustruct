@@ -199,6 +199,9 @@ window.onload = showEndTime;
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th class="sorter-false">Alpha</th>
+					<th class="sorter-false">ScanNet</th>
+					<th class="sorter-false">MusiteDeep</th>
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
 					<th class="sorter-false"></th> <!-- Above Notes -->
 <!-- Sometimes for debugging - dump everything -
@@ -224,6 +227,9 @@ window.onload = showEndTime;
 					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
+					<th>Missense</th>
+					<th>PPI</th>
+					<th>PTM</th>
 					<th class="sorter-false">Generic</th>
 					<th class="sorter-false">Familial</th>
 					<th class="sorter-false">Notes</th>
@@ -300,6 +306,24 @@ window.onload = showEndTime;
 					<td>
 						{% if genome_header['ddG Cartesian Max'] is not none %}
 						    {{ genome_header['ddG Cartesian Max'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['alphamissense_score'] is not none %}
+						    {{ genome_header['alphamissense_score'] }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['ScanNetPPI'] is not none %}
+						    {{ genome_header['ScanNetPPI'] }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['MusiteDeepPTM'] is not none %}
+						    {{ genome_header['MusiteDeepPTM'] }}
 						{%endif %}
 					</td>
 
@@ -385,6 +409,25 @@ window.onload = showEndTime;
 						{%endif %}
 					</td>
 
+					<td>
+						{% if isoform_summary['alphamissense_score'] is not none %}
+						    {{ isoform_summary['alphamissense_score'] }}
+						{%endif %}
+					</td>
+
+
+					<td>
+						{% if isoform_summary['ScanNetPPI'] is not none %}
+						    {{ (isoform_summary['ScanNetPPI'][0]['Binding site probability']*100.0)|round(1) }} %
+						{% endif %}
+					</td>
+
+
+					<td>
+						{% if isoform_summary['MusiteDeepPTM'] is not none %}
+						    {{ isoform_summary['MusiteDeepPTM'] }}
+						{%endif %}
+					</td>
 
 
 					<td /> <!-- skip 2 gene interaction columns -->
@@ -398,7 +441,7 @@ window.onload = showEndTime;
 			</thead>
 			</table>
 			{% elif variant_isoform_summaries %}
-					<table>
+                        <table cellspacng="1" class="tablesorter">
 			{# This is the second major case report structure.  Here, there are no genomic headers
 			becauase there were no genomic coordinates on initial input #}
 			<thead>
@@ -413,6 +456,7 @@ window.onload = showEndTime;
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th class="sorter-false">Alpha</th>
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
 					<th class="sorter-false"></th> <!-- Above Notes -->
 <!-- Sometimes for debugging - dump everything -
@@ -438,6 +482,7 @@ window.onload = showEndTime;
 					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
+					<th>Missense</th>
 					<th class="sorter-false">Generic</th>
 					<th class="sorter-false">Familial</th>
 					<th class="sorter-false">Notes</th>
@@ -505,6 +550,12 @@ window.onload = showEndTime;
 					<td>
 						{% if isoform_summary['ddG Cartesian Max'] is not none %}
 						    {{ isoform_summary['ddG Cartesian Max']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if isoform_summary['alphamissense_score'] is not none %}
+						    {{ isoform_summary['alphamissense_score'] }}
 						{%endif %}
 					</td>
 
