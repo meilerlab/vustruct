@@ -32,6 +32,7 @@ import os
 # import argparse, configparser
 import pprint
 import string
+import math
 import sys
 import time
 from array import array
@@ -43,6 +44,21 @@ from jinja2 import Environment, FileSystemLoader
 from io import StringIO
 import json
 
+# openpyxl supports creation of a case summary of summary
+# worksheet
+import openpyxl
+from openpyxl.worksheet.dimensions import ColumnDimension, RowDimension, DimensionHolder
+from openpyxl.utils import get_column_letter
+from openpyxl import Workbook
+# from openpyxl.styles import Font
+from openpyxl.styles import Alignment
+from openpyxl.styles import PatternFill
+
+# matplotlib for creation of separate .png file showing
+# ScanNetPPIs and MusiteDeepPTM prediction results
+# per Alican's manual calculations
+import matplotlib.pyplot as plt
+
 import subprocess
 from lib import PDBMapSQLdb
 from lib import PDBMapTranscriptBase
@@ -53,7 +69,7 @@ from lib import PDBMapGlobals
 
 from vustruct import VUstruct
 from report_modules.rep_one_variant import report_one_variant_one_isoform
-from report_modules.load_one_variant import CalculationResultsLoader
+# from report_modules.load_one_variant import CalculationResultsLoader
 
 
 
@@ -114,7 +130,7 @@ cmdline_parser.add_argument("--strip_uuid", type=str, nargs='?',
                             help="If supplied, a uuid to remove from archived filenames (used after public website input")
 cmdline_parser.add_argument("--web_case_id", type=str, nargs='?',
                             help="Case ID as input through user form")
-cmdline_parser.add_argument("projectORstructures", type=str,
+cmdline_parser.add_argument("projectORstructure", type=str,
                             help="The project ID UDN123456 to report on all mutations.  Else, a specific structures file from psb_plan.py  Example: ....../UDN/UDN123456/GeneName_NM_12345.1_S123A_structure_report.csv",
                             default=os.path.basename(os.getcwd()), nargs='?')
 cmdline_parser.add_argument("workstatus", nargs='?', type=str,
@@ -125,7 +141,7 @@ args, remaining_argv = cmdline_parser.parse_known_args()
 # A period in the argument means the user wants to monitor one mutation only,
 # directly from a single mutation output file of psb_launch.py
 oneMutationOnly = (
-        '.' in args.projectORstructures and os.path.isfile(args.projectORstructures) and args.workstatus is not None)
+        '.' in args.projectORstructure and os.path.isfile(args.projectORstructure) and args.workstatus is not None)
 infoLogging = False
 
 if args.debug:
@@ -180,10 +196,10 @@ LOGGER.info("Pathprox config entries:\n%s" % pprint.pformat(config_pathprox_dict
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 
 if oneMutationOnly:
-    collaboration_absolute_dir = os.path.dirname(os.path.dirname(args.projectORstructures))
+    collaboration_absolute_dir = os.path.dirname(os.path.dirname(args.projectORstructure))
 else:
-    collaboration_absolute_dir = os.path.join(udn_root_directory, args.projectORstructures)
-    vustruct = VUstruct("report", args.projectORstructures, __file__)
+    collaboration_absolute_dir = os.path.join(udn_root_directory, args.projectORstructure)
+    vustruct = VUstruct("report", args.projectORstructure, __file__)
 
 collaboration_absolute_dir = os.path.realpath(collaboration_absolute_dir)
 LOGGER.info("Collaboration_absolute_dir = %s", collaboration_absolute_dir)
@@ -363,19 +379,177 @@ for command_line_module in vustruct_dict_for_jinja2.keys():
             vustruct_dict_for_jinja2[command_line_module]['log_basename'] = \
                 os.path.basename(log_filename)
 
+case_workbook = Workbook()
+case_summary_worksheet = case_workbook.active
+case_summary_worksheet.title = args.projectORstructure
+case_summary_worksheet.name = "Sumamry"
+case_summary_headers = [
+"Gene","Uniprot ID","Variant", "ddG", "PathProx 3D hotspot vs Clinvar", "PathProx 3D hotspot vs COSMIC",
+"ScanNet PPI", "Alpha Missense", "Musite PTM", "Predicted Digenic Interactions","Worth pursuing?","side notes"]
+case_summary_worksheet.append(case_summary_headers)
+case_summary_worksheet_widths = [10,8,10,15,15,10,10,10,10,10,10,8]
+
+ddG_cartesian_worksheet = case_workbook.create_sheet("ddG Cartesian")
+ddG_monomer_worksheet = case_workbook.create_sheet("ddG Monomer")
+
+# We collect ddGs and for each gene.transcript,variant, we map to a dictionary of structure IDs: ddG calculation
+# Typehints - a work in progress
+# ddG_monomer_xref = dict[tuple[string,string,string],dict[str,float]]
+# ddG_cartesian_xref = dict[tuple[string,string,string],dict[str,float]]
+ddG_monomer_xref = {}
+ddG_cartesian_xref = {}
+def ddg_xref_add(variant_row, variant_isoform_details) -> None:
+    """
+    Build out a cross reference between each variant and the structures which have ddGs
+    This is used to later create ddG Cartesian and Monomer .xlsx worksheets in summary
+    """
+    for ddG_monomer_or_cartesian, ddG_xref in {
+        'ddG Monomer': ddG_monomer_xref,
+        'ddG Cartesian': ddG_cartesian_xref,
+        }.items():
+    
+        variant_key = (variant_row['gene'],
+                       variant_row['unp'],
+                       variant_row['mutation'])
+
+        ddG_xref[variant_key] = {}
+        for struct_tuple, ddg_value in variant_isoform_details[ddG_monomer_or_cartesian].items():
+            # import pdb; pdb.set_trace()
+            _method, _structure_id, _chain, _mers = struct_tuple
+
+            ddG_xref[(variant_row['gene'],
+                              variant_row['unp'],
+                              variant_row['mutation'])][_structure_id + "." + _chain] = ddg_value
+
+def ddg_populate_worksheet(ddg_worksheet: openpyxl.worksheet.worksheet.Worksheet, ddG_xref: Dict):
+    """
+    Create a single worksheet with variants down the first column
+    and structures along the top row
+    """
+    ddg_worksheet_columns = {}
+
+    for variant, ddg_results in ddG_xref.items():
+        for structure_id, ddg_result in ddg_results.items():
+            # print("%s %s -> %s" % (variant, model_id, ddg_result))
+            if structure_id not in ddg_worksheet_columns:
+                ddg_worksheet_columns[structure_id] = 4 + len(ddg_worksheet_columns)
+    
+    for structure_id, column in ddg_worksheet_columns.items():
+        print ("%02d %s" % (column, structure_id))
+    
+    ddg_worksheet.cell(row=1, column=1).value='Gene'
+    ddg_worksheet.cell(row=1, column=2).value='Uniprot'
+    ddg_worksheet.cell(row=1, column=3).value='Variant'
+    for structure_id, column in  ddg_worksheet_columns.items():
+        cell = ddg_worksheet.cell(row=1, column=column)
+        cell.value= structure_id
+        print("%s %s" % (column, cell.alignment))
+        # cell.value = headers[key]
+        cell.alignment = Alignment(horizontal='center', vertical='bottom', text_rotation=90)
+    
+    ddg_worksheet.row_dimensions[1].height = 180
+    
+    current_row = 2
+    for variant, ddg_results in ddG_xref.items():
+        ddg_worksheet.cell(row=current_row,column=1).value = variant[0]
+        ddg_worksheet.cell(row=current_row,column=2).value = variant[1]
+        ddg_worksheet.cell(row=current_row,column=3).value = variant[2]
+        for structure_id, ddg_result in ddg_results.items():
+            ddg_worksheet.cell(row=current_row,column=ddg_worksheet_columns[structure_id]).value = ddg_result
+        current_row += 1
+
+
+
+
+
+assert len(case_summary_worksheet_widths) == len(case_summary_headers)
+
+for col in range(1,1+len(case_summary_headers)):
+    case_summary_worksheet.cell(1,col).font = openpyxl.styles.Font(name = "Arial", bold=True)
+    case_summary_worksheet.cell(1,col).alignment = Alignment(wrap_text=True)
+
+dim_holder = DimensionHolder(worksheet=case_summary_worksheet)
+
+for col in range(case_summary_worksheet.min_column, case_summary_worksheet.max_column + 1):
+    dim_holder[get_column_letter(col)] = ColumnDimension(case_summary_worksheet, min=col, max=col, width=case_summary_worksheet_widths[col-1])
+
+# dim_holder[1] = RowDimension(case_summary_worksheet, min=1, max=1, height=10)
+case_summary_worksheet.column_dimensions = dim_holder
+
+case_summary_worksheet.row_dimensions[1].height = 30
+# case_workbook.save('/tmp/crap.xlsx')
+
+
+class variant_isoform_helper:
+    """
+    This set of functions helps tease apart components of the isoform summaries returned by rep_one_variant
+    We can encapsulate all of this better in future, with a new variant_isoform_summary class...
+
+    """
+    @staticmethod
+    def min_max_alphamissense(variant_isoform_summaries: list[dict]) -> tuple[float, float]:
+        min_alphamissense_score = min(
+            [variant_isoform_summary['alphamissense_score'] for variant_isoform_summary in
+             variant_isoform_summaries \
+             if 'alphamissense_score' in variant_isoform_summary and variant_isoform_summary[
+                 'alphamissense_score'] is not None],
+            default=None)
+
+        max_alphamissense_score = max(
+            [variant_isoform_summary['alphamissense_score'] for variant_isoform_summary in
+             variant_isoform_summaries \
+             if 'alphamissense_score' in variant_isoform_summary and variant_isoform_summary[
+                 'alphamissense_score'] is not None],
+            default=None)
+
+        return min_alphamissense_score, max_alphamissense_score
+
+    @staticmethod
+    def min_max_ScanNetPPI(variant_isoform_summaries: list[dict]) -> tuple[float, float]:
+        max_ScanNetPPI = max(
+            [variant_isoform_summary['ScanNetPPI'][0]['Binding site probability'] for variant_isoform_summary in
+             variant_isoform_summaries \
+             if 'ScanNetPPI' in variant_isoform_summary and 
+                 variant_isoform_summary['ScanNetPPI'] is not None and 
+                 len(variant_isoform_summary['ScanNetPPI']) > 0 ],
+            default=None)
+
+        min_ScanNetPPI = min(
+            [variant_isoform_summary['ScanNetPPI'][0]['Binding site probability'] for variant_isoform_summary in
+             variant_isoform_summaries \
+             if 'ScanNetPPI' in variant_isoform_summary and 
+                 variant_isoform_summary['ScanNetPPI'] is not None and 
+                 len(variant_isoform_summary['ScanNetPPI']) > 0 ],
+            default=None)
+
+        return min_ScanNetPPI, max_ScanNetPPI
+    
+    @staticmethod
+    def min_max_MusiteDeepPTM(variant_isoform_summaries: list[dict]) -> tuple[float, float]:
+        # import pdb; pdb.set_trace()
+        _musiteDeep_probabilities = []
+        for variant_isoform_summary in variant_isoform_summaries:
+            if 'MusiteDeepPTM' in variant_isoform_summary:
+                for ptm_record in variant_isoform_summary['MusiteDeepPTM']:
+                    _musiteDeep_probabilities.append(ptm_record['PTM Probability'])
+        max_MusiteDeepPTM = max(_musiteDeep_probabilities, default=None)
+        min_MusiteDeepPTM = min(_musiteDeep_probabilities, default=None)
+
+        return min_MusiteDeepPTM, max_MusiteDeepPTM
+
 
 # directly from a single mutation output file of psb_plan.py
 if oneMutationOnly:
     if args.slurm:
         LOGGER.warning("--slurm option is ignored when only one report is requested")
-    template_vars = report_one_variant_one_isoform(args.projectORstructures, args.workstatus)
+    template_vars = report_one_variant_one_isoform(args.projectORstructure, args.workstatus)
     if template_vars:  # The usual case, we had some Pathprox outputs
         print("Single mutation report saved to %s/.pdf/.wkhtml.pdf" % template_vars['html_fname'])
     else:
         print("Due to lack of pathprox outputs, no html (or pdf) reports were created from %s" % args.workstatus)
 else:
     case_missense_filename = os.path.join(case_root_dir,
-                                    "%s_missense.csv" % args.projectORstructures)  # The argument is an entire project UDN124356
+                                    "%s_missense.csv" % args.projectORstructure)  # The argument is an entire project UDN124356
     msg = "Retrieving project mutations from %s" % case_missense_filename
     if not infoLogging:
         print(msg)
@@ -405,9 +579,9 @@ else:
         if not os.path.exists(slurm_stdout_directory):  # make the stdout directory if needed
             os.makedirs(slurm_stdout_directory)
         jobCount = len(df_all_mutations)
-        msg = "Slurm script to run %d reports for %s is %s" % (jobCount, args.projectORstructures, slurm_file)
+        msg = "Slurm script to run %d reports for %s is %s" % (jobCount, args.projectORstructure, slurm_file)
     else:  # not a slurm run - so just do one report after another- normal case
-        msg = "Reporting on all %d case=%s mutations" % (len(df_all_mutations), args.projectORstructures)
+        msg = "Reporting on all %d case=%s mutations" % (len(df_all_mutations), args.projectORstructure)
     if not infoLogging:
         print(msg)
     LOGGER.info(msg)
@@ -421,6 +595,32 @@ else:
     # mutation_summaries = [] # Used to populate old format report, one line per gene
     genome_headers = []  # Used for new format report, with one line per gene, expandable to transcript isoforms
 
+    def _format_min_max(minval, maxval, decimal_places=2) -> str:
+        if minval is None or math.isnan(minval): # Then they both have to be nans
+            return ""
+
+        # Don't output a "-0.00"
+        
+        minval = round(minval, decimal_places)
+        if minval == 0.0:
+            minval = 0.0
+        maxval = round(maxval, decimal_places)
+        if maxval == 0.0:
+            maxval = 0.0
+
+
+        _fmtstr = "%0." + str(decimal_places) + "f"
+            
+        try:
+            # If they both round to the same string, then 
+            # of course just output one, not a range
+            if (_fmtstr % minval) == (_fmtstr % maxval):
+                return _fmtstr % maxval
+            else: # We have a range
+                return (_fmtstr + " - " + _fmtstr) % (minval, maxval)
+        except:
+            return ""
+    
 
     def fetch_gene_id(uniprot_id: str):
 
@@ -463,8 +663,13 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 'disease1_pp Max': None,
                 'disease2_pp Min': None,
                 'disease2_pp Max': None,
-                'ddG Min': None,
-                'ddG Max': None,
+                'ddG Monomer Min': None,
+                'ddG Monomer Max': None,
+                'ddG Cartesian Min': None,
+                'ddG Cartesian Max': None,
+                'alphamissense_score': None,
+                'ScanNetPPI': None,
+                'MusiteDeepPTM': None,
                 'variant_isoform_summaries': {}
             }
 
@@ -479,8 +684,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 LOGGER.info(msg)
                 variant_directory = "%s_%s_%s" % (
                     genome_variant_row['gene'], genome_variant_row['refseq'], genome_variant_row['mutation'])
-                variant_isoform_summary, additional_website_files = report_one_variant_one_isoform(
-                    args.projectORstructures,
+                variant_isoform_summary, variant_isoform_details, additional_website_files = report_one_variant_one_isoform(
+                    args.projectORstructure,
                     case_root_dir= case_root_dir,
                     variant_directory_segment= variant_directory,
                     parent_report_row=genome_variant_row,
@@ -489,6 +694,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     config_pathprox_dict=config_pathprox_dict
                 )
                 if variant_isoform_summary:
+                    ddg_xref_add(genome_variant_row, variant_isoform_details)
                     website_filelist.extend(additional_website_files)
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
@@ -587,6 +793,33 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                          'disease2_pp Max'] is not None],
                     default=None)
 
+                _min_alphamissense_score, _max_alphamissense_score = \
+                    variant_isoform_helper.min_max_alphamissense(variant_isoform_summaries)
+
+                if _min_alphamissense_score == _max_alphamissense_score:
+                    genome_header['alphamissense_score'] = "%0.2f" % _max_alphamissense_score
+                else:
+                    genome_header['alphamissense_score'] = "%0.2f-%0.2f" % (
+                        _min_alphamissense_score,_max_alphamissense_score)
+
+                _min_ScanNetPPI, _max_ScanNetPPI = \
+                    variant_isoform_helper.min_max_ScanNetPPI(variant_isoform_summaries)
+
+                if _max_ScanNetPPI is None:
+                    genome_header['ScanNetPPI'] = None
+                else:
+                    genome_header['ScanNetPPI'] = _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI,1)
+    
+                genome_header['MusiteDeepPTM'] = 0.0
+
+                _min_MusiteDeepPTM,_max_MusiteDeepPTM = \
+                    variant_isoform_helper.min_max_MusiteDeepPTM(variant_isoform_summaries)
+                
+                if _max_MusiteDeepPTM is None:
+                    genome_header['MusiteDeepPTM'] = None
+                else:
+                    genome_header['MusiteDeepPTM'] = _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM,1)
+
                 genome_header['Error'] = max(
                     [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
                      if 'Error' in variant_isoform_summary and variant_isoform_summary['Error'] is not None],
@@ -613,16 +846,20 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     args.config, args.userconfig, structure_report_filename, workstatus_filename))
             else:
                 variant_directory = "%s_%s_%s" % (variant_row['gene'], variant_row['refseq'], variant_row['mutation'])
-                variant_isoform_summary, additional_website_files = report_one_variant_one_isoform(
-                    args.projectORstructures,
-                    variant_directory, 
+                variant_isoform_summary, variant_isoform_details,additional_website_files = report_one_variant_one_isoform(
+                    project=args.projectORstructure,
+                    case_root_dir=case_root_dir,
+                    variant_directory_segment=variant_directory, 
                     parent_report_row=variant_row,
                     local_log_level= "debug" if args.debug else "info" if args.verbose else "warn",
                     vustruct_pipeline_launched= bool(vustruct_dict_for_jinja2['launch']['executable']),
                     config_pathprox_dict=config_pathprox_dict
                     )
 
+                case_workbook.create_sheet(variant_directory)
+
                 if variant_isoform_summary:
+                    ddg_xref_add(variant_row, variant_isoform_details)
                     website_filelist.extend(additional_website_files)
                     variant_isoform_summary['#'] = index
                     if not variant_isoform_summary['Error']:
@@ -663,12 +900,12 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     #                : each and all mutations in parallel
     #===============================================================================
     # Slurm Parameters
-    """ % (slurm_file, __file__, args.projectORstructures, str(datetime.datetime.now())))
+    """ % (slurm_file, __file__, args.projectORstructure, str(datetime.datetime.now())))
 
                 slurmDict = slurmParametersReport
                 slurmDict['output'] = os.path.join(slurm_stdout_directory,
-                                                   "%s_%%A_%%a_psb_rep.out" % args.projectORstructures)
-                slurmDict['job-name'] = "%s_psb_reps" % args.projectORstructures
+                                                   "%s_%%A_%%a_psb_rep.out" % args.projectORstructure)
+                slurmDict['job-name'] = "%s_psb_reps" % args.projectORstructure
 
                 jobCount = len(slurm_array)
                 if jobCount > 1:
@@ -728,9 +965,9 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             else:
                 print(msg)
 
-    # args.projectORstructures is an entire project UDN124356
+    # args.projectORstructure is an entire project UDN124356
     case_summary_filename = os.path.join(case_root_dir,
-                                         "%s.html" % args.projectORstructures)
+                                         "%s.html" % args.projectORstructure)
     website_filelist.append(case_summary_filename)
 
     # It can easily be the case that we arrive here WITHOUT data because the pipeline is not launched.
@@ -746,7 +983,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     ##########################################################################
     digepred_html_filename = os.path.join('casewide', 'DiGePred',
                                           '%s_all_gene_pairs_summary.html' % (
-                                              args.projectORstructures,))
+                                              args.projectORstructure,))
 
     if os.path.exists(os.path.join(case_root_dir, digepred_html_filename)):
         website_filelist.append(digepred_html_filename)
@@ -759,7 +996,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     if digepred_html_filename:
         digepred_csv_filename = os.path.join('casewide', 'DiGePred',
                                              '%s_all_gene_pairs_digenic_metrics.csv' % (
-                                                 args.projectORstructures,))
+                                                 args.projectORstructure,))
 
         digepred_metrics_df = pd.DataFrame()
         if os.path.exists(os.path.join(case_root_dir, digepred_csv_filename)):
@@ -795,6 +1032,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     case_report_template_location = os.path.dirname(os.path.realpath(__file__))
     jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
     case_report_template = jinja2_environment.get_template("case_report_template.html")
+
     # print html_table
     final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
                            'genome_headers': genome_headers,
@@ -808,7 +1046,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                            # 'firstGeneReport': html_report_generic,
                            # 'secondGeneTable': html_table_familial,
                            # 'secondGeneReport': html_report_familial,
-                           'case': args.projectORstructures,
+                           'case': args.projectORstructure,
                            "date": time.strftime("%Y-%m-%d"),
                            'disease1_variant_short_description': config_pathprox_dict[
                                'disease1_variant_short_description'],
@@ -832,7 +1070,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         f.write(html_out)
     last_message = "The case summary report is: " + case_summary_filename
     case_summary_json = os.path.join(case_root_dir,
-                                     "%s.json" % args.projectORstructures)
+                                     "%s.json" % args.projectORstructure)
     with open(case_summary_json, 'w') as fp:
         json.dump(final_gathered_info, fp)
 
@@ -874,31 +1112,31 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         website_filelist.append('index.html')
 
         website_filelist_filename = os.path.join(case_root_dir,
-                                                 "%s_website_files.list" % args.projectORstructures)  # The argument is an entire project UDN124356
+                                                 "%s_website_files.list" % args.projectORstructure)  # The argument is an entire project UDN124356
         with open(website_filelist_filename, "w") as f:
             f.write('\n'.join((os.path.relpath(
                 website_file,  # os.path.realpath(website_file),
                 (os.path.realpath(os.path.join(config_dict['output_rootdir'], config_dict['collaboration']))))
                 for website_file in website_filelist)))
         LOGGER.info("A filelist for creating a website is in %s", website_filelist_filename)
-        website_zip_filename = "%s.zip" % args.projectORstructures
+        website_zip_filename = "%s.zip" % args.projectORstructure
         if args.tar_only:
             LOGGER.info("--tar_only requested.  %s will not be created." , website_zip_filename);
         else:
             pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -' % (
                 website_zip_filename,
-                os.path.join(args.projectORstructures, website_filelist_filename),
-                os.path.join(args.projectORstructures, website_zip_filename),
-                os.path.join(args.projectORstructures, website_zip_filename))
+                os.path.join(args.projectORstructure, website_filelist_filename),
+                os.path.join(args.projectORstructure, website_zip_filename),
+                os.path.join(args.projectORstructure, website_zip_filename))
             LOGGER.info("Creating .zip website file with: %s", pkzip_maker)
             subprocess.call(pkzip_maker, shell=True)
 
         # The temp filename has a hideous UTC timestamp on it
         website_tar_temp_filename = "%s_%s.tar.gz" % (
-            args.projectORstructures, 
+            args.projectORstructure, 
             datetime.datetime.now().replace(microsecond=0).isoformat().translate(str.maketrans('','',string.punctuation)))
 
-        website_tar_filename = "%s.tar.gz" % args.projectORstructures
+        website_tar_filename = "%s.tar.gz" % args.projectORstructure
         tar_transformer = ''
         if args.strip_uuid:
             # We are replaceing the very complex uuid-embedded heirarchy filenames with user-friendly casename
@@ -908,10 +1146,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             replace_string = f"external_user_{case_id}_{uuid}/{case_id}"
             tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
         tar_maker = 'cd ..; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -; mv %s %s; mv %s.stdout %s.stdout' % (
-            os.path.join(args.projectORstructures, website_tar_temp_filename),
-            os.path.join(args.projectORstructures, website_filelist_filename),
+            os.path.join(args.projectORstructure, website_tar_temp_filename),
+            os.path.join(args.projectORstructure, website_filelist_filename),
             tar_transformer,
-            os.path.join(args.projectORstructures, website_tar_temp_filename),
+            os.path.join(args.projectORstructure, website_tar_temp_filename),
             website_tar_temp_filename,website_tar_filename,
             website_tar_temp_filename,website_tar_filename)
         LOGGER.info("Creating .tar website file with: %s", tar_maker)
@@ -924,5 +1162,159 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             final_message += "%s and %s" % ( website_zip_filename, website_tar_filename)
 
         LOGGER.info(final_message);
+
+
+
+    # Create and save the supplemental written files to aid presentation
+    # - summary of summaries case spreadsheet
+    # - plots for the PPI and ScanNet
+    ppi_graph_xaxis_labels = []
+    ppi_graph_values = []
+
+    ptm_df_columns = ['Gene', 'Native Residue', 'PTM Residue', 'Type', 'Probability']
+    ptm_df_rows = []
+
+    if not genome_headers:
+        # Without genomic coordinate input, we populate the summary spreadsheet with each variant row
+        # When genomic coordinates are seen replicated, then we summarize (else: block) per row
+        for vis in variant_isoform_summaries:
+            if len(vis) > 0:
+                _min_ScanNetPPI,_max_ScanNetPPI = variant_isoform_helper.min_max_ScanNetPPI([vis])
+                _min_MusiteDeepPTM,_max_MusiteDeepPTM = variant_isoform_helper.min_max_MusiteDeepPTM([vis])
+                row = [
+                    vis['Gene'], 
+                    vis['Unp'], 
+                    vis['Mutation'], 
+                _format_min_max(vis['ddG Cartesian Min'],vis['ddG Cartesian Max']),
+                _format_min_max(vis['disease1_pp Min'],vis['disease1_pp Max']),
+                _format_min_max(vis['disease2_pp Min'],vis['disease2_pp Max']),
+                _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI),
+                vis['alphamissense_score'],
+                _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM)]
+                case_summary_worksheet.append(row) 
+
+        # End if NOT genome_headers
+    else:
+        for gh in genome_headers:
+            # "Gene","Uniprot ID","Variant", "ddG", "PathProx 3D hotspot vs Clinvar", "PathProx 3D hotspot vs COSMIC",
+            # "PPI", "AlphaMissense", "PTM", "Predicted Digenic Interactions","Worth pursuing?","side nodes"]
+        
+            canonical_unp_if_avail = ""
+            variant_if_avail = ""
+            vis = gh['variant_isoform_summaries']
+            if len(vis) > 0:
+                canonical_unp_if_avail = vis[0]['Unp'].split('-')[0]
+                # Later we can use MANE transcripts or others if 
+                # the canonical uniprot transcript is unaffected
+                # For now, we default to the [0]th transcript in the set
+                # for the genomic coordinates
+                variant_if_avail = vis[0]['Mutation']
+                vis_canonical = vis[0]
+                for vi_summary in vis:
+                    if PDBMapProtein.isCanonicalByUniparc(vi_summary['Unp']):
+                        vis_canonical = vi_summary
+                        canonical_unp_if_avail = vi_summary['Unp']
+                        variant_if_avail = vi_summary['Mutation']
+    
+    
+                if 'MusiteDeepPTM' in vis_canonical and vis_canonical['MusiteDeepPTM']:
+                    for musite_deep_dict in vis_canonical['MusiteDeepPTM']:
+                        # Only retain those predictions of higher than 50%
+                        if musite_deep_dict['PTM Probability'] > 0.5:
+                            ptm_row = [gh['Gene'], 
+                                       musite_deep_dict['Native Residue'], 
+                                       musite_deep_dict['PTM Residue'], 
+                                       musite_deep_dict['PTM Type'], 
+                                       musite_deep_dict['PTM Probability']]
+                            ptm_df_rows.append(ptm_row)
+                                       
+                        
+    
+            if variant_if_avail:
+                # No need to include the variant AA in the tick.
+                _ppi_graph_xaxis_label = '{}\n{}'.format(gh['Gene'],variant_if_avail[0:-1])
+            else:
+                _ppi_graph_xaxis_label = gh['Gene']
+    
+            ppi_graph_xaxis_labels.append(_ppi_graph_xaxis_label)
+    
+            try:
+                _scannet_ppi = float(gh['ScanNetPPI'])
+            except ValueError as ve:
+                _scannet_ppi = 0.0
+            ppi_graph_values.append(_scannet_ppi)
+    
+            _min_alphamissense_score, _max_alphamissense_score = \
+                variant_isoform_helper.min_max_alphamissense(vis)
+                
+            row = [
+                gh['Gene'], 
+                canonical_unp_if_avail, 
+                variant_if_avail, 
+                _format_min_max(gh['ddG Cartesian Min'],gh['ddG Cartesian Max']),
+                _format_min_max(gh['disease1_pp Min'],gh['disease1_pp Max']),
+                _format_min_max(gh['disease2_pp Min'],gh['disease2_pp Max']),
+                gh['ScanNetPPI'],
+                _format_min_max(_min_alphamissense_score, _max_alphamissense_score),
+                gh['MusiteDeepPTM']]
+            case_summary_worksheet.append(row) 
+        # END if genomeheaders:
+
+    ddg_populate_worksheet(ddG_cartesian_worksheet, ddG_cartesian_xref)
+    ddg_populate_worksheet(ddG_monomer_worksheet, ddG_monomer_xref)
+            
+    max_row = case_summary_worksheet.max_row
+    case_summary_worksheet.cell(row=max_row+2,column=10).value = "legend"
+
+    redFill = PatternFill(start_color='FFFF0000',
+                   end_color='FFFF0000',
+                   fill_type='solid')
+    yellowFill = PatternFill(start_color='FFFFFF00',
+                   end_color='FFFFFF00',
+                   fill_type='solid')
+    blueFill = PatternFill(start_color='FF0000FF',
+                   end_color='FF0000FF',
+                   fill_type='solid')
+    case_summary_worksheet.cell(row=max_row+3,column=10).value = ""
+    case_summary_worksheet.cell(row=max_row+3,column=10).fill = redFill
+    case_summary_worksheet.cell(row=max_row+3,column=11).value = "Yes"
+
+
+    case_summary_worksheet.cell(row=max_row+4,column=10).value = ""
+    case_summary_worksheet.cell(row=max_row+4,column=10).fill = yellowFill
+    case_summary_worksheet.cell(row=max_row+4,column=11).value = "Maybe"
+
+    case_summary_worksheet.cell(row=max_row+5,column=10).value = ""
+    case_summary_worksheet.cell(row=max_row+5,column=10).fill = blueFill
+    case_summary_worksheet.cell(row=max_row+5,column=11).value = "No"
+
+
+    _case_workbook_filename = args.projectORstructure+"_case.xlsx"
+    LOGGER.info("Saving case summary of summary file: %s" , _case_workbook_filename)
+    case_workbook.save(_case_workbook_filename)
+
+    # Now save the PPI column chart
+    plt.bar(ppi_graph_xaxis_labels, ppi_graph_values)
+    plt.title('ScanNet Predicted Protein-protein interaction', fontsize=17)
+    plt.ylim(0,1.0)
+    plt.yticks(fontsize=8)
+    plt.xticks(fontsize=8, rotation=45)
+    plt.xlabel('Gene and Amino Acid Variant', fontsize=12)
+    plt.ylabel('PPI predicted probability', fontsize=12)
+    plt.axhline(0.5, color='black')
+    plt.tight_layout()
+   
+    _ppi_plot_filename = "PPI_%s.png" % args.projectORstructure
+    LOGGER.info("Saving PPI plot file: %s", _ppi_plot_filename)
+    plt.savefig(_ppi_plot_filename, dpi=600)
+    # plt.show()
+
+    # Now save the PTM dataframe
+    ptm_df = pd.DataFrame(ptm_df_rows,columns=ptm_df_columns)
+    _ptm_neighborhood_filename = "PTM_%s_neighborhood.csv" % args.projectORstructure
+    LOGGER.info("Saving PTM file: %s", _ptm_neighborhood_filename)
+    ptm_df.to_csv(_ptm_neighborhood_filename, index=None)
+
+
 
 sys.exit(0)
