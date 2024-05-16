@@ -192,6 +192,7 @@ LOGGER.debug('PATH=%s', os.getenv('PATH'))
 LOGGER.debug('PERL5LIB=%s', os.getenv('PERL5LIB'))
 
 from Bio.Align import substitution_matrices
+from Bio.PDB.PDBExceptions import PDBIOException
 # Use BLOMSUM90 (90% is quite high similarity and most appropriate for us)
 blosum90_raw = substitution_matrices.load("BLOSUM90")
 blosum90 = {}
@@ -2173,8 +2174,16 @@ if __name__ == "__main__":
     # Write the complex out using the renumbered chains in  output directory
     #
     complex.write_renumbered(file_format='mmCIF')
-    complex.write_renumbered(file_format='pdb')
-    complex.write_renumbered(file_format='chimera2') # Add chimera HELIX/SHEET annotations
+    try:
+        complex.write_renumbered(file_format='pdb')
+    except PDBIOException as e:
+        LOGGER.exception("Can't save pdb file:")
+    
+    try:
+        complex.write_renumbered(file_format='chimera2') # Add chimera HELIX/SHEET annotations
+    except PDBIOException as e:
+        LOGGER.exception("Can't save pdb file with chimera2 annotations:")
+
     complex.write_original(file_format='mmCIF')
 
 
