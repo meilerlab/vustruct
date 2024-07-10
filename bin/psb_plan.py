@@ -40,12 +40,15 @@ import lzma
 import os
 import shutil
 import sys
+from collections import defaultdict
 from io import StringIO
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Tuple
 import pandas as pd
+from tabulate import tabulate
 
 import numpy as np
+from lib import PDBMapGlobals
 from lib import PDBMapSIFTSdb
 from lib import PDBMapProtein
 from lib import PDBMapSwiss
@@ -57,11 +60,15 @@ from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
 from lib.PDBMapAlignment import PDBMapAlignment
 # The planning phase will ask the DDG class about structure quality only
 from psb_shared.ddg_base import DDG_base
+
+from psb_shared.psb_progress import PsbStatusManager
 import pprint
 
 from psb_shared import psb_config
 
-from vustruct import VUstruct
+from vustruct import VUStruct
+
+
 
 # psb_plan.py is unique in that the log is much more readable when the entry #
 # and gene name fly by in the left column.  We create the log format here
@@ -88,7 +95,7 @@ args, remaining_argv = cmdline_parser.parse_known_args()
 
 # infoLogging = False  Old/ancient idea about printing vs. logging.  Everything logged now
 
-vustruct = VUstruct('plan', args.project,  __file__)
+vustruct = VUStruct('plan', args.project,  __file__)
 vustruct.stamp_start_time()
 vustruct.initialize_file_and_stderr_logging(args.debug)
 
@@ -99,6 +106,7 @@ LOGGER = logging.getLogger()
 # and psb_rep.py should be able to create a web page to that effect
 vustruct.exit_code = 1
 vustruct.write_file()
+
 
 
 pd.options.mode.chained_assignment = 'raise'
@@ -135,6 +143,16 @@ required_config_items = ["dbhost", "dbname", "dbuser", "dbpass",
 # parser.add_argument("udn_csv",type=str,help="Parsed output pipeline filename (e.g. filename.csv)")
 
 config, config_dict = psb_config.read_config_files(args, required_config_items)
+# The case_dir is the master directory for the case, i.e. for one patient
+# Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
+udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
+case_dir = os.path.join(udn_root_directory, args.project)
+
+case_vustruct_filename = os.path.join(case_dir, "%s_vustruct.csv" % args.project)
+vustruct.input_filename = os.path.join("./" + os.path.basename(case_vustruct_filename))
+# Write it again, now we have input filename
+vustruct.write_file()
+
 
 # You can add a [KeepPDBs] section to a config file and list pdb IDs which must not be dropped by the structure filterer
 keep_pdbs = []
@@ -147,14 +165,18 @@ if 'CaseWide' in config:
     digepred_program_from_config = dict(config.items('CaseWide')).get('digepred', None)
     diep_program_from_config = dict(config.items('CaseWide')).get('diep', None)
 
+
 from psb_shared import psb_perms
 
 psb_permissions = psb_perms.PsbPermissions(config_dict)
 
-# The case_dir is the master directory for the case, i.e. for one patient
-# Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
-udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
-case_dir = os.path.join(udn_root_directory, args.project)
+psbplan_status_manager = PsbStatusManager(
+    status_dir_parent=os.path.join(os.getcwd(),"vustruct_plan_status"),
+    os_interface = psb_permissions)
+
+psbplan_status_manager.clear_status_dir()
+psbplan_status_manager.write_info("Initializing")
+
 
 psb_permissions.makedirs(case_dir)
 # case_log_dir = os.path.join(case_dir,"log")
@@ -189,9 +211,7 @@ config_dict_reduced = {x: config_dict[x] for x in required_config_items}
 
 config_dict = config_dict_reduced
 
-config_dict_shroud_password = {x: config_dict[x] for x in required_config_items}
-dbpass = config_dict.get('dbpass', '?')
-config_dict_shroud_password['dbpass'] = '*' * len(dbpass)
+config_dict_shroud_password = PDBMapGlobals.shroud_config_dict(config_dict)
 
 oneMutationOnly = args.gene or args.refseq or args.mutation
 
@@ -555,7 +575,41 @@ df_dropped = None
 # Dictionary to map uniprot IDs for this case to a pre-loaded set of transcripts
 unp2transcript = {}
 
-def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_model: str = None, unp: str = None):
+class PlanOneMutationResult(object):
+   """
+   2024-June-20
+   plan_one_mutation() is a gnarly but critical function that must be refactored for sanity
+   As a first step towards refactoring, I encapsulate the results of this 1500 line function
+   """
+
+def __init__(self, skip_reason = None):
+    # To return a failure from psb_plan(), simply instantiate the class with a skip_reason
+    # For success, just construct the class without arguments and init the members
+    self.skip_reason = skip_reason  # On failed psb_plan, skip reason is non-None.  Log that and ski
+
+    if not self.skip_reason:
+        # Our calling code will populate these variables back to the higher level
+        self.df_all_jobs = None
+        self.workplan_filename = None
+        self.df_structures = None  # On successful plan, this is populated by ChainInfo records
+        self.df_dropped = None  # On successful plan, this is populated by ChainInfo records
+        self.log_filename = None
+
+def plan_one_mutation(index: int, 
+    gene: str, 
+    refseq: str, 
+    mutation: str, 
+    user_model: str = None, 
+    unp: str = None) -> PlanOneMutationResult:
+    """
+    Given input uniprot ID, gene, etc, find all available PDB and model structures - then select the "best"
+    ones for ddG and PathProx calculations
+    This very complex code must be refactored
+
+    For now know that it returns a "skip reason" if the variant cannot be processed and that should be presented to user on 
+    web page, and not halt processing of everything
+
+    """
     # Use the global database connection
     global io
     global args
@@ -598,9 +652,9 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         else:
             msg = "Neither refseq nor unp enable transcript identification"
             LOGGER.critical(msg)
-            sys.exit(msg)
-            LOGGER.warning(
-                "Refseq %s does not map to a uniprot identifier.  Attempting map of gene %s\n" % (refseq, gene))
+            psbplan_status_manager.sys_exit_failure(msg)
+            # LOGGER.warning(
+            #     "Refseq %s does not map to a uniprot identifier.  Attempting map of gene %s\n" % (refseq, gene))
             # io = PDBMapIO(config_dict['dbhost'],config_dict['dbuser'],config_dict['dbpass'],config_dict['dbname']) # ,slabel=args.slabel)
             # unp,gene = detect_entity(io,entity)
 
@@ -2015,6 +2069,8 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     # End the selective echo logger for this mutation
     vustruct.remove_temp_logger_from_psbplan()
 
+    # End of psb_plan()
+
     return df_all_jobs, workplan_filename, ci_df, df_dropped, temp_log_filename
 
 
@@ -2069,7 +2125,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
 
     # DiGePred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
     if digepred_program_from_config:
-        digepred_options = "-n %s -e %s" % (args.project, original_Vanderbilt_UDN_case_xlsx_filename)
+        digepred_options = "--vustruct %s_vustruct.csv -n %s -e %s" % (args.project, args.project, original_Vanderbilt_UDN_case_xlsx_filename)
 
         # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
         # depcreated: df_casewide_jobs = df_casewide_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
@@ -2080,7 +2136,8 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
 
     # DIEP is an addition analysis to prediction digenic interactions
     if diep_program_from_config:
-        diep_options = "--genesfile=%s_genes_inheritance_zygosity.csv" % args.project
+        # Asof July 2024, we read the standard new vustruct.csv file directly - not a special genes file
+        diep_options = "--genesfile=%s_vustruct.csv" % args.project
 
         df_casewide_jobs = pd.concat([df_casewide_jobs,pd.DataFrame([makejob_DIEP(params, diep_options)])], ignore_index=True)
     else:
@@ -2123,7 +2180,9 @@ else:
     # We already tested above that this xlsx file is in the case directory...
     # AND that we have digepred_program_from_config set to an executable path
     if original_Vanderbilt_UDN_case_xlsx_filename:
-        LOGGER.info('Planning casewide work from %s' % original_Vanderbilt_UDN_case_xlsx_filename)
+        msg = 'Planning casewide work from %s' % original_Vanderbilt_UDN_case_xlsx_filename
+        LOGGER.info(msg)
+        psbplan_status_manager.write_info(msg)
         df_all_jobs, workplan_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
         if len(df_all_jobs):
             # fulldir, casewide_dir = os.path.split(fulldir)
@@ -2137,17 +2196,27 @@ else:
 
 
     # Now plan the per-mutation jobs
-    case_missense_filename = os.path.join(case_dir, "%s_missense.csv" % args.project)
-    LOGGER.info("Retrieving project mutations from %s", case_missense_filename)
-    df_all_mutations = pd.read_csv(case_missense_filename, sep=',', index_col='index', keep_default_na=False, encoding='utf8',
+    LOGGER.info("Retrieving project mutations from %s", case_vustruct_filename)
+    df_case_vustruct_all_variants = pd.read_csv(case_vustruct_filename, sep=',', index_col='index', keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
-    LOGGER.info("Work for %d mutations will be planned" % len(df_all_mutations))
 
-    if 'unp' not in df_all_mutations.columns:
-        df_all_mutations['unp'] = None
+    # If this is new format, trim out non-missense variants
+    if 'effect' in df_case_vustruct_all_variants:
+        df_vustruct_missense_variants = df_case_vustruct_all_variants[ df_case_vustruct_all_variants['effect'].str.contains('missense') ]
+    else: # Old format is all missense.  Simple retain all of it
+        df_vustruct_missense_variants = df_case_vustruct_all_variants
+
+
+    LOGGER.info("Work for %d missense variants will be planned" % len(df_vustruct_missense_variants))
+
+    bad_vustruct_rows = defaultdict(list) # We need to create a nice message at the end if we halt due to file check
+
+    LOGGER.info("Sanity Checking %s" % case_vustruct_filename)
+    if 'unp' not in df_vustruct_missense_variants.columns:
+        df_vustruct_missense_variants['unp'] = None
         LOGGER.warning("Populating unp column of missense from gene and refseq")
         unps_from_refseq_gene = {}
-        for index, row in df_all_mutations.iterrows():
+        for index, row in df_vustruct_missense_variants.iterrows():
             unpsForRefseq = PDBMapProtein.refseqNT2unp(row['refseq'])
             if len(unpsForRefseq):
                 unp = ','.join(PDBMapProtein.refseqNT2unp(row['refseq']))
@@ -2166,9 +2235,15 @@ else:
                 unps_from_refseq_gene[index] = unp
 
         for index in unps_from_refseq_gene:
-            df_all_mutations.loc[index]['unp'] = unps_from_refseq_gene[index]
+            df_vustruct_missense_variants.loc[index]['unp'] = unps_from_refseq_gene[index]
     else:  # 'unp' is in the original columns - make sure the unps are known and queryable
-        for unp in df_all_mutations['unp']:
+        for index,vustruct_row in df_vustruct_missense_variants.iterrows():
+            unp = vustruct_row['unp']
+            # 2023 July 09..  We now support non-missense variants in the row
+            # But we need to skip them for now
+            if 'effect' in vustruct_row and vustruct_row['effect'] != 'missense':
+                LOGGER.info('Skipping non-missense vustruct row:\n%s', str(vustruct_row))
+                continue
             if not PDBMapProtein.unp2uniparc(unp):
                 if '-' in unp and PDBMapProtein.unp2uniparc(unp.split('-')[0]):
                     msg = "unp %s appears to be an invalid isoform of %s as it references no UniParc sequence" % (
@@ -2176,51 +2251,92 @@ else:
                 else:
                     msg = "unp %s was not found in the uniprot IDMapping file with a UniParc AA sequence" % unp
                 LOGGER.critical(msg)
-                sys.exit(msg)
+                bad_vustruct_rows[index].append(msg)
 
-    # Now that a uniprot ID (unp) has been assigned to all rows, verify that all mutation positions are OK
+    # Now that a uniprot ID (unp) has been assigned to all rows where effect=missense,
+    #  verify that all mutation positions are OK
     # Simultaneously, build up  a global dictionary of preloaded uniprot Transcripts for this case
-    LOGGER.info("Checking %d uniprot identifiers" % len(df_all_mutations))
-    for index, row in df_all_mutations.iterrows():
-        if 'unp' not in row or not str(row['unp']):
+    LOGGER.info("Checking %d uniprot identifiers" % len(df_vustruct_missense_variants))
+    for index, vustruct_row in df_vustruct_missense_variants.iterrows():
+        if 'effect' in vustruct_row and vustruct_row['effect'] != 'missense':
+            continue
+        if 'unp' not in vustruct_row or not str(vustruct_row['unp']):
             msg = "%s %d Gene %s invalid.  The Pipeline cannot operate on proteins which lack a valid uniprot identifier" % (
-                case_missense_filename, index + 1, row['Gene'])
+                case_vustruct_filename, index + 1, vustruct_row['Gene'])
             LOGGER.critical(msg)
-            sys.exit(msg)
-        if row['unp'] not in unp2transcript:
-            LOGGER.debug("Creating transcript from unp=%s" % row['unp'])
-            uniprot_transcript = PDBMapTranscriptUniprot(row['unp'])
-            unp2transcript[row['unp']] = uniprot_transcript
+            bad_vustruct_rows[index].append(msg)
+        if vustruct_row['unp'] not in unp2transcript:
+            LOGGER.debug("Creating transcript from unp=%s" % vustruct_row['unp'])
+            uniprot_transcript = PDBMapTranscriptUniprot(vustruct_row['unp'])
+            unp2transcript[vustruct_row['unp']] = uniprot_transcript
 
-    LOGGER.info("All %d unique uniprot identifiers succesfully instantiated as transcripts" % len(unp2transcript))
+    LOGGER.info("%d uniprot identifiers were succesfully instantiated as transcripts" % len(unp2transcript))
 
-    LOGGER.info("Checking variants (mutations)")
-    for index, row in df_all_mutations.iterrows():
-        if 'mutation' in row and row['mutation']:
-            transcript = unp2transcript[row['unp']]
+    LOGGER.info("Checking variant formatting and Uniprot<>Genome crossreferences")
+    for index, vustruct_row in df_vustruct_missense_variants.iterrows():
+        if 'mutation' in vustruct_row and vustruct_row['mutation']:
+            transcript = unp2transcript[vustruct_row['unp']]
             trans_mut_pos = None
             try:
-                trans_mut_pos = int(row['mutation'][1:-1])
+                trans_mut_pos = int(vustruct_row['mutation'][1:-1])
             except:
-                sys.exit("Something wrong with mutation [%s] in line %d: %s.  Must be format AnnnnB" % (
-                row['mutation'], index + 1, str(row)))
-
+                msg = "Something wrong with mutation [%s] in line %d: %s.  Must be format AnnnnB" % (
+                    vustruct_row['mutation'], index + 1, str(vustruct_row))
+                bad_vustruct_rows[index].append(msg)
+                continue
+                
             if trans_mut_pos > len(transcript.aa_seq):
-                sys.exit("Position %d in %s is too large for transcript len %d" % (
-                    trans_mut_pos, transcript.id, len(transcript.aa_seq)))
-            if transcript.aa_seq[trans_mut_pos - 1] != row['mutation'][0]:
-                sys.exit(
-                    "Position %d in %s is %s, but your mutation is [%s] in line %d: %s.\nYour mutation must start with %s" % (
-                        trans_mut_pos, transcript.id, transcript.aa_seq[trans_mut_pos - 1], row['mutation'], index + 1,
-                        str(row), transcript.aa_seq[trans_mut_pos - 1]))
-            if row['mutation'][0] == row['mutation'][-1]:
-                sys.exit("Pipeline does not handle synonymous variants.  See line %d: %s." % (
-                    index + 1, str(row)))
+                msg = "Position %d in %s is too large for transcript len %d" % (
+                    trans_mut_pos, transcript.id, len(transcript.aa_seq))
+                bad_vustruct_rows[index].append(msg)
+                continue 
+
+            if transcript.aa_seq[trans_mut_pos - 1] != vustruct_row['mutation'][0]:
+                msg = "Position %d in uniprot ID %s is %s, but your mutation is [%s] in line %d:.\nYour mutation must start with %s" % (
+                        trans_mut_pos, transcript.id, transcript.aa_seq[trans_mut_pos - 1], 
+                        vustruct_row['mutation'], index , transcript.aa_seq[trans_mut_pos - 1])
+                bad_vustruct_rows[index].append(msg)
+                continue 
+
+            if vustruct_row['mutation'][0] == vustruct_row['mutation'][-1]:
+                msg = "VUStruct does not handle synonymous variants.  See line %d." % (
+                    index + 1)
+                bad_vustruct_rows[index].append(msg)
+                continue 
+        # ^^^ end loop over all vustruct input rows
+
+    # We do not proceed if the user has bad input.  Instead, we direct the user to manually clean up the missense file
+    bad_rows_count = len(bad_vustruct_rows)
+    if bad_rows_count > 0:
+        msg = ("1 row of the vustruct_input file has") \
+            if bad_rows_count == 1 else (str(bad_rows_count) + " rows of the vustruct_input file have")
+        msg += """\
+problems which prevent VUStruct processing.
+Please download the vustruct file, and correct, or #-comment out, the input lines.
+The most common issue is when Uniprot protein transcript sequences disagree with
+ENSEMBL transcript sequences.  For these, and other cases, please see the trouble-
+shooting steps at https://meilerlab.org/VUStruct/Contact.html
+
+The problematic input rows are:""" 
+
+        for index,vustruct_row_problem_messages in bad_vustruct_rows.items():
+            original_df_row = df_vustruct_missense_variants.loc[[index]]
+            msg += "\n%s\n" % (
+               tabulate(original_df_row, headers='keys', tablefmt='plain'), )
+
+            for problem_msg in vustruct_row_problem_messages:
+                msg += "^^ " + problem_msg + "\n"
+            msg += "-----------------------------\n"
+
+
+        final_msg = "Input file must be corrected:\n%s" % msg
+        psbplan_status_manager.sys_exit_failure(final_msg)
+
 
     LOGGER.info("All variant (mutation) entries passed sanity test")
 
     ui_final_table = pd.DataFrame()
-    for index, row in df_all_mutations.iterrows():
+    for index, row in df_vustruct_missense_variants.iterrows():
         LOGGER.info("Planning %3d,%s,%s,%s,%s" % (
         index, row['gene'], row['refseq'], row['mutation'], row['unp'] if 'unp' in row else "???"))
         if ('unp' in row) and ('user_model' in row):
@@ -2262,9 +2378,9 @@ else:
                     'planfile': myLeftJustifiedPlanfile})
     LOGGER.info(("Structure Report\n%s" % final_structure_info_table))
 
-    # log_missense_filename = os.path.join("log/", case_missense_filename)
-    # LOGGER.info("Saving %s file to %s", case_missense_filename, log_missense_filename)
-    # shutil.copy(src=case_missense_filename, dst=log_missense_filename)
+    # log_missense_filename = os.path.join("log/", case_vustruct_filename)
+    # LOGGER.info("Saving %s file to %s", case_vustruct_filename, log_missense_filename)
+    # shutil.copy(src=case_vustruct_filename, dst=log_missense_filename)
 
     vustruct.exit_code = 0
     vustruct.stamp_end_time()
