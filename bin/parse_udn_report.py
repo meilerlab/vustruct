@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """\
-This script will parse a UDN Patient Report (excel format) and 
-save all of the mutations to a structured .csv file which is
-formatted for input to add_udn_report.py\
+This script will parse a Vanderbilt UDN Patient Report (excel format) and 
+save all of the mutations to a vustruct format .csv file which is
+formatted for input to psb_plan.py
+
+All missense variants are submitted to the ENSEMBL VEP to
+identify all impacted transcripts.  These are cross-referenced
+to uniprot transcripts, and then filtered to Swiss-Prot curated 
+uniprot transcripts.
+
 """
 
 import logging
@@ -23,9 +29,12 @@ from lib import PDBMapTranscriptEnsembl
 from lib import PDBMapVEP
 import unicodedata
 
-from vustruct import VUstruct
+from vustruct import VUStruct
 
 def remove_unicode_control_characters(s):
+    """
+    Remove control characters 
+    """
     return "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
 
 def remove_ascii_control_characters(s):
@@ -52,7 +61,7 @@ config, config_dict = psb_config.read_config_files(args, required_items)
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory, args.project)
 
-vustruct = VUstruct('preprocess', args.project,  __file__)
+vustruct = VUStruct('preprocess', args.project,  __file__)
 vustruct.stamp_start_time()
 vustruct.initialize_file_and_stderr_logging(args.debug)
 
@@ -62,17 +71,20 @@ LOGGER = logging.getLogger()
 # and then _if_ we die with an error, at least there is a record
 # and psb_rep.py should be able to create a web page to that effect
 vustruct.exit_code = 1
-vustruct.write_file()
 
 
 
 udn_excel_filename = os.path.join(udn_root_directory, args.project, args.project + ".xlsx")
-missense_csv_filename = os.path.join(udn_root_directory, args.project, args.project + "_missense.csv")
+vustruct.input_filename = os.path.join('./',udn_excel_filename) # will change if we do a liftover?
+vustruct.write_file()
+
+
+vustruct_csv_filename = os.path.join(udn_root_directory, args.project, args.project + "_vustruct.csv")
 genes_txt_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes.txt")
 genes_json_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes.json")
 genes_inheritance_zygosity_filename = os.path.join(udn_root_directory, args.project, args.project + "_genes_inheritance_zygosity.csv")
 LOGGER.info('Parsing Excel file: %s' , udn_excel_filename)
-LOGGER.info('Writing csv file %s ' , missense_csv_filename)
+LOGGER.info('Writing csv file %s ' , vustruct_csv_filename)
 LOGGER.info('Writing txt file %s ' , genes_txt_filename)
 LOGGER.info('Writing json file %s ' , genes_json_filename)
 LOGGER.info('Writing gene/inh/zyg file %s ' , genes_inheritance_zygosity_filename)
@@ -119,57 +131,121 @@ HeadersList = []
 i = 0
 csv_rows = []
 
-# Inheritance information is parsed following the example from Souhrid Mukherjee's
-# DiGePred parser code
-# By default, proband, mom, and dad are missing from the spreadsheet (column=-1)
-inheritance_columns = { 
-    'proband': -1, 
-    'mom': -1,
-    'dad': -1}
-relatives=[]
+class InheritanceParser:
+    """ Gather Inheritance information is parsed following the example from Souhrid Mukherjee's
+     DiGePred parser code and later DIEP
+    By default, proband, mother, and father are missing from the spreadsheet (column=-1)
+    """
 
-# Souhrid pulls apart an excpl spreadsheet row with this code, which I have integrated
-def get_inheritance_zygosity(row):
-    inheritance = ''
-    zyg = ''
-    proband_column = inheritance_columns['proband']
-    dad_column = inheritance_columns['dad']
-    mom_column = inheritance_columns['mom']
-    if row[proband_column] is not None:
-        # Fetch the little graphics characters
-        proband_inheritance_g = row[proband_column].split()[0].strip().rstrip()
-        mom_inheritance_g = row[mom_column].split()[0].strip().rstrip() if mom_column > 0 else None
-        dad_inheritance_g = row[dad_column].split()[0].strip().rstrip() if dad_column > 0 else None
-        if '\u25cf' in proband_inheritance_g or '\u006f' in proband_inheritance_g or '-' in proband_inheritance_g or '\u25cb' in proband_inheritance_g or 'need data' in \
-                row[proband_column]:
-            if mom_column > 0 and mom_inheritance_g is not None:
-                if '\u25cf' in mom_inheritance_g:
-                    inheritance += 'mom'
-                elif str(proband_inheritance_g) == str(mom_inheritance_g):
-                    inheritance += 'mom'
+    spreadsheet_columns = {
+        'proband': -1, 
+        'mother': -1,
+        'father': -1}
 
-            if dad_column > 0 and dad_inheritance_g is not None:
-                if '\u25cf' in dad_inheritance_g:
-                    inheritance += 'dad'
-                elif str(proband_inheritance_g) == str(dad_inheritance_g):
-                    inheritance += 'dad'
+    relatives=[] # Populated with mother, father, etc if found in spreadsheet
+    unicode_black_circle = '\u25cf' # This is the closed solid circle - meaning HAS that variant
+    unicode_white_circle = '\u25cb' # This is the open circle - meaning did NOT have the variant
+    both_parents_sequenced = False  # Can be set to true if mom and dad found in set_spreadsheet_columns
 
-            if 'y' in str(proband_inheritance_g).lower():
-                zyg += 'X-linked'
-            elif str(proband_inheritance_g).lower().count('\u25cf') == 1:
-                zyg += 'heterozygous'
-            elif str(proband_inheritance_g).lower().count('\u25cf') >= 2:
-                zyg += 'homozygous'
+    @staticmethod
+    def set_spreadsheet_columns(spreadsheet_row):
+        """ 
+        Scan to the right for headers for proband, mother, father
+        Headers are only there to the extend mother and father were 
+        available and sequenced
+        """
+        parents_sequenced = 0
+        for column_number, column_entry in enumerate(row):
+            # print("%s %s" % (column_number,column_entry))
+            if column_entry is not None:
+                relative = str(column_entry).lower()
+                if 'proband' in relative:
+                    InheritanceParser.spreadsheet_columns['proband'] = column_number
+                elif 'mother' in relative or 'mom' in relative:
+                    parents_sequenced += 1
+                    InheritanceParser.spreadsheet_columns['mother'] = column_number
+                    InheritanceParser.relatives.append('mother')
+                elif 'father' in relative or 'dad' in relative:
+                    parents_sequenced += 1
+                    InheritanceParser.spreadsheet_columns['father'] = column_number
+                    InheritanceParser.relatives.append('father')
 
-            if len(set(relatives).intersection(['mom', 'dad'])) < 2:
-                inheritance += 'NA'
-            elif 'mom' in inheritance and 'dad' in inheritance:
-                inheritance = 'mom, dad'
-            elif inheritance == '':
-                inheritance = 'de novo'
+        InheritanceParser.both_parents_sequenced = (parents_sequenced == 2)
 
-    return inheritance, zyg
+        for person in ['proband'] + InheritanceParser.relatives:
+            LOGGER.info("Spreadsheet columns for inheritance parse are: %s" % [(person, InheritanceParser.spreadsheet_columns[person])])
 
+    @staticmethod
+    def _parse_mother_or_father_graphic(mother_or_father: str, proband_inheritance_g):
+        """
+        The Vanderbilt UDN uses unicode symbols and others to make little marks under the probbad/father/mother/etc columns
+        and those require some delicate parsing 
+
+        @mother_or_father: Must be 'mother' or 'father'
+        @proband_inheritance_g
+        """
+        mother_or_father_column = InheritanceParser.spreadsheet_columns[mother_or_father]
+        if mother_or_father_column > 0:
+            mother_or_father_inheritance_g = row[mother_or_father_column].split()[0].strip().rstrip()
+            if mother_or_father_inheritance_g:
+                if ('\u25cf' in mother_or_father_inheritance_g) or \
+                    str(proband_inheritance_g) == str(mother_or_father_inheritance_g):
+                        return mother_or_father
+
+        return ""
+       
+ 
+    @staticmethod
+    def parse_inheritance_zygosity(row):
+        # Souhrid pulls apart an excpl spreadsheet row with this code, which I have integrated
+        inheritance = ''
+        zyg = ''
+        proband_column = InheritanceParser.spreadsheet_columns['proband']
+        if row[proband_column] is not None:
+            # Fetch the little graphics characters
+            proband_inheritance_g = row[proband_column].split()[0].strip().rstrip()
+            proband_has_inheritance_indicators = any(
+                chartest in proband_inheritance_g for chartest in [
+                    InheritanceParser.unicode_black_circle,
+                    'o',
+                    InheritanceParser.unicode_white_circle,
+                    'need data'])
+
+            if proband_has_inheritance_indicators:
+                inheritance += InheritanceParser._parse_mother_or_father_graphic('mother',proband_inheritance_g)
+    
+                inheritance += InheritanceParser._parse_mother_or_father_graphic('father',proband_inheritance_g)
+    
+                if 'y' in str(proband_inheritance_g).lower():
+                    zyg += 'X-linked'
+                elif str(proband_inheritance_g).lower().count('\u25cf') == 1:
+                    zyg += 'heterozygous'
+                elif str(proband_inheritance_g).lower().count('\u25cf') >= 2:
+                    zyg += 'homozygous'
+    
+                # if len(set(InheritanceParser.relatives).intersection(['mother', 'father'])) < 2:
+                #     inheritance += 'NA'
+                if 'mother' in inheritance and 'father' in inheritance:
+                    inheritance = 'mother, father'
+                elif InheritanceParser.both_parents_sequenced and inheritance == '':
+                    inheritance = 'de novo'
+    
+        return inheritance, zyg
+
+
+def refseq_match(_possible_refseq: str) -> str:
+    refseq_reg = re.compile("([XN]M_.*[0-9.]{2,30})")
+    _mat = refseq_reg.match(_possible_refseq.split()[0])
+    return _mat.group(1) if _mat else None
+
+def pos_match(_possible_pos: str) -> str:
+    # The POS offset in a Chromosome is usually a simple set of digits that
+    # make up an integer.  HOWEVER, there is also the chance that
+    # a longer deletion or so could have a range here, in which case
+    # we take the first one
+    pos_regex = re.compile(" *([0-9]*).*")
+    _mat = pos_regex.match(_possible_pos.split()[0])
+    return int(_mat.group(1)) if _mat else None
 
 
 genome = 'GRCh38'
@@ -186,20 +262,8 @@ while i < dfRows:
             # Try to extract genome - though this is not really used any more
             if 'Position' in position_right1_down1 and 'hg19' in position_right1_down1:
                 genome = 'hg19'
-            # Scan to the right for headers for proband, mother, father
-            # Not all headers may be there
-            for column_number, column_entry in enumerate(row):
-                print("%s %s" % (column_number,column_entry))
-                if column_entry is not None:
-                    relative = str(column_entry).lower()
-                    if 'proband' in relative:
-                        inheritance_columns['proband'] = column_number
-                    elif 'mother' in relative or 'mom' in relative:
-                        inheritance_columns['mom'] = column_number
-                        relatives.append('mom')
-                    elif 'father' in relative or 'dad' in relative:
-                        inheritance_columns['dad'] = column_number
-                        relatives.append('dad')
+
+            InheritanceParser.set_spreadsheet_columns(row)
             
             GeneWordEncountered = True
             HeadersList = [str(x).strip().split()[0] for x in row]
@@ -225,7 +289,7 @@ while i < dfRows:
         #  cleaned_possible_gene = remove_ascii_control_characters(possible_gene)
         #  possible_gene = cleaned_possible_gene
         if isinstance(possible_gene, str):
-            cleaned_possible_gene = remove_unicode_control_characters(possible_gene)
+            cleaned_possible_gene = remove_unicode_control_characters(possible_gene.replace('\n',' '))
             possible_gene = cleaned_possible_gene
 
         possible_gene_split = possible_gene.split()
@@ -293,7 +357,7 @@ while i < dfRows:
                     elif status not in genes[gene][rel]:
                         genes[gene][rel].append(status)
 
-            inheritance, zygosity = get_inheritance_zygosity(row)
+            inheritance, zygosity = InheritanceParser.parse_inheritance_zygosity(row)
             genes_inheritance_zygosity_series = pd.Series(
                 {'gene': gene, 
                  'inheritance': inheritance,
@@ -301,18 +365,13 @@ while i < dfRows:
             genes_inheritance_zygosity_df = pd.concat(
                 [genes_inheritance_zygosity_df,genes_inheritance_zygosity_series.to_frame().T],
                 ignore_index=True)
-           
+          
+            is_missense_variant = True 
             if "missense" not in effect.lower():
-                LOGGER.info("Row %3d: %-8s skipped, non mis-sense mutation(%s)" % (i, gene, effect.replace('\n', '')))
-                i += 2
-                continue
-            refseq_reg = re.compile("([XN]M_.*[0-9.]{2,30})")
-
-
-            def refseq_match(_possible_refseq: str) -> str:
-                _mat = refseq_reg.match(_possible_refseq.split()[0])
-                return _mat.group(1) if _mat else None
-
+                is_missense_variant = False
+                # LOGGER.info("Retaining row %3d: %-8s missense mutation(%s)" % (i, gene, effect.replace('\n', '')))
+                # i += 2
+                # continue
 
             if len(possible_gene_split) > 1:
                 refseq = None
@@ -339,7 +398,7 @@ while i < dfRows:
             # if spreadsheet is missing the refseq, or refseq not found in idmapping file...
             # Then go with gene as last resort
 
-            if unp == None:
+            if unp == None and is_missense_variant:
                 if refseq:
                     LOGGER.warning(
                         "Could not map refseq input [%s] uniprot ID (or it was missing).  Gene_refseq input in .xls file is: %s" % (
@@ -350,13 +409,16 @@ while i < dfRows:
                 refseq = "RefSeqNotFound_UsingGeneOnly"
                 unp = PDBMapProtein.hgnc2unp(gene)
 
-            try:
-                raw_mut = df.iloc[i + 2][2]
-                mut = raw_mut.replace("p.", "").strip()
-            except (AttributeError, IndexError):
-                LOGGER.warning("Row %3d: %-8s  Could not read AA variant from spreadsheet" % (i, gene))
-                raw_mut = ''
-                mut = ''
+            mut = ''
+            raw_mut = ''
+            if is_missense_variant:
+                try:
+                    raw_mut = df.iloc[i + 2][2]
+                    mut = raw_mut.replace("p.", "").strip()
+                except (AttributeError, IndexError):
+                    LOGGER.warning("Row %3d: %-8s  Could not read AA variant from spreadsheet" % (i, gene))
+                    raw_mut = ''
+                    mut = ''
 
             if mut:
                 # Convert 3-letter amino acid codes to 1-letter codes
@@ -371,6 +433,9 @@ while i < dfRows:
                         i += 2
                         continue  # Do not add this mutation
 
+            chrom = None
+            pos = None
+
             try:
                 chrom = df.iloc[i][1]  # Example 'chr1' in Spreadsheet column B
 
@@ -380,22 +445,36 @@ while i < dfRows:
                 # 2021 August 17.  Sometimes UDN gives us chrM - but vep requires chrMT
                 if chrom == 'chrM':  # Sometimes UDN leaves off the T
                     chrom = 'chrMT'
-                pos = int(df.iloc[i + 1][1])  # Example 150915463 below chr1 in column B
-                change = df.iloc[i][
-                    2].strip()  # Example A->G to right of chr1 (not using c.809A>G to right of pos in column C)
-                change = change[0] + '/' + change[-1]  # Change format to A/G
+                pos_cell = df.iloc[i + 1][1]  # Example 150915463 below chr1 in column B
+                pos = pos_match(str(pos_cell))
 
             except (TypeError, IndexError, AttributeError, ValueError):
-                LOGGER.warning("Row %3d: Failed to parse Chr/Position/Change from columns B and C" % i)
+                LOGGER.warning("Row %3d: Failed to parse Chr/Position from columns B and C" % i)
                 if not mut:
                     LOGGER.warning(
-                        "Row %3d: %-8s  Skipping because neither AA variant nor genomic change found" % (i, gene))
+                        "Row %3d: %-8s  Skipping because neither AA variant nor chrom pos found" % (i, gene))
                 i += 2
                 continue
 
+            try:
+                change = df.iloc[i][
+                    2].strip()  # Example A->G to right of chr1 (not using c.809A>G to right of pos in column C)
+                if '>' in change:
+                   ref_alt = change.split('>')
+                   if len(ref_alt) == 2:
+                       change = ref_alt[0].strip() + '/' + ref_alt[1].strip()
+    
+                if not change: # That's OK
+                    change = df.iloc[i][3].strip()
+    
+                # change = change[0] + '/' + change[-1]  # Change format to A/G
+            except (TypeError, IndexError, AttributeError, ValueError):
+                change = ""
+                LOGGER.warning("Row %3d: Failed to parse change" % i)
+
             if genome != 'hg19':
                 LOGGER.warning("GENOME IS SET TO %s for Row %d", genome, i)
-            mutation_info = [gene, genome, chrom, pos, change, refseq, mut, unp]
+            mutation_info = [gene, genome, chrom, pos, change, effect, refseq, mut if mut else effect, unp, inheritance,zygosity]
             LOGGER.info("Row %3d: %-8s Adding %s" % (i, gene, " ".join([str(x) for x in mutation_info])))
             csv_rows.append(mutation_info)
 
@@ -423,11 +502,12 @@ genes_inheritance_zygosity_df.to_csv(genes_inheritance_zygosity_filename,sep=','
 LOGGER.info("%d genes written to %s" % (len(genes_inheritance_zygosity_df), genes_inheritance_zygosity_filename))
 if csv_rows:  # This needs to be argument controlled
     original_df = pd.DataFrame(csv_rows,
-                               columns=["gene", "genome", "chrom", "pos", "change", "refseq", "mutation", "unp"])
+                               columns=["gene", "genome", "chrom", "pos", "change", "effect", "refseq", "mutation", "unp", "inheritance", "zygosity"])
     # 2021 August hack to use original locations as GRCh37
     original_df.insert(3, 'original_lineno', original_df.index)
     # 2021 August hack Get rid of columsn that would not be present after liftover
-    df_lifted_grch38 = original_df.copy().drop(['gene', 'mutation', 'refseq', 'unp', 'change'], axis='columns')
+    df_lifted_grch38 = original_df[original_df['change'].str.contains('/')].copy().drop(['gene', 'mutation', 'effect', 'refseq', 'unp', 'change'], axis='columns')
+
 
 # Brute force disable grch37->38 liftover
 if csv_rows and None:
@@ -478,16 +558,16 @@ if csv_rows and None:
         LOGGER.info("All positions lifted to GRCh38 successfully")
 
 if csv_rows:
-    df_missense_grch38 = pd.DataFrame(
-        columns=['gene', 'chrom', 'pos', 'change', 'transcript', 'unp', 'refseq', 'mutation'])
-    if len(df_lifted_grch38):  # Create a hg38 .vcf file that we can run vcf2missense.py on to create a new case
+    df_vustruct_grch38 = pd.DataFrame(
+        columns=['gene', 'chrom', 'pos', 'change', 'effect', 'transcript', 'unp', 'refseq', 'mutation'])
+    if len(df_lifted_grch38):  # Create a hg38 .vcf file that we can run vcf2vustruct.py on to create a new case
         df_vcf_hg38 = pd.DataFrame(
             columns=["CHROM", "POS", "ID", "REF", "ALT"])
         df_vcf_hg38["CHROM"] = [chrom[3:] for chrom in df_lifted_grch38['chrom']]
         df_vcf_hg38["POS"] = [pos for pos in df_lifted_grch38['pos']]
         df_vcf_hg38["ID"] = ['.' for chrom in df_lifted_grch38['chrom']]
-        df_vcf_hg38["REF"] = [original_df.loc[uniquekey]['change'][0] for uniquekey in df_lifted_grch38.index]
-        df_vcf_hg38["ALT"] = [original_df.loc[uniquekey]['change'][-1] for uniquekey in df_lifted_grch38.index]
+        df_vcf_hg38["REF"] = [original_df.loc[uniquekey]['change'].split('/')[0] for uniquekey in df_lifted_grch38.index]
+        df_vcf_hg38["ALT"] = [original_df.loc[uniquekey]['change'].split('/')[1] for uniquekey in df_lifted_grch38.index]
         hg38_vcffile = args.project + "_hg38.vcf"
         with open(hg38_vcffile, 'w') as f:
             f.write("#")
@@ -500,6 +580,10 @@ if csv_rows:
 
         for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             for CSQ in vcf_record.CSQ:
+                # Later _maybe_ we add inframe_deletion, inframe_insertion
+                # Note hard coding of effect below to missense, as well
+                if not 'missense' in CSQ['Consequence'].lower():
+                    continue
                 ensembl_transcript_id = CSQ['Feature']
                 uniprot_id_list = PDBMapProtein.enst2unp(ensembl_transcript_id)
                 if not uniprot_id_list:  # Empty returned of the VEP returned ENST trnascript ID not in our curated idmapping
@@ -522,31 +606,32 @@ if csv_rows:
                     refseq = refseq[0]
                 else:
                     refseq = "NA"
-                new_missense_row_from_vep = {
+                new_vustruct_row_from_vep = {
                     'gene': CSQ['SYMBOL'],
                     'chrom': vcf_record.CHROM,
                     'pos': vcf_record.POS,
                     'change': "%s/%s" % (
-                        vcf_record.REF[0],  # .translate(str.maketrans('','',string.punctuation)),
+                        vcf_record.REF,  # .translate(str.maketrans('','',string.punctuation)),
                         vcf_record.ALT[0]),  # .translate(str.maketrans('','',string.punctuation))),
+                    'effect': 'missense',
                     'transcript': PDBMapProtein.versioned_ensembl_transcript(ensembl_transcript_id),
                     'unp': uniprot_id,
                     'refseq': refseq,
                     'mutation': "%s%s%s" % (CSQ['Ref_AminoAcid'], CSQ['Protein_position'], CSQ['Alt_AminoAcid'])
                 }
 
-                df_missense_grch38 = pd.concat(
-                    [df_missense_grch38, pd.DataFrame.from_dict([new_missense_row_from_vep])], ignore_index=True)
+                df_vustruct_grch38 = pd.concat(
+                    [df_vustruct_grch38, pd.DataFrame.from_dict([new_vustruct_row_from_vep])], ignore_index=True)
         try:
-            df_missense_grch38.to_csv(missense_csv_filename + ".with_VEP_duplicates", header=True, encoding='ascii',
+            df_vustruct_grch38.to_csv(vustruct_csv_filename + ".with_VEP_duplicates", header=True, encoding='ascii',
                                       sep=',')
 
         except Exception as e:
-            LOGGER.critical("Unable to write %s: %s", missense_csv_filename + ".with_VEP_duplicates", str(e))
+            LOGGER.critical("Unable to write %s: %s", vustruct_csv_filename + ".with_VEP_duplicates", str(e))
             sys.exit(1)
 
-    df_without_duplicates = df_missense_grch38.drop_duplicates(['gene', 'unp', 'refseq', 'mutation'])
-    df_indexed = df_missense_grch38.set_index(['gene', 'unp', 'refseq', 'mutation'])
+    df_without_duplicates = df_vustruct_grch38.drop_duplicates(['gene', 'unp', 'refseq', 'mutation'])
+    df_indexed = df_vustruct_grch38.set_index(['gene', 'unp', 'refseq', 'mutation'])
     for index, row in df_without_duplicates.iterrows():
         variant_index = (row['gene'], row['unp'], row['refseq'], row['mutation'])
         # Enclose the variant_index in [[]] to be sure to get back a dataframe
@@ -585,9 +670,9 @@ if csv_rows:
         .reset_index(drop=True) 
 
     df_without_original_lineno.index = df_without_original_lineno.index+1
-    df_without_original_lineno.to_csv(missense_csv_filename, index_label = 'index', header=True, encoding='ascii', sep=',')
+    df_without_original_lineno.to_csv(vustruct_csv_filename, index_label = 'index', header=True, encoding='ascii', sep=',')
 
-    LOGGER.info("==> %d rows successfully written to %s" % (len(df_without_original_lineno), missense_csv_filename))
+    LOGGER.info("==> %d rows successfully written to %s" % (len(df_without_original_lineno), vustruct_csv_filename))
     LOGGER.info("==> Compare contents to original input file %s" % udn_excel_filename)
     LOGGER.info("==> These log entries are in %s", vustruct.log_filename)
 
