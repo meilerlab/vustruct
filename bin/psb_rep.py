@@ -35,6 +35,7 @@ import string
 import math
 import sys
 import time
+import html
 from array import array
 from logging.handlers import RotatingFileHandler
 
@@ -67,7 +68,7 @@ from lib import PDBMapTranscriptEnsembl
 from lib import PDBMapProtein
 from lib import PDBMapGlobals
 
-from vustruct import VUstruct
+from vustruct import VUStruct
 from report_modules.rep_one_variant import report_one_variant_one_isoform
 # from report_modules.load_one_variant import CalculationResultsLoader
 
@@ -75,7 +76,7 @@ from report_modules.rep_one_variant import report_one_variant_one_isoform
 
 from collections import defaultdict
 
-from typing import Dict
+from typing import Dict, List
 # from subprocess import Popen, PIPE
 # from weasyprint import HTML
 
@@ -159,7 +160,7 @@ LOGGER.info("Command Line Arguments:\n%s" % pprint.pformat(vars(args)))
 
 if not os.path.exists(args.config):
     LOGGER.critical("Global config file not found: " + args.config)
-    sys, exit(1)
+    sys.exit(1)
 
 required_config_items = ['output_rootdir', 'collaboration', 'ddg_config', 'rate4site_dir', 'cosmis_dir']
 
@@ -199,7 +200,7 @@ if oneMutationOnly:
     collaboration_absolute_dir = os.path.dirname(os.path.dirname(args.projectORstructure))
 else:
     collaboration_absolute_dir = os.path.join(udn_root_directory, args.projectORstructure)
-    vustruct = VUstruct("report", args.projectORstructure, __file__)
+    vustruct = VUStruct("report", args.projectORstructure, __file__)
 
 collaboration_absolute_dir = os.path.realpath(collaboration_absolute_dir)
 LOGGER.info("Collaboration_absolute_dir = %s", collaboration_absolute_dir)
@@ -359,26 +360,42 @@ copy_html_css_javascript()
 case_report_template_location = os.path.dirname(os.path.realpath(__file__))
 jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
 vustruct_logs_template = jinja2_environment.get_template("html/vustruct_logs_template.html")
-vustruct_dict_for_jinja2 = vustruct.dict_for_jinja2()
+# Variables with name case_ pertain to the creation of the final report summary outputs
+case_jinja2 = {} # The dictionary of values that will be handed over to jinja2 to build out the case summary html
+case_jinja2 = {
+    'vustruct': vustruct.dict_for_jinja2(),
+    'case': args.projectORstructure,
+    'case_id': args.web_case_id,
+    'case_uuid': args.strip_uuid,
+    'date': time.strftime("%Y-%m-%d %H:%M") + ' USA Central Time (GMT - 6)',
+}
 
 # Change the displayed executable names from psb_ prefixes to vustruct_ prefixes
 # Because we have renamed these command line components
 # Also strip out any crazy leading path
 for phase in ['preprocess', 'plan', 'launch', 'report']:
-    if phase in vustruct_dict_for_jinja2:
-        python_exe_name = os.path.basename(vustruct_dict_for_jinja2[phase]['executable'])
+    if phase in case_jinja2['vustruct']:
+        python_exe_name = os.path.basename(case_jinja2['vustruct'][phase]['executable'])
         vustruct_display_name = python_exe_name.replace("psb_","vustruct_")
-        vustruct_dict_for_jinja2[phase]['executable'] = vustruct_display_name
+        case_jinja2['vustruct'][phase]['executable'] = vustruct_display_name
 # We need to get rid of log/ prefixes, because we generate index.html
 # down in the log directory
-for command_line_module in vustruct_dict_for_jinja2.keys():
-    if 'log_filename' in vustruct_dict_for_jinja2[command_line_module]:
-        log_filename = vustruct_dict_for_jinja2[command_line_module]['log_filename']
+for command_line_module in case_jinja2['vustruct'].keys():
+    if 'log_filename' in case_jinja2['vustruct'][command_line_module]:
+        log_filename = case_jinja2['vustruct'][command_line_module]['log_filename']
         if log_filename: # Then add log_basename to in-memory dictionary
             website_filelist.append(log_filename)
-            vustruct_dict_for_jinja2[command_line_module]['log_basename'] = \
+            case_jinja2['vustruct'][command_line_module]['log_basename'] = \
                 os.path.basename(log_filename)
+    if 'input_filename' in case_jinja2['vustruct'][command_line_module]:
+        input_filename = case_jinja2['vustruct'][command_line_module]['input_filename']
+        if input_filename: # Then add input_basename to in-memory dictionary
+            website_filelist.append(input_filename)
+            case_jinja2['vustruct'][command_line_module]['input_basename'] = \
+                os.path.basename(input_filename)
 
+
+# We also try to place all outputs in a spreadsheet
 case_workbook = Workbook()
 case_summary_worksheet = case_workbook.active
 case_summary_worksheet.title = args.projectORstructure
@@ -434,8 +451,8 @@ def ddg_populate_worksheet(ddg_worksheet: openpyxl.worksheet.worksheet.Worksheet
             if structure_id not in ddg_worksheet_columns:
                 ddg_worksheet_columns[structure_id] = 4 + len(ddg_worksheet_columns)
     
-    for structure_id, column in ddg_worksheet_columns.items():
-        print ("%02d %s" % (column, structure_id))
+    # for structure_id, column in ddg_worksheet_columns.items():
+    #    print ("%02d %s" % (column, structure_id))
     
     ddg_worksheet.cell(row=1, column=1).value='Gene'
     ddg_worksheet.cell(row=1, column=2).value='Uniprot'
@@ -443,7 +460,7 @@ def ddg_populate_worksheet(ddg_worksheet: openpyxl.worksheet.worksheet.Worksheet
     for structure_id, column in  ddg_worksheet_columns.items():
         cell = ddg_worksheet.cell(row=1, column=column)
         cell.value= structure_id
-        print("%s %s" % (column, cell.alignment))
+        # print("%s %s" % (column, cell.alignment))
         # cell.value = headers[key]
         cell.alignment = Alignment(horizontal='center', vertical='bottom', text_rotation=90)
     
@@ -537,6 +554,106 @@ class variant_isoform_helper:
 
         return min_MusiteDeepPTM, max_MusiteDeepPTM
 
+def write_case_report_html(case_jinja2_dictionary) -> None:
+    """ The top level "case report" is the output index.html
+        For the entire run.  Depending on progress of the pipeline
+        case_jinja2_dictionary includes preprocess log details, and then vustruct gene lins
+        Then outlinks to individual variant reports
+        param case_jinja2_dictionary - all values for the jinja2 processor
+    """
+    case_report_template_location = os.path.dirname(os.path.realpath(__file__))
+    jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
+    def basename(path):
+        return os.path.basename(path)
+    jinja2_environment.filters['filter_basename'] = basename
+    case_report_template = jinja2_environment.get_template("case_report_template.html")
+    html_out = case_report_template.render(case_jinja2_dictionary)
+    # args.projectORstructure is an entire project UDN124356
+
+    case_summary_filename = os.path.join(case_root_dir,
+                                         "%s.html" % args.projectORstructure)
+    website_filelist.append(case_summary_filename)
+
+    with open(case_summary_filename, "w") as f:
+        f.write(html_out)
+    return case_summary_filename
+
+def write_case_website_tar_zip(case_summary_filename):
+    if website_filelist:
+        try:
+            os.remove('index.html')  # First time through will gen an exception.  That's A-OK
+        except OSError:  # A-OK if file is not arleady there
+            pass
+        try:
+            index_html_symlink = case_summary_filename
+            # If our destiny is to later rename the main .html filename with the tar --transform to come, then
+            # we need to repoing index.html to the forthcoming renamed file
+            if args.strip_uuid and args.web_case_id:
+                index_html_symlink = args.web_case_id + '.html'
+            # The symlink fails when we are running in some vm environments - so we just copy in those cases
+            os.symlink(index_html_symlink, 'index.html')
+        except PermissionError:
+            LOGGER.info("Creating index.html as symlink failed in VM.  Attempting simpler cp operations")
+            shutil.copy(src=case_summary_filename, dst='index.html')
+            pass
+        website_filelist.append('index.html')
+
+        website_filelist_filename = os.path.join(case_root_dir,
+                                                 "%s_website_files.list" % args.projectORstructure)  # The argument is an entire project UDN124356
+        with open(website_filelist_filename, "w") as f:
+            f.write('\n'.join((os.path.relpath(
+                website_file,  # os.path.realpath(website_file),
+                (os.path.realpath(os.path.join(config_dict['output_rootdir'], config_dict['collaboration']))))
+                for website_file in website_filelist)))
+        LOGGER.info("A filelist for creating a website is in %s", website_filelist_filename)
+        website_zip_filename = "%s.zip" % args.projectORstructure
+        if args.tar_only:
+            LOGGER.info("--tar_only requested.  %s will not be created." , website_zip_filename);
+        else:
+            pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -' % (
+                website_zip_filename,
+                os.path.join(args.projectORstructure, website_filelist_filename),
+                os.path.join(args.projectORstructure, website_zip_filename),
+                os.path.join(args.projectORstructure, website_zip_filename))
+            LOGGER.info("Creating .zip website file with: %s", pkzip_maker)
+            subprocess.call(pkzip_maker, shell=True)
+
+        # The temp filename has a hideous UTC timestamp on it
+        website_tar_temp_filename = "%s_%s.tar.gz" % (
+            args.projectORstructure, 
+            datetime.datetime.now().replace(microsecond=0).isoformat().translate(str.maketrans('','',string.punctuation)))
+
+        website_tar_filename = "%s.tar.gz" % args.projectORstructure
+        tar_transformer = ''
+        if args.strip_uuid:
+            # We are replaceing the very complex uuid-embedded heirarchy filenames with user-friendly casename
+            case_id = args.web_case_id
+            uuid = args.strip_uuid
+            search_string = f"external_user_{case_id}_{uuid}/external_user_{case_id}_{args.strip_uuid}"
+            replace_string = f"external_user_{case_id}_{uuid}/{case_id}"
+            tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
+        tar_maker = 'cd ..; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -; mv %s %s; mv %s.stdout %s.stdout' % (
+            os.path.join(args.projectORstructure, website_tar_temp_filename),
+            os.path.join(args.projectORstructure, website_filelist_filename),
+            tar_transformer,
+            os.path.join(args.projectORstructure, website_tar_temp_filename),
+            website_tar_temp_filename,website_tar_filename,
+            website_tar_temp_filename,website_tar_filename)
+        LOGGER.info("Creating .tar website file with: %s", tar_maker)
+        subprocess.call(tar_maker, shell=True)
+
+        final_message = "Compressed website files are in "
+        if args.tar_only:
+            final_message += website_tar_filename
+        else:
+            final_message += "%s and %s" % ( website_zip_filename, website_tar_filename)
+
+        LOGGER.info(final_message);
+
+
+
+    # Create and save the supplemental written files to aid presentation
+    # - summary of summaries case spreadsheet
 
 # directly from a single mutation output file of psb_plan.py
 if oneMutationOnly:
@@ -548,26 +665,72 @@ if oneMutationOnly:
     else:
         print("Due to lack of pathprox outputs, no html (or pdf) reports were created from %s" % args.workstatus)
 else:
-    case_missense_filename = os.path.join(case_root_dir,
-                                    "%s_missense.csv" % args.projectORstructure)  # The argument is an entire project UDN124356
-    msg = "Retrieving project mutations from %s" % case_missense_filename
+    _plan_failed = True
+    _launch_failed = True
+
+    # status_header conveys information about the pipeline and could be positive
+    # or negative 
+    case_jinja2['status_header'] = None
+    case_jinja2['module_failure_info'] = None 
+
+
+    df_all_mutations = pd.DataFrame()
+    vustruct_csv_data = ""
+    case_vustruct_filename = "Not Created"
+    module_failure_info = None # Initialize only if a preprocess or plan phase failed
+
+    def textlist_to_html(text_list: List[str]) -> str:
+        html_codeblock = ""
+        for textline in text_list:
+            html_codeblock += html.escape(textline) + "\n"
+        return html_codeblock
+
+    def basename_psb_vustruct(filename: str):
+        return os.path.basename(filename).replace("psb","vustruct")
+
+    if vustruct.preprocess_failed: # Then we can go no farther
+         case_jinja2['status_header'] = "Preprocessor %s failed" % (
+             basename_psb_vustruct(vustruct.preprocess['executable']),
+             )
+         case_jinja2['module_failure_info'] = textlist_to_html(vustruct.preprocess_failure_info)
+         case_jinja2['preprocess_failed'] = True
+         LOGGER.info(case_jinja2['status_header'])
+         _case_summary_filename = write_case_report_html(case_jinja2)
+         write_case_website_tar_zip(_case_summary_filename)
+         sys.exit(0) # It's A-OK that psb_rep is reporting on a failed case start
+
+    if vustruct.plan_failed: # Then we can go no farther
+         case_jinja2['status_header'] = "Plan module %s failed" % (
+             basename_psb_vustruct(vustruct.plan['executable']),
+             )
+         case_jinja2['module_failure_info'] = textlist_to_html(vustruct.plan_failure_info)
+         case_jinja2['plan_failed'] = True
+         _case_summary_filename = write_case_report_html(case_jinja2)
+         write_case_website_tar_zip(_case_summary_filename)
+         sys.exit(0) # It's A-OK that psb_rep is reporting on a failed case start
+
+    # We now press onwards showing the entire vustruct file as well and, when available, outlinkds to individual reports
+
+    case_vustruct_filename = os.path.join(case_root_dir,
+                                "%s_vustruct.csv" % args.projectORstructure)  # The argument is an entire project UDN124356
+    msg = "Retrieving project mutations from %s" % case_vustruct_filename
     if not infoLogging:
         print(msg)
     LOGGER.info(msg)
 
-    missense_csv_data = ""
-    with open(case_missense_filename,'r') as f:
-        missense_csv_data = f.read()
-    df_all_mutations = pd.read_csv(StringIO(missense_csv_data), sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+    with open(case_vustruct_filename,'r') as f:
+        vustruct_csv_data = f.read()
+    df_all_mutations = pd.read_csv(StringIO(vustruct_csv_data), sep=',', index_col=None, keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
     df_all_mutations.fillna('NA', inplace=True)
+    website_filelist.append(os.path.basename(case_vustruct_filename))
 
     vustruct_logs_info = {
-        'case_missense_filename': os.path.basename(case_missense_filename),
-        'case_missense_csv_data': missense_csv_data,
-        'case_missense_df': df_all_mutations,
+        'case_vustruct_filename': os.path.basename(case_vustruct_filename),
+        'case_vustruct_csv_data': vustruct_csv_data,
+        'case_vustruct_df': df_all_mutations,
         'refreshFlag': args.embed_refresh,
-        'vustruct': vustruct_dict_for_jinja2
+        'vustruct': case_jinja2['vustruct']
     }
 
     if args.slurm:
@@ -690,7 +853,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     variant_directory_segment= variant_directory,
                     parent_report_row=genome_variant_row,
                     local_log_level= "debug" if args.debug else "info" if args.verbose else "warn",
-                    vustruct_pipeline_launched= bool(vustruct_dict_for_jinja2['launch']['executable']),
+                    vustruct_pipeline_launched= bool(case_jinja2['vustruct']['launch']['executable']),
                     config_pathprox_dict=config_pathprox_dict
                 )
                 if variant_isoform_summary:
@@ -796,11 +959,14 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 _min_alphamissense_score, _max_alphamissense_score = \
                     variant_isoform_helper.min_max_alphamissense(variant_isoform_summaries)
 
-                if _min_alphamissense_score == _max_alphamissense_score:
-                    genome_header['alphamissense_score'] = "%0.2f" % _max_alphamissense_score
-                else:
-                    genome_header['alphamissense_score'] = "%0.2f-%0.2f" % (
-                        _min_alphamissense_score,_max_alphamissense_score)
+                # if _min_alphamissense_score == _max_alphamissense_score:
+                #     genome_header['alphamissense_score'] = "%0.2f" % _max_alphamissense_score
+                # else:
+                #     genome_header['alphamissense_score'] = "%0.2f-%0.2f" % (
+                #         _min_alphamissense_score,_max_alphamissense_score)
+                genome_header['alphamissense_score'] = \
+                    _format_min_max(_min_alphamissense_score,_max_alphamissense_score,2)
+              
 
                 _min_ScanNetPPI, _max_ScanNetPPI = \
                     variant_isoform_helper.min_max_ScanNetPPI(variant_isoform_summaries)
@@ -852,7 +1018,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     variant_directory_segment=variant_directory, 
                     parent_report_row=variant_row,
                     local_log_level= "debug" if args.debug else "info" if args.verbose else "warn",
-                    vustruct_pipeline_launched= bool(vustruct_dict_for_jinja2['launch']['executable']),
+                    vustruct_pipeline_launched= bool(case_jinja2['vustruct']['launch']['executable']),
                     config_pathprox_dict=config_pathprox_dict
                     )
 
@@ -965,10 +1131,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             else:
                 print(msg)
 
-    # args.projectORstructure is an entire project UDN124356
-    case_summary_filename = os.path.join(case_root_dir,
-                                         "%s.html" % args.projectORstructure)
-    website_filelist.append(case_summary_filename)
 
     # It can easily be the case that we arrive here WITHOUT data because the pipeline is not launched.
     # In that case, we need to give an update on pipeline progress and NOT a table of results.
@@ -1029,25 +1191,19 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
         LOGGER.warning("DIEP %s missing.  Did you run DIEP?", diep_png_plot_filename)
         diep_png_plot_filename = None
 
-    case_report_template_location = os.path.dirname(os.path.realpath(__file__))
-    jinja2_environment = Environment(loader=FileSystemLoader(case_report_template_location))
-    case_report_template = jinja2_environment.get_template("case_report_template.html")
-
-    # print html_table
-    final_gathered_info = {'variant_isoform_summaries': variant_isoform_summaries,
+    # Add final things to go on case summary
+    case_jinja2.update({'variant_isoform_summaries': variant_isoform_summaries,
                            'genome_headers': genome_headers,
                            'early_or_fail_message': early_or_fail_message,
                            'refreshFlag': args.embed_refresh,
                            'refresh_interval_seconds': args.refresh_interval_seconds,
                            'seconds_remaining': args.seconds_remaining,
-                           'vustruct': vustruct_dict_for_jinja2,
+                           'vus': vustruct,
                            'vustruct_logs_info': vustruct_logs_info,
                            # 'firstGeneTable': html_table_generic,
                            # 'firstGeneReport': html_report_generic,
                            # 'secondGeneTable': html_table_familial,
                            # 'secondGeneReport': html_report_familial,
-                           'case': args.projectORstructure,
-                           "date": time.strftime("%Y-%m-%d"),
                            'disease1_variant_short_description': config_pathprox_dict[
                                'disease1_variant_short_description'],
                            'disease2_variant_short_description': config_pathprox_dict[
@@ -1055,24 +1211,24 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                            'digepred_html_filename': digepred_html_filename,
                            'digepred_gene_pairs': digepred_gene_pairs,
                            'diep_png_plot_filename': diep_png_plot_filename
-                           }
+                           })
     if LOGGER.isEnabledFor(logging.DEBUG):
         pp = pprint.PrettyPrinter(indent=1)
-        LOGGER.debug("Dictionary final_gathered_info to render:\n%s" % pp.pformat(final_gathered_info))
+        LOGGER.debug("Dictionary case_jinja2 to render:\n%s" % pp.pformat(case_jinja2))
 
-    html_out = case_report_template.render(final_gathered_info)
+    case_summary_filename = write_case_report_html(case_jinja2)
 
     # Remove vustruct_logs_info from the structure before we do more with it
     # Because we cannot convert the embedded dataframe to JSON here
-    del final_gathered_info['vustruct_logs_info']
+    del case_jinja2['vustruct_logs_info']
 
-    with open(case_summary_filename, "w") as f:
-        f.write(html_out)
     last_message = "The case summary report is: " + case_summary_filename
     case_summary_json = os.path.join(case_root_dir,
                                      "%s.json" % args.projectORstructure)
+
+    del case_jinja2['vus']
     with open(case_summary_json, 'w') as fp:
-        json.dump(final_gathered_info, fp)
+        json.dump(case_jinja2, fp)
 
 
     LOGGER.info("Writing website log/ files")
@@ -1080,7 +1236,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     html_out = vustruct_logs_template.render(vustruct_logs_info)
     vustruct_html_filename = os.path.join("log/", "index.html")
     website_filelist.append(vustruct_html_filename)
-    website_filelist.append(os.path.basename(case_missense_filename))
     with open(vustruct_html_filename, "w") as f:
         f.write(html_out)
 
@@ -1092,81 +1247,8 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     else:
         print(last_message)
 
-    if website_filelist:
-        try:
-            os.remove('index.html')  # First time through will gen an exception.  That's A-OK
-        except OSError:  # A-OK if file is not arleady there
-            pass
-        try:
-            index_html_symlink = case_summary_filename
-            # If our destiny is to later rename the main .html filename with the tar --transform to come, then
-            # we need to repoing index.html to the forthcoming renamed file
-            if args.strip_uuid and args.web_case_id:
-                index_html_symlink = args.web_case_id + '.html'
-            # The symlink fails when we are running in some vm environments - so we just copy in those cases
-            os.symlink(index_html_symlink, 'index.html')
-        except PermissionError:
-            LOGGER.info("Creating index.html as symlink failed in VM.  Attempting simpler cp operations")
-            shutil.copy(src=case_summary_filename, dst='index.html')
-            pass
-        website_filelist.append('index.html')
+    write_case_website_tar_zip(case_summary_filename)
 
-        website_filelist_filename = os.path.join(case_root_dir,
-                                                 "%s_website_files.list" % args.projectORstructure)  # The argument is an entire project UDN124356
-        with open(website_filelist_filename, "w") as f:
-            f.write('\n'.join((os.path.relpath(
-                website_file,  # os.path.realpath(website_file),
-                (os.path.realpath(os.path.join(config_dict['output_rootdir'], config_dict['collaboration']))))
-                for website_file in website_filelist)))
-        LOGGER.info("A filelist for creating a website is in %s", website_filelist_filename)
-        website_zip_filename = "%s.zip" % args.projectORstructure
-        if args.tar_only:
-            LOGGER.info("--tar_only requested.  %s will not be created." , website_zip_filename);
-        else:
-            pkzip_maker = 'rm -f %s; cd ..; cat %s | zip -r@ %s > %s.stdout; cd -' % (
-                website_zip_filename,
-                os.path.join(args.projectORstructure, website_filelist_filename),
-                os.path.join(args.projectORstructure, website_zip_filename),
-                os.path.join(args.projectORstructure, website_zip_filename))
-            LOGGER.info("Creating .zip website file with: %s", pkzip_maker)
-            subprocess.call(pkzip_maker, shell=True)
-
-        # The temp filename has a hideous UTC timestamp on it
-        website_tar_temp_filename = "%s_%s.tar.gz" % (
-            args.projectORstructure, 
-            datetime.datetime.now().replace(microsecond=0).isoformat().translate(str.maketrans('','',string.punctuation)))
-
-        website_tar_filename = "%s.tar.gz" % args.projectORstructure
-        tar_transformer = ''
-        if args.strip_uuid:
-            # We are replaceing the very complex uuid-embedded heirarchy filenames with user-friendly casename
-            case_id = args.web_case_id
-            uuid = args.strip_uuid
-            search_string = f"external_user_{case_id}_{uuid}/external_user_{case_id}_{args.strip_uuid}"
-            replace_string = f"external_user_{case_id}_{uuid}/{case_id}"
-            tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
-        tar_maker = 'cd ..; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -; mv %s %s; mv %s.stdout %s.stdout' % (
-            os.path.join(args.projectORstructure, website_tar_temp_filename),
-            os.path.join(args.projectORstructure, website_filelist_filename),
-            tar_transformer,
-            os.path.join(args.projectORstructure, website_tar_temp_filename),
-            website_tar_temp_filename,website_tar_filename,
-            website_tar_temp_filename,website_tar_filename)
-        LOGGER.info("Creating .tar website file with: %s", tar_maker)
-        subprocess.call(tar_maker, shell=True)
-
-        final_message = "Compressed website files are in "
-        if args.tar_only:
-            final_message += website_tar_filename
-        else:
-            final_message += "%s and %s" % ( website_zip_filename, website_tar_filename)
-
-        LOGGER.info(final_message);
-
-
-
-    # Create and save the supplemental written files to aid presentation
-    # - summary of summaries case spreadsheet
     # - plots for the PPI and ScanNet
     ppi_graph_xaxis_labels = []
     ppi_graph_values = []
@@ -1240,7 +1322,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     
             try:
                 _scannet_ppi = float(gh['ScanNetPPI'])
-            except ValueError as ve:
+            except (ValueError,TypeError) as ve:
                 _scannet_ppi = 0.0
             ppi_graph_values.append(_scannet_ppi)
     
