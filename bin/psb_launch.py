@@ -53,7 +53,7 @@ from bsub import bsub_submit
 from psb_shared import psb_config
 from psb_shared import psb_perms
 
-from vustruct import VUstruct
+from vustruct import VUStruct
 
 sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
@@ -85,7 +85,7 @@ cmdline_parser.add_argument("-n", "--nolaunch",
                             action="store_true")
 
 args, remaining_argv = cmdline_parser.parse_known_args()
-vustruct = VUstruct('launch', args.projectORworkplan, __file__)
+vustruct = VUStruct('launch', args.projectORworkplan, __file__)
 vustruct.stamp_start_time()
 vustruct.initialize_file_and_stderr_logging(args.debug)
 
@@ -530,6 +530,8 @@ fi
         @param launch_stdout_directory: "stdout" subdir of above.
         @return:
         """
+
+        global CONTAINER_TYPE # HACK FOR NAR
         with open(launch_filename, 'w') as slurm_f:
             self._write_launch_independent_comments(launch_filename, slurm_f, subdir)
 
@@ -592,6 +594,13 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 """)
 
+            if "PathProx" in subdir:
+                ## TERRIBLE HACK FOR NAR
+                save_type = CONTAINER_TYPE
+                CONTAINER_TYPE="Singularity"
+                self._write_launch_independent_environment(launch_filename, slurm_f, subdir)
+                CONTAINER_TYPE=save_type
+
             self._write_launch_independent_environment(launch_filename, slurm_f, subdir)
 
             self._write_launch_independent_cd(launch_filename, slurm_f, subdir)
@@ -614,7 +623,8 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 container_exec_prefix = ''
                 if "PathProx" in subdir:
                     ## TERRIBLE HACK FOR NAR
-                    container_exec_prefix = 'singularity exec /dors/capra_lab/users/mothcw/UDNtests/development.simg '
+                    # We're runnitng pathprox3, also hacked, outside the container we're launching
+                    container_exec_prefix = 'singularity exec /dors/capra_lab/users/mothcw/UDNtests/development.simg /dors/capra_lab/users/mothcw/psbadmin/pathprox/'
 
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
@@ -784,6 +794,9 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         df_updated_workstatus = df_updated_workstatus.merge(
             pd.DataFrame(list(self._exitcodes.items()), columns=['uniquekey', 'ExitCode']),
             on='uniquekey', how='left')
+
+        # Because arrayid is missing, we need to leave it as possibly not there
+        # df_update_workstatuis['arrayid'] = df_update_workstatuis['arrayid'].astype(int)
 
         return df_updated_workstatus.set_index(['uniquekey', 'jobid'], inplace=False)
 
@@ -999,13 +1012,14 @@ Created %s by command line:
     launcher_f.write('\n"""\n')
 
     launcher_f.write("""\
-import subprocess as sp
+import subprocess 
 import sys
 import re
 import csv
 import logging
 
 logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 """)
 
     bsub_submit_function_source_code = inspect.getsource(bsub_submit)
@@ -1060,18 +1074,25 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
         df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(args.projectORworkplan)
     else:
         # The argument is an entire project UDN124356
-        udn_csv_filename = os.path.join(collaboration_dir,
-                                        "%s_missense.csv" % args.projectORworkplan)
-        print("Retrieving project mutations from %s" % udn_csv_filename)
-        df_all_mutations = pd.read_csv(udn_csv_filename, sep=',', index_col=None,
+        vustruct_filename = os.path.join(collaboration_dir,
+                                        "%s_vustruct.csv" % args.projectORworkplan)
+        print("Retrieving project mutations from %s" % vustruct_filename)
+        df_case_vustruct_all_variants = pd.read_csv(vustruct_filename, sep=',', index_col=None,
                                        keep_default_na=False, encoding='utf8',
                                        comment='#', skipinitialspace=True)
-        df_all_mutations.fillna('NA', inplace=True)
-        print("Launching all jobs for %d mutations" % len(df_all_mutations))
+
+        # If this is new format, trim out non-missense variants
+        if 'effect' in df_case_vustruct_all_variants:
+            df_vustruct_missense_variants = df_case_vustruct_all_variants[ df_case_vustruct_all_variants['effect'].str.contains('missense') ]
+        else: # Old format is all missense.  Simple retain all of it
+            df_vustruct_missense_variants = df_case_vustruct_all_variants
+
+        df_vustruct_missense_variants.fillna('NA', inplace=True)
+        print("Launching all jobs for %d mutations" % len(df_vustruct_missense_variants))
 
         # For each variant in the case, create workstatus files, and gather job ids if
         # launching now.  Build up the custom launcher launcher_f script for a later launch
-        for index, row in df_all_mutations.iterrows():
+        for index, row in df_vustruct_missense_variants.iterrows():
             print("Launching %-10s %-10s %-6s" % (row['gene'], row['refseq'], row['mutation']))
             if 'GeneOnly' in row['refseq']:
                 row['refseq'] = 'NA'
