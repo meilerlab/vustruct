@@ -124,7 +124,7 @@ def report_one_variant_one_isoform(project: str,
 
     if not os.path.exists(variant_directory_fullpath):
         LOGGER.warning("The variant directory has not even been created via psb_plan yet,")
-        return {}, []
+        return {}, {}, []
 
     local_logger_fh = _initialize_local_logging_in_variant_directory(
         case_root_dir,
@@ -144,12 +144,14 @@ def report_one_variant_one_isoform(project: str,
             alphamissense_score = PDBMapAlphaMissense.score_from_uniprot_id(uniprot_id,variant)
             LOGGER.info("Alphamissense for %s %s = %s" % (uniprot_id, variant, alphamissense_score))
     if alphamissense_score is None: # Try to use ENST transcripts to get alphafold
-        enst_transcript_ids = parent_report_row['transcript'].split(';')
-        for transcript_id in enst_transcript_ids:
-            alphamissense_score = PDBMapAlphaMissense.score_from_ENSEMBL_isoform_id(transcript_id, variant)
-            LOGGER.info("Alphamissense for %s %s = %s" % (transcript_id, variant, alphamissense_score))
-            if alphamissense_score is not None:
-                break
+        # If the transcript has NO ensembl transcript IDs, then do not attempt this method
+        if parent_report_row['transcript']:
+            enst_transcript_ids = parent_report_row['transcript'].split(';')
+            for transcript_id in enst_transcript_ids:
+                alphamissense_score = PDBMapAlphaMissense.score_from_ENSEMBL_isoform_id(transcript_id, variant)
+                LOGGER.info("Alphamissense for %s %s = %s" % (transcript_id, variant, alphamissense_score))
+                if alphamissense_score is not None:
+                    break
     
     if alphamissense_score is not None:            
         alphamissense_score = np.round(alphamissense_score,2)
