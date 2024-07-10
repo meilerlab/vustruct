@@ -16,16 +16,22 @@ Given either a project name on the command line, or a single mutation workstatus
 file previously output from psb_launch.py (or prior run of psb_monitor.py),
 this script will report on the progress of the launched jobs for each mutation.
 
-psb_monitor.py interrogates the .../status and .../info directories of each
+psb_monitor.py interrogates the .../status and .../info directories of each individual
+job, when the workstatus file says the job is incomplete
 
-It could also be updated to  inquire status of slurm's "scontrol show job" feature
-HOWEVER - this is very slow - and ACCRE staff have requested we not do this
+After gathering information, the workstatus.csv file for each mutation is updated.
 
-The workstatus.csv file for each mutation is updated.
+A JSON file is created, which can in turn be read by the flask monitor - and 
+displayed to the user as job progress information, through the web system
 
-Configuration supplied by:
+Configuration is supplied by the usual:
      -c global.config file
      -u user.config overrides
+
+It could also be updated to  inquire status of slurm's "scontrol show job" feature
+HOWEVER - this is very slow - and ACCRE staff have requested we not do this.
+In 2024, I commented out this code.  It is largely replaced anyway by the squeue 
+monitoring of the web interface flask code.
 """
 
 print("%s: Pipeline monitor for launched jobs.  -h for detailed help."%__file__)
@@ -34,6 +40,7 @@ import logging,os,pwd,sys
 import time, datetime
 import argparse,configparser
 import pprint
+import json
 from logging.handlers import RotatingFileHandler
 from logging import handlers
 sh = logging.StreamHandler()
@@ -110,82 +117,109 @@ if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
 #  logging.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
 #  sys.exit(1)
 
-def monitor_one_mutation(workstatus_filename: str):
-    slurmInfoColumns = (['scontrolTimestamp','JobState','ExitCode','RunTime','TimeLimit',
-                                   'SubmitTime','EligibleTime','StartTime','EndTime',
-                                   'NodeList','BatchHost','NumNodes','NumCPUs','NumTasks','StdErr','StdOut','StdIn'])
+def monitor_one_mutation(workstatus_filename: str) -> dict:
+    # slurmInfoColumns = (['scontrolTimestamp','JobState','ExitCode','RunTime','TimeLimit',
+    #                                'SubmitTime','EligibleTime','StartTime','EndTime',
+    #                                'NodeList','BatchHost','NumNodes','NumCPUs','NumTasks','StdErr','StdOut','StdIn'])
     # set the type of all the slurmInfoColumns as string
-    type_dict = dict((c,str) for c in slurmInfoColumns)
+    # type_dict = dict((c,str) for c in slurmInfoColumns)
     # Load the status of jobs that was created by psb_launch.py (or prior run of psb_monitor.py)
     # Load the schedule of jobs that was created by psb_launch.py (or previous run of psb_monitor.py)
     # keep_default_na causes empty strings to come is as such, and non pesky nan floats
-    try:
-        df_all_jobs_status = pd.read_csv(workstatus_filename,delimiter='\t',dtype=str,keep_default_na=False)
-    except FileNotFoundError:
-        df_all_jobs_status = pd.DataFrame(columns=['uniquekey'])
+    #
+    #
+    # We create an output file that the vustruct_flask can pick up and efficiently massage and transfer
+    # out to dynamic web page 
+    json_for_vustruct_flask = {}
 
-    if len(df_all_jobs_status) > 0:
-        LOGGER.info("%d rows read from workstatus file %s"%(len(df_all_jobs_status),workstatus_filename))
+    try:
+        workstatus_file_df = pd.read_csv(workstatus_filename,delimiter='\t',dtype=str,keep_default_na=False)
+    except FileNotFoundError:
+        workstatus_file_df = pd.DataFrame(columns=['uniquekey'])
+
+
+    if len(workstatus_file_df) > 0:
+        LOGGER.info("%d rows read from workstatus file %s"%(len(workstatus_file_df),workstatus_filename))
     else:
         LOGGER.info("No jobs in workstatus file %s"%workstatus_filename)
  
-    df_all_jobs_status.set_index('uniquekey',inplace=True)
-    if len(df_all_jobs_status) < 1:
+    workstatus_file_df.set_index('uniquekey',inplace=True)
+    if len(workstatus_file_df) < 1:
         workstatus_filename_dirname = os.path.basename(os.path.dirname(os.path.normpath(workstatus_filename)))
         workstatus_file_basename = os.path.basename(workstatus_filename)
         message_text = "No rows(jobs) to monitor found in file %s."%os.path.join(
             workstatus_filename_dirname,workstatus_file_basename)
         print(message_text)
         LOGGER.info(message_text)
-        return pd.DataFrame()
+        return json_for_vustruct_flask # pd.DataFrame()
 
-    df_all_jobs_original_status = df_all_jobs_status.copy()
+    df_all_jobs_original_status = workstatus_file_df.copy()
 
 
-    # Life is easiest if we do not set the index until we are ready to update the df_all_jobs_status at
+    # Life is easiest if we do not set the index until we are ready to update the workstatus_file_df at
     # the end of the monitor check-in.
     # df_job updates is populated by not only slurm's scontrol command, but also the status directory
     # that is filled in with files 'complete', 'progress', and 'info'
     # When we run 'scontrol show job' we get a _LOT_ of things back.
     # For now grab lots of these things in a new dataframe
-    df_job_updates = pd.DataFrame(columns=['jobid','uniquekey'] + slurmInfoColumns)
+    # slurm_scontrol_df = pd.DataFrame(columns=['jobid','uniquekey'] + slurmInfoColumns)
+    #
+    # slurm_scontrol_df[slurmInfoColumns] = slurm_scontrol_df[slurmInfoColumns].astype(str)
+    df_job_updates = pd.DataFrame(columns=['jobid','uniquekey'])
+   
+    # Force all the columns to string to avoid conversions 
+    df_job_updates[df_job_updates.columns] = df_job_updates[df_job_updates.columns].astype(str)
     
-    df_job_updates[slurmInfoColumns] = df_job_updates[slurmInfoColumns].astype(str)
-    
-    
-    for index,row in df_all_jobs_status.iterrows():
+    for uniquekey,workstatus_row in workstatus_file_df.iterrows():
         # If we already have the ExitCode of the slurm job from prior run of this module
         # DO NOT attempt to further update.  There can be no new news after exit code arrives
-        uniquekey = index
-        jobid = row['jobid']
+        jobid = workstatus_row['jobid']
+
+        # Not all of these items arrive from workstatus_row
+        # For ddG calculations in the repo, these items are gathered
+        # below and the dictionary updated
+        json_for_vustruct_flask[uniquekey] = {
+            'jobid': jobid,
+            'arrayid': workstatus_row['arrayid'],
+            'jobinfo': workstatus_row['jobinfo'],
+            'jobprogress': workstatus_row['jobprogress'],
+            'ExitCode': workstatus_row['ExitCode']
+            } 
+ 
         interesting_info = {}
         interesting_info['uniquekey'] = uniquekey
         interesting_info['jobid'] = jobid
-        if ('ExitCode' in row) and row['ExitCode'] and (len(row['ExitCode']) >= 1) and (int(row['ExitCode']) == 0):
-            LOGGER.info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(row['ExitCode'])))
+
+        # We don't bother to get additional information from the happily completed jobs
+        if ('ExitCode' in workstatus_row) and workstatus_row['ExitCode'] and (len(workstatus_row['ExitCode']) >= 1) and (int(workstatus_row['ExitCode']) == 0):
+            LOGGER.info("%15s:%-20s Exit Code %s recorded previously"%(jobid,uniquekey,str(workstatus_row['ExitCode'])))
             continue
 
-        if 'Ddg' in row['flavor'] and 'repo' in row['outdir']:
-            repo_calculation_flavor = 'ddG_cartesian' if 'artesian' in row['flavor'] else 'ddG_monomer'
+        # We now attempt to find out more "interesting information" about in process jobs
+        # and we place this both on the stdout for comamnd line users and
+        # add to the json_for_vustruct_flask for web users
+
+        if 'Ddg' in workstatus_row['flavor'] and 'repo' in workstatus_row['outdir']:
+            repo_calculation_flavor = 'ddG_cartesian' if 'artesian' in workstatus_row['flavor'] else 'ddG_monomer'
             ddg_repo = DDG_repo(config_dict['ddg_config'],
                     calculation_flavor=repo_calculation_flavor)
 
-            if row['method'] == 'swiss':
-                ddg_repo.set_swiss(row['pdbid'],row['chain'])
-            elif row['method'] == 'modbase':
-                ddg_repo.set_modbase(row['pdbid'],row['chain'])
-            elif row['method'] == 'alphafold':
-                ddg_repo.set_alphafold(row['pdbid'],row['chain'])
-            elif row['method'] == 'usermodel':
-                ddg_repo.set_usermodel(row['pdbid'],row['chain'])
+            if workstatus_row['method'] == 'swiss':
+                ddg_repo.set_swiss(workstatus_row['pdbid'],workstatus_row['chain'])
+            elif workstatus_row['method'] == 'modbase':
+                ddg_repo.set_modbase(workstatus_row['pdbid'],workstatus_row['chain'])
+            elif workstatus_row['method'] == 'alphafold':
+                ddg_repo.set_alphafold(workstatus_row['pdbid'],workstatus_row['chain'])
+            elif workstatus_row['method'] == 'usermodel':
+                ddg_repo.set_usermodel(workstatus_row['pdbid'],workstatus_row['chain'])
             else:
-                ddg_repo.set_pdb(row['pdbid'].lower(),row['chain'])
+                ddg_repo.set_pdb(workstatus_row['pdbid'].lower(),workstatus_row['chain'])
 
-            ddg_repo.set_variant(row['pdbmut'])
+            ddg_repo.set_variant(workstatus_row['pdbmut'])
 
             ddg_monomer_or_cartesian = \
-                DDG_monomer(ddg_repo,row['pdbmut']) if repo_calculation_flavor == 'ddG_monomer' else \
-                DDG_cartesian(ddg_repo,row['pdbmut'])
+                DDG_monomer(ddg_repo,workstatus_row['pdbmut']) if repo_calculation_flavor == 'ddG_monomer' else \
+                DDG_cartesian(ddg_repo,workstatus_row['pdbmut'])
                 
 
             # Ask ddg_monomer to return information about the job
@@ -197,10 +231,10 @@ def monitor_one_mutation(workstatus_filename: str):
             # We dig down to the status directory outputs
             # The most reliable source of Exit=0 is the arrival of a completed file in the status directory
             progress_file_found = False
-            if "PP_" in row['flavor']:
-                statusdir = os.path.join(row['outdir'],row['flavor'],"status")
+            if "PP_" in workstatus_row['flavor']:
+                statusdir = os.path.join(workstatus_row['outdir'],workstatus_row['flavor'],"status")
             else: # For MusiteDeep and ScanNet we don't have an additional flavor directory
-                statusdir = os.path.join(row['outdir'],"status")
+                statusdir = os.path.join(workstatus_row['outdir'],"status")
             try:
                 with open("%s/progress"%statusdir) as progressfile:
                     status_text = progressfile.read().replace('\n','')
@@ -253,15 +287,17 @@ def monitor_one_mutation(workstatus_filename: str):
                     elif ':' in interesting_info.get('ExitCode',''):  # Slurm ExitCode format is exit:signal - get rid of signal
                         interesting_info['ExitCode'] = interesting_info['ExitCode'].split(':')[0]
                     info_as_series = pd.Series(data=interesting_info)
-                    df_job_updates = df_job_updates.append(info_as_series,ignore_index=True)
+                    slurm_scontrol_df = slurm_scontrol_df.append(info_as_series,ignore_index=True)
                 """ 
         ################################################################################
         # Whether interesting_info populated by the ddg* routines
         # Or by our monitoring of "our" jobs, update the dataframe with all news on
         # progress of the jobs 
+        # deprecated -> slurm_scontrol_df = slurm_scontrol_df.append(info_as_series,ignore_index=True)
+
         info_as_series = pd.Series(data=interesting_info)
-        # deprecated -> df_job_updates = df_job_updates.append(info_as_series,ignore_index=True)
         df_job_updates = pd.concat([df_job_updates,pd.DataFrame(info_as_series).transpose()],ignore_index=True)
+        json_for_vustruct_flask[uniquekey].update(interesting_info)
 
 
     previous_workstatus_filename = workstatus_filename + ".previous"
@@ -273,31 +309,32 @@ def monitor_one_mutation(workstatus_filename: str):
      
     
     
-    # If the slurmInfoColumns are not alreadt in df_all_jobs_status, then add those columns 
+    # If the slurmInfoColumns are not alreadt in workstatus_file_df, then add those columns 
     # will add them with NaN initializers.  If these columns are already there, do nothing
     # (I've tried concat (only works pre 0.20 pandas) and other things - and have 
     #  given up on elegant solutions)
-    for column in slurmInfoColumns:
-        if column not in df_all_jobs_status:
-            df_all_jobs_status[column] = None
+    # for column in slurmInfoColumns:
+    #     if column not in workstatus_file_df:
+    #         workstatus_file_df[column] = None
     
-    # Old idea failed on different versions: df_all_jobs_status = pd.concat([df_all_jobs_status,pd.DataFrame(columns=slurmInfoColumns)])
-    # Can't work because done at top: df_all_jobs_status.set_index(['uniquekey','jobid'],inplace=True)
+    # Old idea failed on different versions: workstatus_file_df = pd.concat([workstatus_file_df,pd.DataFrame(columns=slurmInfoColumns)])
+    # Can't work because done at top: workstatus_file_df.set_index(['uniquekey','jobid'],inplace=True)
  
     # This one here should work because we've not set the index before on it
     df_job_updates = df_job_updates.set_index('uniquekey')
     
-    # Take all the non-NA values from df_job_updates, and modify df_all_jobs_status to include them
-    df_all_jobs_original_status = df_all_jobs_status.copy()
-    # import pdb; pdb.set_trace()
-    df_all_jobs_status.update(df_job_updates)
-    df_incomplete = df_all_jobs_status[df_all_jobs_status['ExitCode'] != '0']
+    # Take all the non-NA values from slurm_scontrol_df, and modify workstatus_file_df to include them
+    df_all_jobs_original_status = workstatus_file_df.copy()
+
+
+    workstatus_file_df.update(df_job_updates)
+    df_incomplete = workstatus_file_df[workstatus_file_df['ExitCode'] != '0']
 
     # Are there any changes to what we know about the status of the jobs?
-    if df_all_jobs_original_status.to_string(header=False) == df_all_jobs_status.to_string(header=False):
+    if df_all_jobs_original_status.to_string(header=False) == workstatus_file_df.to_string(header=False):
         if len(df_incomplete) == 0:
             # This happens out to right of earlier printing...
-            print("   All %d jobs completed successfully"%len(df_all_jobs_status))
+            print("   All %d jobs completed successfully"%len(workstatus_file_df))
             return
         if "casewide" in workstatus_filename:
             print("     No updates to status of casewide jobs")
@@ -308,7 +345,7 @@ def monitor_one_mutation(workstatus_filename: str):
     
         print("\nRecording all updates to %s"%workstatus_filename)
         try:
-            df_all_jobs_status.to_csv(workstatus_filename,sep='\t',index=True)
+            workstatus_file_df.to_csv(workstatus_filename,sep='\t',index=True)
         except Exception as ex:
             # If we cannot save the new csv file, then we must (attempt to!) restore the old one!
             os.remove(workstatus_filename)
@@ -317,9 +354,9 @@ def monitor_one_mutation(workstatus_filename: str):
             sys.exit(1)
     
     if len(df_incomplete) == 0:
-        print("All %d jobs completed successfully"%len(df_all_jobs_status))
+        print("All %d jobs completed successfully"%len(workstatus_file_df))
     else:
-        print("%2d of %2d jobs still incomplete:"%(len(df_incomplete),len(df_all_jobs_status)))
+        print("%2d of %2d jobs still incomplete:"%(len(df_incomplete),len(workstatus_file_df)))
         print("%15s:%-25.25s  %s"%('Jobid','Flavor',"Info"))
         for index,row in df_incomplete.iterrows():
             infostring = ""
@@ -329,37 +366,51 @@ def monitor_one_mutation(workstatus_filename: str):
                 infostring = row['JobState']
     
             print("%15s:%-20s  %-20s"%(row['jobid'],index,infostring))
+
+    return json_for_vustruct_flask
     
 # Main logic here.  A period in the argument means the user wants to launch one mutation only,
 # directly from a single mutation output file of psb_plan.py
+all_mutations_json_for_vustruct_flask = {}
 if oneMutationOnly:
     monitor_one_mutation(args.projectORworkstatus)  #  The argument is a complete workstatus filename
 else:
-    udn_csv_filename = os.path.join(collaboration_dir,"%s_missense.csv"%args.projectORworkstatus) # The argument is an entire project UDN124356
+    udn_csv_filename = os.path.join(collaboration_dir,"%s_vustruct.csv"%args.projectORworkstatus) # The argument is an entire project UDN124356
     print("Retrieving project mutations from %s"%udn_csv_filename)
-    df_all_mutations = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
-    print("Monitoring all jobs for %d mutations"%len(df_all_mutations))
-    df_all_mutations.fillna('NA',inplace=True)
-    for index,row in df_all_mutations.iterrows():
-        # print without a newline - monitor_one_mutation will add one
-        print("%d of %d: %-10.10s %-14.14s %-6.6s"%(index+1,len(df_all_mutations),row['gene'],row['refseq'],row['mutation']), end=' ')
+    df_case_vustruct_all_variants = pd.read_csv(udn_csv_filename,sep=',',index_col = None,keep_default_na=False,encoding='utf8',comment='#',skipinitialspace=True)
+    print("Monitoring all jobs for %d mutations"%len(df_case_vustruct_all_variants))
+    df_case_vustruct_all_variants.fillna('NA',inplace=True)
+    # If this is new format, trim out non-missense variant rows from the vustruct file
+    if 'effect' in df_case_vustruct_all_variants:
+        df_vustruct_missense_variants = df_case_vustruct_all_variants[ df_case_vustruct_all_variants['effect'].str.contains('missense') ]
+    else: # Old format is all missense.  Simple retain all of it
+        df_vustruct_missense_variants = df_case_vustruct_all_variants
+
+    for index,row in df_vustruct_missense_variants.iterrows():
         if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
             row['refseq'] = 'NA'
-        mutation_dir = os.path.join(collaboration_dir,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
+        gene_refseq_mutation = "%s_%s_%s" % (row['gene'],row['refseq'],row['mutation'])
+        # print without a newline - monitor_one_mutation will add one
+        print("%d of %d: %-10.10s %-14.14s %-6.6s"%(index+1,len(df_case_vustruct_all_variants),row['gene'],row['refseq'],row['mutation']), end=' ')
+        mutation_dir = os.path.join(collaboration_dir,"%s"% gene_refseq_mutation)
         if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
-            logging.critical("The specific mutation directory %s should have been created by psb_status.py.  Fatal problem."%mutation_dir)
+            logging.critical("The specific mutation directory %s should have been created by psb_launch.py.  Fatal problem."%mutation_dir)
             sys.exit(1)
 
-        workstatus_filename = "%s/%s_%s_%s_workstatus.csv"%(mutation_dir,row['gene'],row['refseq'],row['mutation'])
+        workstatus_filename = "%s/%s_workstatus.csv"%(mutation_dir,gene_refseq_mutation)
         # print workstatus_filename
-        monitor_one_mutation(workstatus_filename)  #  The argument is a complete workstatus filename
+        all_mutations_json_for_vustruct_flask[gene_refseq_mutation] = monitor_one_mutation(workstatus_filename)  #  The argument is a complete workstatus filename
         print("-" * 80)
     # Finally monitor the job(s) under the casewide banner (Gene Dictionary creation)
     workstatus_filename = "casewide/casewide_workstatus.csv"
     if os.path.exists(workstatus_filename):
         # print workstatus_filename
         print("Casewide jobs.....                      ", end=' ')
-        monitor_one_mutation(workstatus_filename)  #  The argument is a complete workstatus filename
+        all_mutations_json_for_vustruct_flask['casewide'] = monitor_one_mutation(workstatus_filename)  #  The argument is a complete workstatus filename
     else:
         print("No casewide work (no %s) to monitor"%workstatus_filename)
     print("-" * 80)
+
+    json_filename = os.path.join(collaboration_dir,"%s_psb_monitor.json"%args.projectORworkstatus) # The argument is an entire project UDN124356
+    with open(json_filename,'w') as json_f:
+        json.dump(all_mutations_json_for_vustruct_flask, json_f, indent=4)
