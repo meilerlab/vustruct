@@ -131,7 +131,14 @@ if not 'gene' in genes_df.columns:
     LOGGER.error("%s does not include a gene column.  Aborting", args.genesfile)
     sys.exit(0)
 
-gene_list = genes_df['gene'].tolist()
+gene_list_with_possible_duplicates = genes_df['gene'].tolist()
+gene_set = set()
+gene_list = []
+for gene in gene_list_with_possible_duplicates:
+    if gene not in gene_set:
+        gene_set.add(gene)
+        gene_list.append(gene)
+
 
 
 singularity_command_list = [
