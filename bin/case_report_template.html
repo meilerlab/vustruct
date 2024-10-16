@@ -138,6 +138,10 @@
 		<th>Log Files</th>
 		<td><A href="./log"/>Click for log files</A></td>
 	</tr>
+	<tr>
+		<th>Supplemental Report Files</th>
+		<td><A href="./report_files"/>Click for supplemental report files</A></td>
+	</tr>
 
 </table>
 </div>
@@ -180,7 +184,7 @@ window.onload = showEndTime;
    </thead>
 	<tbody>
 
-{% for phase in ['preprocess', 'plan', 'launch'] %}
+{% for phase in ['preprocess', 'plan', 'launch', 'monitor'] %}
 {% if vustruct[phase] and vustruct[phase].executable and vustruct[phase].start_time %}
 		<tr>
                         <td>
@@ -222,7 +226,7 @@ window.onload = showEndTime;
         <h3 style="color:red;">Run has been halted</h3>
         {% endif %}
 
-        <!-- If we had a preprocess or plan failure, that's a big deal and we put a red box out there -->
+        <!-- If we had a kickoff preprocess or plan or launch failure, that's a big deal and we put a red box out there -->
         {% if module_failure_info %}
         <div style="border: 1px solid black; padding: 6px; margin: 3px; border-color: red;">  
 
@@ -241,6 +245,16 @@ window.onload = showEndTime;
             <li>Download the <a href={{ vustruct['plan'].input_filename }} download="{{vustruct['plan'].input_filename|filter_basename}}">Input file</a> </li>
             <li>Comment out offending lines with #</li>
             <li>Resubmit a new vustruct by selecting "vustruct" fileformat and uploading your edited file (Do NOT re-use a pre-processor)</li>
+        {% elif launch_failed %}
+            <h4 style="width:85%;color=red">
+            VUStruct's launch module has failed.</h4>  
+            <p>Details are in the output box below, and in the log file.</p>
+            <p>Please double check any suppled refseq identifiers, if supplied.  These must match uniprot cross-references.</p>
+            </p><p>To correct these problems, or work around them:
+            <ol>
+            <li>Download the <a href={{ vustruct['plan'].input_filename }} download="{{vustruct['plan'].input_filename|filter_basename}}">Input file</a> </li>
+            <li>Comment out offending lines with #</li>
+            <li>Resubmit a new vustruct by selecting "vustruct" fileformat and uploading your edited file (Do NOT re-use a pre-processor)</li>
             </ol>
         {% endif %}
 
@@ -250,6 +264,7 @@ window.onload = showEndTime;
 
         {% endif %} {# endif module_failure_info #}
 
+{% if not module_failure_info %}
  <button id="loadSqueueBtn">Refresh Cluster Jobs Information (slurm squeue)</button>
     <script>
         document.addEventListener("DOMContentLoaded", () => {
@@ -257,7 +272,7 @@ window.onload = showEndTime;
             const squeueTableBody = document.querySelector('#squeue-table tbody');
             fetchURL = new URL("vustruct/slurm_status", "https://staging.meilerlab.org/")
             fetchURL.searchParams.append('case_uuid',  "{{case_uuid}}");
-
+https://vucommodores.com/this-magic-moment/
             // loadSqueueBtn.innerHTML = fetchURL 
 
             loadSqueueBtn.addEventListener('click', () => {
@@ -272,6 +287,7 @@ window.onload = showEndTime;
                         // console.log("startup 3", gene_refseq_mutation, jobs);
                             for (const [unique_id, job] of Object.entries(json_data[gene_refseq_mutation])) {
                             const row = document.createElement('tr');
+://vucommodores.com/this-magic-moment/
                             row.innerHTML = `
                                 <td>${unique_id}</td>
                                 <td>${job.job_key}</td>
@@ -304,6 +320,8 @@ window.onload = showEndTime;
             <!-- Table rows will be added here -->
         </tbody>
     </table>
+   {% endif %} {# endif not module_failure_info #}
+
 
 
         {# {% if not (vustruct['plan'] and vustruct['plan'].executable and vustruct['plan'].start_time) %}: Structures and being selected.  Compute jobs are being planned.
@@ -326,8 +344,10 @@ window.onload = showEndTime;
 					<th class="sorter-false">Alpha</th>
 					<th class="sorter-false">ScanNet</th>
 					<th class="sorter-false">MusiteDeep</th>
+					<!--
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
-					<th class="sorter-false"></th> <!-- Above Notes -->
+                                        -->
+					<th class="sorter-false"></th> <!-- Blank Above Notes -->
 <!-- Sometimes for debugging - dump everything -
 					{% for colname in variant_isoform_summaries[0] %}
 					<th>{{ colname }}</th>
@@ -354,8 +374,10 @@ window.onload = showEndTime;
 					<th>Missense</th>
 					<th>PPI</th>
 					<th>PTM</th>
+					<!--
 					<th class="sorter-false">Generic</th>
 					<th class="sorter-false">Familial</th>
+					-->
 					<th class="sorter-false">Notes</th>
 				</tr>
 
@@ -451,11 +473,13 @@ window.onload = showEndTime;
 						{%endif %}
 					</td>
 
+					<!--
 					<td> {{ genome_header['Gene Interactions Generic'] }}
 					</td>
 
 					<td> {{ genome_header['Gene Interactions Familial'] }}
 					</td>
+					-->
 					<td> {{ genome_header['Error'] }}</td>
 
 					<!--
@@ -542,20 +566,24 @@ window.onload = showEndTime;
 
 					<td>
 						{% if isoform_summary['ScanNetPPI'] is not none %}
-						    {{ (isoform_summary['ScanNetPPI'][0]['Binding site probability']*100.0)|round(1) }} %
+						    {{ ( isoform_summary['ScanNetPPI'][0]['Binding site probability']*100.0)|round(0)|int }}%
 						{% endif %}
 					</td>
 
 
 					<td>
 						{% if isoform_summary['MusiteDeepPTM'] is not none %}
-						    {{ isoform_summary['MusiteDeepPTM'] }}
+                                                    {% for ptm_record in isoform_summary['MusiteDeepPTM'] %}
+                                                        {{ (ptm_record['PTM Probability'] * 100.0)|round(0)|int }}% at {{ ptm_record['PTM Residue'] }}: {{ ptm_record['PTM Type'] }}
+                                                        <br>
+				                    {% endfor %}
 						{%endif %}
 					</td>
 
 
-					<td /> <!-- skip 2 gene interaction columns -->
+					<!-- skip 2 gene interaction columns 
 					<td />
+					<td /> -->
 					<td> {{ isoform_summary['Error'] }} </td>
 				</tr>
 				{% endfor %}
@@ -581,7 +609,9 @@ window.onload = showEndTime;
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
 					<th class="sorter-false">Alpha</th>
+                                        <!--
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
+                                        -->
 					<th class="sorter-false"></th> <!-- Above Notes -->
 <!-- Sometimes for debugging - dump everything -
 					{% for colname in variant_isoform_summaries[0] %}
@@ -607,8 +637,10 @@ window.onload = showEndTime;
 					<th>Min</th>
 					<th>Max</th>
 					<th>Missense</th>
+                                        <!--
 					<th class="sorter-false">Generic</th>
 					<th class="sorter-false">Familial</th>
+                                        -->
 					<th class="sorter-false">Notes</th>
 				</tr>
 			</thead>
@@ -684,8 +716,10 @@ window.onload = showEndTime;
 					</td>
 
 
-					<td /> <!-- skip 2 gene interaction columns -->
-					<td />
+					<!-- If we ever return gene interaction columns put these 2 back
+					     <td />
+					     <td />
+                                        -->
 					<td> {{ isoform_summary['Error'] }} </td>
 
 
