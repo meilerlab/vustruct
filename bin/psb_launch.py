@@ -306,6 +306,7 @@ class JobsLauncher:
         self._jobinfo = {}
         self._jobprogress = {}
         self._exitcodes = {}
+        self._outputfiles = {} # The SLURM outputfiles, which we only know after we get a jobid
 
     @property
     def mutation_dir(self):
@@ -441,6 +442,7 @@ class JobsLauncher:
                 self._jobinfo[row['uniquekey']] = prior_success['jobinfo']
                 self._jobprogress[row['uniquekey']] = prior_success['jobprogress']
                 self._jobids[row['uniquekey']] = prior_success['jobid']
+                self._outputfiles[row['uniquekey']] = prior_success['outputfiles']
                 self._arrayids[row['uniquekey']] = prior_success['arrayid'] if ('arrayid' in prior_success) else 0
                 self._exitcodes[row['uniquekey']] = prior_success['ExitCode']
 
@@ -628,7 +630,9 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
-                slurm_f.write(container_exec_prefix + self._launch_strings[subdir][0][1])
+                uniquekey_launchstring = self._launch_strings[subdir][0]
+                slurm_f.write(container_exec_prefix + uniquekey_launchstring[1])
+                
 
                 slurm_f.write("\n")
             else:
@@ -795,6 +799,10 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
             pd.DataFrame(list(self._exitcodes.items()), columns=['uniquekey', 'ExitCode']),
             on='uniquekey', how='left')
 
+        df_updated_workstatus = df_updated_workstatus.merge(
+            pd.DataFrame(list(self._outputfiles.items()), columns=['uniquekey', 'outputfile']),
+            on='uniquekey', how='left')
+
         # Because arrayid is missing, we need to leave it as possibly not there
         # df_update_workstatuis['arrayid'] = df_update_workstatuis['arrayid'].astype(int)
 
@@ -881,11 +889,18 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                         # job_id = 999 # slurm_submit(['sbatch',slurm_file])
 
                 if not args.nolaunch:
+                    job_count = len(self._launch_strings[subdir])
+                    array_id = 0
                     for uniquekey_launchstring in self._launch_strings[subdir]:
                         self._jobids[uniquekey_launchstring[0]] = job_id
                         self._jobinfo[uniquekey_launchstring[0]] = 'Submitted'
                         self._jobprogress[uniquekey_launchstring[0]] = 'In queue'
                         self._exitcodes[uniquekey_launchstring[0]] = None
+                        self._outputfiles[uniquekey_launchstring[0]] = "%s/%s" % (
+                           launch_stdout_directory,
+                           (self._geneRefseqMutation_OR_casewideString + '_' +
+                           ("%d_%d" % (int(job_id), array_id)) if (job_count > 1) else '%d' % int(job_id)))
+                        array_id += 1
 
             # Now, finally, record "Submitted" in all the status info files
             for status_dir in self._status_dir_list:
