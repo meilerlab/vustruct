@@ -385,10 +385,15 @@ while i < dfRows:
                 if possible_refseq and type(possible_refseq) == str and refseq_match(possible_refseq):
                     refseq = possible_refseq
                 else:
-                    nextrow = df.iloc[i + 2]
-                    possible_refseq = str(nextrow[0]).strip()  # .encode('utf-8')
-                    if possible_refseq and type(possible_refseq) == str and refseq_match(possible_refseq):
-                        refseq = possible_refseq
+                    try:
+                         nextrow = df.iloc[i + 2]
+                         possible_refseq = str(nextrow[0]).strip()  # .encode('utf-8')
+                         if possible_refseq and type(possible_refseq) == str and refseq_match(possible_refseq):
+                            refseq = possible_refseq
+                    except IndexError as ex:
+                        LOGGER.warning("Past end of spreadsheet for Gene %s", possible_gene)
+                        refseq = None
+                         
 
             if refseq and len(refseq) > 0:
                 unpsForRefseq = PDBMapProtein.refseqNT2unp(refseq)
@@ -459,6 +464,9 @@ while i < dfRows:
             try:
                 change = df.iloc[i][
                     2].strip()  # Example A->G to right of chr1 (not using c.809A>G to right of pos in column C)
+
+                # Replace the annoying unicode with ascii
+                change = change.replace('→','>')
                 if '>' in change:
                    ref_alt = change.split('>')
                    if len(ref_alt) == 2:
@@ -474,6 +482,8 @@ while i < dfRows:
 
             if genome != 'hg19':
                 LOGGER.warning("GENOME IS SET TO %s for Row %d", genome, i)
+            if effect == 'Missense':
+                effect = 'missense'
             mutation_info = [gene, genome, chrom, pos, change, effect, refseq, mut if mut else effect, unp, inheritance,zygosity]
             LOGGER.info("Row %3d: %-8s Adding %s" % (i, gene, " ".join([str(x) for x in mutation_info])))
             csv_rows.append(mutation_info)
