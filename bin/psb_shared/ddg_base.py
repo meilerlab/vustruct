@@ -81,8 +81,14 @@ class DDG_base(object):
         """
         # Convert mutation to pose numbering for internal consistency
         rosetta_mutations = []  # List of mutations input to ddg
-
         mutation_resids = []
+        rosetta_residue_number_to_residue_xref = {}
+
+        # If we run psb_monitor early whilea job is PENding then the xfer JSON has not been created
+        # and that is not something to crash over.  Just return empty sets
+
+        if not self._ddg_repo.residue_to_clean_xref:
+           return mutation_resids,rosetta_mutations,rosetta_residue_number_to_residue_xref
         # Capture the inner bytes,123A of the S123AW format, as Biopython resid tuple
         for mutation in self._mutations:
             if mutation[-2].isalpha():  # Then Mutation is like ex: S123AF (Ser->Phe at res 123A)
@@ -111,7 +117,6 @@ class DDG_base(object):
 
         # Create a reverse lookup dictionary, mapping the 1..N rosetta resdiue numbers
         # back to source structure residue IDs (which might have insertion codes)
-        rosetta_residue_number_to_residue_xref = {}
         for residue, clean in self._ddg_repo.residue_to_clean_xref.items():
             try:
                 rosetta_residue_number = int(clean[1])
