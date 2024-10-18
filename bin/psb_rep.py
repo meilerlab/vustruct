@@ -208,6 +208,12 @@ LOGGER.info("Collaboration_absolute_dir = %s", collaboration_absolute_dir)
 case_root_dir = os.path.relpath(os.getcwd(), collaboration_absolute_dir)
 LOGGER.info("Relative to cwd=%s, case_root_directory= %s", os.getcwd(), case_root_dir)
 
+LOG_FILES_DIRECTORY="./log"
+
+# This module will create a summary .xlsx,and some graphics.
+# Might as well go ahead and create thier directory
+REPORT_FILES_DIRECTORY="./report_files"
+os.makedirs(REPORT_FILES_DIRECTORY, exist_ok=True)
 
 def copy_html_css_javascript():
     # The source html directory, and it's large set of supporting files, is located beneath the directory
@@ -271,7 +277,7 @@ def copy_html_css_javascript():
 # Return html long report
 # Return text that can be dumped to the log file
 def gene_interaction_report(case_root, case, CheckInheritance):
-    genepair_dict_file = os.path.join(case_root, 'casewide', 'DiGePred', '%s_all_gene_pairs_summary.json' % case)
+    genepair_dict_file = os.path.join('.', 'casewide', 'DiGePred', '%s_all_gene_pairs_summary.json' % case)
 
     try:
         with open(genepair_dict_file, 'r') as fd:
@@ -373,7 +379,7 @@ case_jinja2 = {
 # Change the displayed executable names from psb_ prefixes to vustruct_ prefixes
 # Because we have renamed these command line components
 # Also strip out any crazy leading path
-for phase in ['preprocess', 'plan', 'launch', 'report']:
+for phase in ['preprocess', 'plan', 'launch', 'monitor', 'report']:
     if phase in case_jinja2['vustruct']:
         python_exe_name = os.path.basename(case_jinja2['vustruct'][phase]['executable'])
         vustruct_display_name = python_exe_name.replace("psb_","vustruct_")
@@ -395,11 +401,14 @@ for command_line_module in case_jinja2['vustruct'].keys():
                 os.path.basename(input_filename)
 
 
-# We also try to place all outputs in a spreadsheet
+# The case_summary worksheet is an xlsx file that _drafts_ a report
+# for the clinical team.  It is a timesaver, and not final.
+# The idea is that the structural biologist will use this file as
+# a starting point for the final report
 case_workbook = Workbook()
 case_summary_worksheet = case_workbook.active
-case_summary_worksheet.title = args.projectORstructure
-case_summary_worksheet.name = "Sumamry"
+case_summary_worksheet.title = args.web_case_id if args.web_case_id else args.projectORstructure
+case_summary_worksheet.name = "Summary"
 case_summary_headers = [
 "Gene","Uniprot ID","Variant", "ddG", "PathProx 3D hotspot vs Clinvar", "PathProx 3D hotspot vs COSMIC",
 "ScanNet PPI", "Alpha Missense", "Musite PTM", "Predicted Digenic Interactions","Worth pursuing?","side notes"]
@@ -629,8 +638,8 @@ def write_case_website_tar_zip(case_summary_filename):
             # We are replaceing the very complex uuid-embedded heirarchy filenames with user-friendly casename
             case_id = args.web_case_id
             uuid = args.strip_uuid
-            search_string = f"external_user_{case_id}_{uuid}/external_user_{case_id}_{args.strip_uuid}"
-            replace_string = f"external_user_{case_id}_{uuid}/{case_id}"
+            search_string = f"/external_user_{case_id}_{args.strip_uuid}"
+            replace_string = f"/{case_id}"
             tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
         tar_maker = 'cd ..; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -; mv %s %s; mv %s.stdout %s.stdout' % (
             os.path.join(args.projectORstructure, website_tar_temp_filename),
@@ -758,10 +767,17 @@ else:
     # mutation_summaries = [] # Used to populate old format report, one line per gene
     genome_headers = []  # Used for new format report, with one line per gene, expandable to transcript isoforms
 
-    def _format_min_max(minval, maxval, decimal_places=2) -> str:
+    def _format_min_max(minval, maxval, decimal_places=2, is_pctg=False) -> str:
         if minval is None or math.isnan(minval): # Then they both have to be nans
             return ""
 
+        _fmtstr = "%0." + str(decimal_places) + "f"
+
+        if is_pctg:
+          minval *= 100.0
+          maxval *= 100.0
+          _fmtstr += "%%"
+            
         # Don't output a "-0.00"
         
         minval = round(minval, decimal_places)
@@ -772,8 +788,6 @@ else:
             maxval = 0.0
 
 
-        _fmtstr = "%0." + str(decimal_places) + "f"
-            
         try:
             # If they both round to the same string, then 
             # of course just output one, not a range
@@ -974,7 +988,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 if _max_ScanNetPPI is None:
                     genome_header['ScanNetPPI'] = None
                 else:
-                    genome_header['ScanNetPPI'] = _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI,1)
+                    genome_header['ScanNetPPI'] = _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI,0,True)
     
                 genome_header['MusiteDeepPTM'] = 0.0
 
@@ -984,7 +998,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 if _max_MusiteDeepPTM is None:
                     genome_header['MusiteDeepPTM'] = None
                 else:
-                    genome_header['MusiteDeepPTM'] = _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM,1)
+                    genome_header['MusiteDeepPTM'] = _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM,0,True)
 
                 genome_header['Error'] = max(
                     [variant_isoform_summary['Error'] for variant_isoform_summary in variant_isoform_summaries \
@@ -1022,7 +1036,11 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                     config_pathprox_dict=config_pathprox_dict
                     )
 
-                case_workbook.create_sheet(variant_directory)
+                try:
+                    case_workbook.create_sheet(variant_directory)
+                except ValueError as e:
+                    cleaned_variant_directory_name = variant_directory.encode('utf-8','ignore').decode("utf-8")
+                    case_workbook.create_sheet(cleaned_variant_directory_name.translate(str.maketrans('','',string.punctuation)))
 
                 if variant_isoform_summary:
                     ddg_xref_add(variant_row, variant_isoform_details)
@@ -1247,7 +1265,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     else:
         print(last_message)
 
-    write_case_website_tar_zip(case_summary_filename)
 
     # - plots for the PPI and ScanNet
     ppi_graph_xaxis_labels = []
@@ -1270,9 +1287,9 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 _format_min_max(vis['ddG Cartesian Min'],vis['ddG Cartesian Max']),
                 _format_min_max(vis['disease1_pp Min'],vis['disease1_pp Max']),
                 _format_min_max(vis['disease2_pp Min'],vis['disease2_pp Max']),
-                _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI),
+                _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI,0,True),
                 vis['alphamissense_score'],
-                _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM)]
+                _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM,0,True)]
                 case_summary_worksheet.append(row) 
 
         # End if NOT genome_headers
@@ -1284,7 +1301,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             canonical_unp_if_avail = ""
             variant_if_avail = ""
             vis = gh['variant_isoform_summaries']
+            _min_ScanNetPPI = 0.0
+            _max_ScanNetPPI = 0.0
             if len(vis) > 0:
+                _min_ScanNetPPI,_max_ScanNetPPI = variant_isoform_helper.min_max_ScanNetPPI(vis)
                 canonical_unp_if_avail = vis[0]['Unp'].split('-')[0]
                 # Later we can use MANE transcripts or others if 
                 # the canonical uniprot transcript is unaffected
@@ -1309,8 +1329,6 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                                        musite_deep_dict['PTM Type'], 
                                        musite_deep_dict['PTM Probability']]
                             ptm_df_rows.append(ptm_row)
-                                       
-                        
     
             if variant_if_avail:
                 # No need to include the variant AA in the tick.
@@ -1319,9 +1337,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 _ppi_graph_xaxis_label = gh['Gene']
     
             ppi_graph_xaxis_labels.append(_ppi_graph_xaxis_label)
-    
+
             try:
-                _scannet_ppi = float(gh['ScanNetPPI'])
+                # _scannet_ppi = float(gh['ScanNetPPI'])
+                _scannet_ppi = float(_max_ScanNetPPI)
             except (ValueError,TypeError) as ve:
                 _scannet_ppi = 0.0
             ppi_graph_values.append(_scannet_ppi)
@@ -1342,6 +1361,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
             case_summary_worksheet.append(row) 
         # END if genomeheaders:
 
+    # Do final population of the additional outputs and write them
     ddg_populate_worksheet(ddG_cartesian_worksheet, ddG_cartesian_xref)
     ddg_populate_worksheet(ddG_monomer_worksheet, ddG_monomer_xref)
             
@@ -1371,9 +1391,10 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     case_summary_worksheet.cell(row=max_row+5,column=11).value = "No"
 
 
-    _case_workbook_filename = args.projectORstructure+"_case.xlsx"
+    _case_workbook_filename = os.path.join(REPORT_FILES_DIRECTORY,args.projectORstructure+"_case.xlsx")
     LOGGER.info("Saving case summary of summary file: %s" , _case_workbook_filename)
     case_workbook.save(_case_workbook_filename)
+    website_filelist.append(_case_workbook_filename)
 
     # Now save the PPI column chart
     plt.bar(ppi_graph_xaxis_labels, ppi_graph_values)
@@ -1386,17 +1407,19 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     plt.axhline(0.5, color='black')
     plt.tight_layout()
    
-    _ppi_plot_filename = "PPI_%s.png" % args.projectORstructure
+    _ppi_plot_filename = os.path.join(REPORT_FILES_DIRECTORY,"PPI_%s.png" % args.projectORstructure)
     LOGGER.info("Saving PPI plot file: %s", _ppi_plot_filename)
     plt.savefig(_ppi_plot_filename, dpi=600)
+    website_filelist.append(_ppi_plot_filename)
     # plt.show()
 
     # Now save the PTM dataframe
     ptm_df = pd.DataFrame(ptm_df_rows,columns=ptm_df_columns)
-    _ptm_neighborhood_filename = "PTM_%s_neighborhood.csv" % args.projectORstructure
+    _ptm_neighborhood_filename = os.path.join(REPORT_FILES_DIRECTORY,"PTM_%s_neighborhood.csv" % args.projectORstructure)
     LOGGER.info("Saving PTM file: %s", _ptm_neighborhood_filename)
     ptm_df.to_csv(_ptm_neighborhood_filename, index=None)
+    website_filelist.append(_ptm_neighborhood_filename)
 
-
+    write_case_website_tar_zip(case_summary_filename)
 
 sys.exit(0)
