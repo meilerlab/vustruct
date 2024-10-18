@@ -22,6 +22,17 @@
 	<!-- Tablesorter: optional -->
 	<!-- <script type="text/javascript" src="../html/javascript/tablesorter/js/extras/jquery.tablesorter.pager.min.js"></script> -->
 
+    <!-- right and down chevrons for open and close icons in tablesorter -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+    <symbol style="color: black; vertical-align:top; display: block;" width="1em" height="1em" fill="currentColor" stroke="#000000" class="bi bi-chevron-right" id="bi-chevron-right" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+    </symbol>
+    <symbol style="color: black; vertical-align: top; display: block;"  width="1em" height="1em" fill="currentColor" stroke="#000000" class="bi bi-chevron-down" id="bi-chevron-down" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+    </symbol>
+    </svg>
+
+
 
       <link rel="stylesheet" href="../html/css/typography.css" />
 		<style media="print" type="text/css">
@@ -183,7 +194,16 @@ img {
 
 
 <body>
-<!-- Navigation panel of all structures on top left of window -->
+<!-- Navigation panel of all structures to top left of window 
+     The form of the navbar, and flow of the web page generally is:
+     Home
+     Structure Report
+     Structure 1
+     Structure 2
+     Structure N
+     Calculation Logs
+-->
+     
 <div class="w3-sidebar w3-bar-block w3-light-grey w3-card" style="width:14%">
   <a href="#" class="w3-bar-item w3-button">Home</a> 
   <a href="#StructureReport" class="w3-bar-item w3-button">Structure Report</a> 
@@ -191,11 +211,14 @@ img {
   <a href="#{{ structure.html_div_id }}" class="w3-bar-item w3-button">
 	  {{ structure.structure_id}} {{structure.mers}}</a>
 {% endfor %}
-
-<!-- show a doman graphic at top of main section -->
+  <a href="#CalculationLogs" class="w3-bar-item w3-button">Calculation Logs</a> 
 
 </div>
+
+
+<!-- This outer div starts the main webpage area to right of Nav Bar -->
 <div style="margin-left:15%">
+<!-- show a doman graphic at top of main section -->
 <!-- This is where the domain graphic is targetted with canvas, by underlying routines -->
 <table class="w3-table" style="width:50%">
 	<tr>
@@ -686,11 +709,64 @@ img {
 			{% endfor %}     {# for loop over all structures #}
 
 
-
-
-
-
+<!-- End the div encompassing everything after the domain graphics iframe -->
 </div>
+
+<!-- Present all the log files for all the structures analyzed for the transcript -->
+<hr id="CalculationLogs">
+<div class="container">
+    <h3>Calculation Logs</h3>
+<table cellspacing="1" class="tablesorter">
+    <thead>
+        <tr>
+            <th>Method</th>
+            <th>Structure Id</th>
+            <th>Multimer?</th>
+            <th>Chain</th>
+            <th>Calculation</th>
+            <th>Log File</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for structure_calculation_log in structure_calculation_logs %} 
+    <tr class="tablesorter-hasChildRow">
+                   <td class="toggle">
+                        <svg height="1em" width="1em" class="bi-chevron-right toggle">
+                            <use xlink:href="#bi-chevron-right"></use>
+                        </svg>
+                        <svg height="1em" width="1em" class="bi-chevron-down toggle">
+                          <use xlink:href="#bi-chevron-down"></use>
+                        </svg>
+                    </td>
+
+        <td>{{ structure_calculation_log.method }}</td>
+        <td>{{ structure_calculation_log.structure_id }}</td>
+        <td>{{ structure_calculation_log.mers }} </td> 
+        <td>{{ structure_calculation_log.chain_id }}</td>
+        <td />
+        <td />
+    </tr>
+
+    {# Child rows for the actual calculation results #}
+    {% for calculation in structure_calculation_log.workstatuses %}
+    <tr class="tablesorter-childRow">
+      <td />
+      <td />
+      <td />
+      <td />
+      <td>{{ calculation.flavor }}</td>
+
+
+		<td><A href="{{calculation.outputfile}}">Log File</A></td>
+    </tr>
+    {% endfor %}
+
+    {% endfor %}
+    </tbody>
+</table>
+</div>  <!-- End table of all structures at top of report -->
+
+<!-- End the outer div to right of Navbar -->
 </div>
 </body>
 </html>
