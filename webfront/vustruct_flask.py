@@ -61,6 +61,9 @@ from flask import jsonify
 from flask import Blueprint
 from flask import current_app
 from flask import make_response
+
+# from flask_script import Manager, Server
+
 from werkzeug.exceptions import HTTPException
 import werkzeug
 werkzeug.serving._log_add_style = False
@@ -126,7 +129,28 @@ logging.config.dictConfig({
         'handlers': ['stderr', 'rotating_to_file']
     }
 })
+
+# CaseManager is still defined inside this file
+# from case_manager import CaseManager
+
+
+# We need to load the cases ONLY once
+# trying idea from 
+# https://stackoverflow.com/questions/27465533/run-code-after-flask-application-has-started
+
+class MyFlaskApp(Flask):
+  def run(self, host=None, port=None, debug=None, load_dotenv=True, **options):
+      if not self.debug or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
+          with self.app_context():
+              self.config['myFlaskHasStarted'] = True
+      super(MyFlaskApp, self).run(host=host, port=port, debug=debug, load_dotenv=load_dotenv, **options)
+
+
 app = Flask(__name__)
+if __name__ == '__main__':
+    app.run(debug=True, use_reloader=False)
+
+# app = Flask(__name__)
 
 app.logger.info("Flask app created with Flask(\'%s\')" % __name__)
 app.logger.info("Logging level %d is additionally output to %s" % (app.logger.getEffectiveLevel(), LOG_FILENAME))
@@ -443,11 +467,14 @@ def global_squeue_df_refresh_thread() -> None:
         app.logger.info("Next squeue refresh in %d seconds" % _sleep_seconds)
         time.sleep(_sleep_seconds)
         global_squeue_df_refresh()
-    
-global_squeue_df_refresh()    
 
-squeue_refresh_thread = threading.Thread(target=global_squeue_df_refresh_thread)
-squeue_refresh_thread.start()
+squeue_refresh_thread = None
+    
+if os.environ.get("WERKZEUG_RUN_MAIN"):
+    global_squeue_df_refresh()    
+
+    squeue_refresh_thread = threading.Thread(target=global_squeue_df_refresh_thread)
+    squeue_refresh_thread.start()
 
 
 # An unhandled exception demands a total shutdown of this process
@@ -496,9 +523,11 @@ class CaseManager:
     _static_vustruct_member_strings_and_ints = [
         'case_id',
         'case_uuid',
+        'email', 
         'last_module_launched',   # One of preprocess, plan, launch
         'last_module_returncode', # If non-zero, then that means we died at that point and did not coninue to launch
         'upload_file_URI',
+        'vustruct_csv',
         'last_psb_rep_start',
         'last_psb_rep_end',
         'last_psb_monitor_end',
@@ -518,6 +547,8 @@ class CaseManager:
         # the vustruct "proprocess", "plan", "launch", "report"
         self.last_module_returncode = 0
         self.upload_file_URI = ""
+        self.vustruct_csv = ""
+        self.email = ''
 
         # The running of psb_rep is particularly important.
         self.last_psb_rep_start = ""
@@ -669,33 +700,46 @@ class CaseManager:
         app.logger.info("Creating .tar website file with: %s", tar_maker)
         subprocess.call(tar_maker, shell=True)
 
-    def fetch_input_file(self,file_extension: str) -> str:
+    def fetch_input_file(self,file_extension_including_period: str) -> str:
         """
         Retury a string if this fails because of problems with wordpress caller
         """
-        if not self.upload_file_URI:
-            self.create_failure_website(body_html=\
+
+        user_input_file_contents = None
+
+        app.logger.info("REMOVE THIS %s\n%s", self.data_format, self.vustruct_csv)
+
+        # Data can arrive from website as either a URI to an uploaded file,
+        # Or as the text of a vustruct.csv format file, input into the webform
+        if self.data_format == 'Demonstration VUStruct CSV':
+            user_input_file_contents = self.vustruct_csv.encode()
+        else: # We have to fetch it....
+            if not self.upload_file_URI:
+                self.create_failure_website(body_html=\
 """<H1>VUStruct failure while transferring your input file</H1>
 <p>Please use your browser back button.  Then, reselect your input file</p>""",
         				website_filelist = ['index.html'])
 
-            return "Input file URI did not transfer"
+                return "Input file URI did not transfer"
 
-        app.logger.info("Attempting to load uploaded file from %s", self.upload_file_URI)
+            app.logger.info("Attempting to load uploaded file from %s", self.upload_file_URI)
 
-        # Usually we "get" the spreadsheet from wordpress using http
-        # It is convenient to be able to test all this with local files
-        _session = requests.Session()
-        _session.mount('file://', FileAdapter())
-        response = _session.get(self.upload_file_URI)
+            # Usually we "get" the spreadsheet from wordpress using http
+            # It is convenient to be able to test all this with local files
+            _session = requests.Session()
+            _session.mount('file://', FileAdapter())
+            response = _session.get(self.upload_file_URI)
+            user_input_file_contents = response.content
 
-        # Write out the uploaded spreadseet or vcf in the final directory where it will be run
+        # Write out the uploaded csv, spreadseet or vcf in the final directory where it will be run
         final_VUStruct_input_filename = os.path.join(
               self.working_directory,
-             "%s.%s" % (self.external_user_prefix, file_extension))
+             "%s%s" % (self.external_user_prefix, file_extension_including_period))
 
         with open(final_VUStruct_input_filename, "wb") as f:
-            f.write(response.content)
+            f.write(user_input_file_contents)
+
+        app.logger.info("%d bytes written to %s" % (len(user_input_file_contents), final_VUStruct_input_filename))
 
         return None
 
@@ -751,17 +795,17 @@ class CaseManager:
             app.logger.error('%s file must be present for psb_plan - but it is not there', self.vustruct_filename)
             return 1
 
-        launch_parse_command = "psb_plan.py"
-        app.logger.info("Running: %s" % launch_parse_command)
+        launch_plan_command = "psb_plan.py"
+        app.logger.info("%s Running: %s" , threading.get_ident(), launch_plan_command)
 
-        launch_parse_return = \
-            subprocess.run(launch_parse_command, shell=False, encoding='UTF-8',
+        launch_plan_return = \
+            subprocess.run(launch_plan_command, shell=False, encoding='UTF-8',
                        cwd = self.working_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        app.logger.debug("%s finshed with exit code %s", launch_parse_command, launch_parse_return.returncode)
+        app.logger.debug("%s %s finshed with exit code %s", threading.get_ident(), launch_plan_command, launch_plan_return.returncode)
 
 
-        return self.last_module_returncode
+        return launch_plan_return.returncode
 
     @staticmethod
     def _parse_job_id_array_id_from_row(job_status_row) -> Tuple[int, int]:
@@ -904,14 +948,14 @@ class CaseManager:
         # psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/VUStruct/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
         psb_launch_command = ['psb_launch.py', '--nolaunch']
 
-        app.logger.info("Running: %s from directory:\n%s" % (psb_launch_command, self.working_directory))
+        app.logger.info("%s Running: %s from directory:\n%s", threading.get_ident(), psb_launch_command, self.working_directory)
 
         psb_launch_return = \
             subprocess.run(psb_launch_command, shell=False, encoding='UTF-8',
                        cwd = self.working_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-        app.logger.debug("%s finshed with exit code %s", psb_launch_command, psb_launch_return.returncode)
+        app.logger.debug("%s %s finshed with exit code %s", threading.get_ident(), psb_launch_command, psb_launch_return.returncode)
         if psb_launch_return.returncode != 0:
             app.logger.critical("stdout=\n%s\n---stderr=\n%s" % (psb_launch_return.stdout, psb_launch_return.stderr))
 
@@ -1031,7 +1075,9 @@ class CaseManager:
             subprocess.run(psb_rep_command_line, shell=False,
                        cwd = self.working_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        app.logger.info("psb_rep: Returned %d from %s", launch_psb_rep_return.returncode, ' '.join(psb_rep_command_line))
+        app.logger.info("%s psb_rep: Returned %d",
+                        threading.get_ident(),
+                        launch_psb_rep_return.returncode)
 
         # Did psb_rep fail utterly?
         if launch_psb_rep_return.returncode != 0:
@@ -1189,38 +1235,44 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
         flask_case.last_module_returncode = 1
         # With the VUStruct format, we have skipped preprocess
         # And we just need to copy in our _vustruct.csv
-        if flask_case.data_format == 'VUStruct CSV':
+        if flask_case.data_format == 'VUStruct CSV' or flask_case.data_format == 'Demonstration VUStruct CSV':
             flask_case.last_module_launched = 'plan'
-            _fetch_error_msg = flask_case.fetch_input_file('csv')
+            _fetch_error_msg = flask_case.fetch_input_file('_vustruct.csv')
             if not _fetch_error_msg:
                 flask_case.last_module_returncode = 1
         else:
-            # If we need to preprocess (parse) an input to create a missense file
+            # If we need to preprocess (parse) an input to create a vustruct.csv file
             # Jump on that first and set last_module_launched to 'preprocess'
             # If no preprocessing is required by the user, then we flow through 
-            # to psb_plan and process the missense.csv files...
+            # to psb_plan and process the vustruct.csv files...
             flask_case.last_module_returncode = 0
             if flask_case.data_format == 'Vanderbilt UDN Case Spreadsheet':
                 flask_case.last_module_launched = 'preprocess'
-                _fetch_error_msg = flask_case.fetch_input_file('xlsx')
+                _fetch_error_msg = flask_case.fetch_input_file('.xlsx')
                 if not _fetch_error_msg:
                     flask_case.last_module_returncode = flask_case.parse_udn_report()
             elif flask_case.data_format == 'VCF GRCh38':
                 flask_case.last_module_launched = 'preprocess'
-                _fetch_error_msg = flask_case.fetch_input_file('vcf')
+                _fetch_error_msg = flask_case.fetch_input_file('.vcf')
                 if not _fetch_error_msg:
                     flask_case.last_module_returncode = flask_case.vcf2vustruct()
             elif flask_case.data_format == 'VCF GRCh37 (runs liftover)':
                 flask_case.last_module_launched = 'preprocess'
-                _fetch_error_msg = flask_case.fetch_input_file('vcf')
+                _fetch_error_msg = flask_case.fetch_input_file('.vcf')
                 if not _fetch_error_msg:
                     flask_case.last_module_returncode = flask_case.vcf2vustruct_with_liftover()
             elif flask_case.data_format == 'WUSTL Case Spreadsheet':
                 flask_case.last_module_launched = 'preprocess'
-                _fetch_error_msg = flask_case.fetch_input_file('xlsx')
+                _fetch_error_msg = flask_case.fetch_input_file('.xlsx')
                 if not _fetch_error_msg:
                     flask_case.last_module_returncode = flask_case.parse_wustl()
+            else:
+                app.logger.info("Exiting launch_flask_case_thread() with unrecognized data format", flask_case.data_format)
+                return None
+
+            # Save progress of thread in the event of a restart of vustruct_flask.py
             flask_case.save_as_json()
+          
 
     if not _fetch_error_msg and flask_case.last_module_returncode == 0:
         # Read the resulting pipeline input vustruct.csv file into our DataFrame
@@ -1247,6 +1299,7 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
         # This thread must exit and the global dictionary of active cases cleared
         if preprocess_returncode != 0:
             GlobalActiveCases.mark_final_website_update(flask_case.case_uuid)
+            app.logger.info("%s: Exiting flask thread following preprocess failure" , threading.get_ident())
             return None
     
 
@@ -1256,35 +1309,43 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
 
 
     # Whether directly, or by a preprocess step - we now psb_plan
-    flask_case.last_module_returncode = flask_case.psb_plan()
-    flask_case.last_module_error_message = ""
-    if flask_case.last_module_returncode != 0:
+    plan_returncode = flask_case.psb_plan()
+    flask_case.last_module_returncode = plan_returncode
+    
+    # As with successful preprocess, we need to run psb_rep now that psb_plan has finished
+    # so that the OTHER flask program will install the growing website if it comes to that.
+    # HOWEVER, the psb_rep program must note if the parse process has terminated with bad exit code
+    # and take that into consideration.  In the event of error return code, we return from this launch_thread
+    # and we populate the report with last_flag set because there are not going to be any more psb_rep.py calls
+    launch_psb_rep_retcd = flask_case.psb_rep(last_flag = (flask_case.last_module_returncode != 0),refresh_interval_seconds=10)
+
+    if launch_psb_rep_retcd != 0:
+        flask_case.last_report_error = "psb_rep.py for %s failed with %s" % \
+                                             (flask_case.case_uuid, launch_psb_rep_retcd)
+    # In the event the preprocessor failed, then the case has finished.
+    # This thread must exit and the global dictionary of active cases cleared
+    if plan_returncode != 0:
         flask_case.last_module_error_message = "psb_plan failed.  Review log files"
+        GlobalActiveCases.mark_final_website_update(flask_case.case_uuid)
+        app.logger.info("%s: Exiting flask thread following plan failure" , threading.get_ident())
         return None
 
 
     flask_case.save_as_json()
 
-    # Error or not with psb_plan...
-    # Now that we did psb_plan, we need to report
-    # So that the user sees psb_plan is complete, can review logs, etc.
-    launch_psb_rep_retcd = flask_case.psb_rep(refresh_interval_seconds=20)
-
-    if launch_psb_rep_retcd != 0:
-        flask_case.last_report_error = "psb_rep.py for %s failed with %s" % \
-                                         (flask_case.case_uuid, launch_psb_rep_retcd)
-
 
     # Plan can fail for lots of reasons.  In that case, user will see that the case is over
     # and we halt flask case management right here
-    if flask_case.last_module_returncode != 0:
-        return None
+    # THIS CODE SHOULD NOT BE TAKEN - but I leave it in for now
+    # if flask_case.last_module_returncode != 0:
+    #     return None
 
     # Now we need to do launch (create the .slurm files as first step)
     # and the same code runs the generated ./launch...py outside the container
 
     flask_case.last_module_launched = 'launch'
-    flask_case.last_module_returncode = flask_case.psb_launch()
+    launch_returncode = flask_case.psb_launch()
+    flask_case.last_module_returncode = launch_returncode
     flask_case.last_module_error_message = ""
     if flask_case.last_module_returncode != 0:
         flask_case.last_module_error_message = "LATER Add error message for psb_launch please"
@@ -1296,7 +1357,11 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
     if launch_psb_rep_retcd != 0:
         flask_case.last_report_error = "psb_rep.py for %s failed with %s" % \
                                          (flask_case.case_uuid, launch_psb_rep_retcd)
-    if flask_case.last_module_returncode != 0:
+
+    if launch_returncode != 0:
+        flask_case.last_module_error_message = "psb_plan failed.  Review log files"
+        GlobalActiveCases.mark_final_website_update(flask_case.case_uuid)
+        app.logger.info("%s: Exiting flask thread following launch failure" , threading.get_ident())
         return None
 
     monitor_report_loop(flask_case)
@@ -1345,10 +1410,11 @@ def require_authn(func):
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! #
 #  Restart after a halted session - super important    #
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! #
-GlobalActiveCases.reload_from_save_file()
+#
+# Try something ULTRA cheezy to make this work
 
-
-
+if os.environ.get("WERKZEUG_RUN_MAIN"):
+    GlobalActiveCases.reload_from_save_file()
 
 # Simply getting back a response can tell caller
 # That we are running
@@ -1434,6 +1500,7 @@ def launch_vustruct():
     flask_case.data_format = request.json['data_format']
 
     known_data_formats = [
+        'Demonstration VUStruct CSV',
         'VUStruct CSV',
         'VCF GRCh38',
         'VCF GRCh37 (runs liftover)',
@@ -1454,6 +1521,11 @@ def launch_vustruct():
 
     if 'upload_file_URI' in request.json:
         flask_case.upload_file_URI = request.json['upload_file_URI']
+    if 'vustruct_csv' in request.json:
+        flask_case.vustruct_csv = request.json['vustruct_csv']
+    if 'email' in request.json:
+        flask_case.email = request.json['email']
+
 
     # This so far has been very quick.  Now run the background thread to run the entire pipeline
     # Return to caller immediately of course.
