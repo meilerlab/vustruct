@@ -202,6 +202,7 @@ def report_one_variant_one_isoform(project: str,
     # Though now, we need to think through the progress of jobs and how to display that
     # progress
     calculation_results_loader = {}
+    structure_calculation_logs = []
     if vustruct_pipeline_launched:
         calculation_results_loader = CalculationResultsLoader(
             case_root_dir,
@@ -211,6 +212,55 @@ def report_one_variant_one_isoform(project: str,
         calculation_results_loader.load_dataframes()
         additional_website_files = calculation_results_loader.load_structure_graphics_dicts()
         website_filelist.extend(additional_website_files)
+
+        # build in-memory list of structures, and their calculations
+        # for the Calculation Logs section of the web page
+        if calculation_results_loader.structure_graphics_dicts:
+            for structure_graphic_dict in calculation_results_loader.structure_graphics_dicts:
+                calculation = {}
+                calculations = []
+                structure = {
+                    'structure_id': structure_graphic_dict['structure_id'],
+                    'chain_id': structure_graphic_dict['chain_id'],
+                    'mers': structure_graphic_dict['mers'], # Multimeric state
+                    'method': structure_graphic_dict['method']}
+
+                # To mine the workstatus_df for ONLY the calculations that apply to _this_ particular structure, we have a little work to do.
+                # For sanity, let's make a _ws_df alias
+                _ws_df = calculation_results_loader.workstatus_df
+             
+                # We want a dataframe of calculation results that is ONLY for _this_ structure
+                _structure_ws_df = _ws_df.loc[
+                   (_ws_df['pdbid'] == structure['structure_id']) &
+                   (_ws_df['chain'] == structure['chain_id']) &
+                   (_ws_df['mers'] == structure['mers']) &
+                   (_ws_df['method'] == structure['method'])]
+
+                structure['workstatuses'] = [] # Fix this Friday!
+                for unique_key, workstatus_row in _structure_ws_df.iterrows():
+                    workstatus_row_dict = workstatus_row.to_dict()
+                    gene_refseq_mutation = "%s_%s_%s" % (
+                           workstatus_row_dict['gene'],
+                           workstatus_row_dict['refseq'],
+                           workstatus_row_dict['mutation'])
+                    slurm_output_file = os.path.join(
+                        './slurm',
+                        workstatus_row_dict['flavor'],
+                        'stdout',
+                        '%s_%d' % (
+                           gene_refseq_mutation,
+                           int(workstatus_row_dict['jobid']))
+                        ) # end os.path.join()
+
+                    if len(workstatus_row_dict['arrayid']) > 0:
+                        slurm_output_file += '_%s' % int(float(workstatus_row_dict['arrayid']))
+                    slurm_output_file += '.out'
+                    workstatus_row_dict['outputfile'] = slurm_output_file
+                    website_filelist.append(os.path.join(".",gene_refseq_mutation,slurm_output_file))
+
+                    structure['workstatuses'].append(workstatus_row_dict)
+
+                structure_calculation_logs.append(structure)
 
     # Various data max/min/etc computations from the gathered data, which are great to return to the caller
     # and also useful to compose the report.
@@ -253,7 +303,8 @@ def report_one_variant_one_isoform(project: str,
         # html template references disease variant strings like clinvar/cosmic...
         'config_pathprox_dict': config_pathprox_dict,
         'rate4site_dict': rate4site_dict,
-        'cosmis_dict': cosmis_dict
+        'cosmis_dict': cosmis_dict,
+        'structure_calculation_logs': structure_calculation_logs
     }
 
 
