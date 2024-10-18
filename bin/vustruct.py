@@ -69,6 +69,7 @@ class VUStruct:
             'preprocess',
             'plan',
             'launch',
+            'monitor',
             'report']
 
         assert vustruct_module in possible_vustruct_modules
@@ -156,7 +157,7 @@ class VUStruct:
 
         # We typically log INFO and above to console
         self._stream_handler = logging.StreamHandler()
-        self._stream_handler.setLevel(logging.INFO)
+        self._stream_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         log_formatter = logging.Formatter('%(asctime)s %(levelname)-8s [%(filename)20s:%(lineno)-4d] %(message)s',
                                       datefmt="%H:%M:%S")
         self._stream_handler.setFormatter(self.standard_log_formatter)
@@ -164,7 +165,7 @@ class VUStruct:
 
         # In the saved file, we capture DEBUG level and above
         self._rotating_file_handler = RotatingFileHandler(self.log_filename, backupCount=7)
-        self._rotating_file_handler.setLevel(logging.DEBUG)
+        self._rotating_file_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         root_logger.addHandler(self._rotating_file_handler)
         self._rotating_file_handler.setFormatter(self.standard_log_formatter)
 
@@ -334,8 +335,26 @@ class VUStruct:
         return self._vustruct_dict['plan']
 
     @property
+    def launch_attempted(self) -> bool:
+        return bool(self.launch['executable']) 
+
+    @property 
+    def launch_failed(self) -> bool:
+        # If the preorocessor was invoked, but it failed
+        # then we need to return that message to the report generator
+        # caller who can 
+        return (self.launch_attempted and 
+               self.launch['exit_code'] and 
+               self.launch['exit_code'] != '0')
+
+
+    @property
     def launch(self):
         return self._vustruct_dict['launch']
+
+    @property
+    def monitor(self):
+        return self._vustruct_dict['monitor']
 
 
     @property
