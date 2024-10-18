@@ -2090,7 +2090,7 @@ def makejob_DIEP(params, options: str):
                    options)  # Command line options
 
 
-def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple[str, str]:
+def plan_casewide_work() -> Tuple[str, str]:
     """Plan DiGePred run, and anything else we may later add which is run against the _entire_ case"""
     # Use the global database connection
     global args
@@ -2125,7 +2125,7 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename:str ) -> Tuple
 
     # DiGePred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
     if digepred_program_from_config:
-        digepred_options = "--vustruct %s_vustruct.csv -n %s -e %s" % (args.project, args.project, original_Vanderbilt_UDN_case_xlsx_filename)
+        digepred_options = "--vustruct %s_vustruct.csv -n %s" % (args.project, args.project)
 
         # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
         # depcreated: df_casewide_jobs = df_casewide_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
@@ -2166,33 +2166,33 @@ if oneMutationOnly:
     LOGGER.info("%3d structures/models were considered, but dropped." % len(df_dropped))
     LOGGER.info("Full details in %s", log_filename)
 else:
-    original_Vanderbilt_UDN_case_xlsx_filename = None
-    if digepred_program_from_config:
-        original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(case_dir, "%s.xlsx" % args.project)
-        if original_Vanderbilt_UDN_case_xlsx_filename and (not os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename)):
-            LOGGER.info('Vanderbilt-specific case file %s not found.  DiGePred will not be performed' % \
-                    original_Vanderbilt_UDN_case_xlsx_filename)
-            original_Vanderbilt_UDN_case_xlsx_filename = None
-    else:
-        LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific DiGePred analysis will not be performed')
+    # original_Vanderbilt_UDN_case_xlsx_filename = None
+    # if digepred_program_from_config:
+    #     original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(case_dir, "%s.xlsx" % args.project)
+    #     if original_Vanderbilt_UDN_case_xlsx_filename and (not os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename)):
+    #         LOGGER.info('Vanderbilt-specific case file %s not found.  DiGePred will not be performed' % \
+    #                 original_Vanderbilt_UDN_case_xlsx_filename)
+    #         original_Vanderbilt_UDN_case_xlsx_filename = None
+    # else:
+    #     LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific DiGePred analysis will not be performed')
 
     df_all_jobs = pd.DataFrame()
-    # We already tested above that this xlsx file is in the case directory...
+    # We no longer care: (already tested above that this xlsx file is in the case directory...)
     # AND that we have digepred_program_from_config set to an executable path
-    if original_Vanderbilt_UDN_case_xlsx_filename:
-        msg = 'Planning casewide work from %s' % original_Vanderbilt_UDN_case_xlsx_filename
-        LOGGER.info(msg)
-        psbplan_status_manager.write_info(msg)
-        df_all_jobs, workplan_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
-        if len(df_all_jobs):
-            # fulldir, casewide_dir = os.path.split(fulldir)
-            # fulldir, project_dir = os.path.split(fulldir)
-            LOGGER.info(" %4d DiGePred jobs will run.  See: %s" , 
-                 len(df_all_jobs), vustruct.log_filename)
-        else:
-            LOGGER.info("Following read of %s, no DiGePred work will be performed" ,  original_Vanderbilt_UDN_case_xlsx_filename)
+    # if original_Vanderbilt_UDN_case_xlsx_filename:
+    msg = 'Planning casewide work from %s_vustruct.csv' % args.project
+    LOGGER.info(msg)
+    psbplan_status_manager.write_info(msg)
+    df_all_jobs, workplan_filename = plan_casewide_work()
+    if len(df_all_jobs):
+        # fulldir, casewide_dir = os.path.split(fulldir)
+        # fulldir, project_dir = os.path.split(fulldir)
+        LOGGER.info(" %4d DiGePred jobs will run.  See: %s" , 
+             len(df_all_jobs), vustruct.log_filename)
     else:
-        pass  # We don't need another log entry.  We logged above if we lacked a config entry for DiGePred, or if xlsx file not found
+        LOGGER.info("Following read of %s, no DiGePred work will be performed" ,  original_Vanderbilt_UDN_case_xlsx_filename)
+    # else:
+    #     pass  # We don't need another log entry.  We logged above if we lacked a config entry for DiGePred, or if xlsx file not found
 
 
     # Now plan the per-mutation jobs
@@ -2274,6 +2274,31 @@ else:
 
     LOGGER.info("Checking variant formatting and Uniprot<>Genome crossreferences")
     for index, vustruct_row in df_vustruct_missense_variants.iterrows():
+        # If the user has given us a refseq ID - then we want to make sure that cross-references to uniprot correctly
+        # This is a bit of an additional check to the main event in this loop
+        if 'refseq' in vustruct_row:
+            xref_refseq = vustruct_row['refseq'].split('.')[0]
+            if xref_refseq != 'NA':
+                if len(vustruct_row['unp']):
+                    unp_refseq_list = PDBMapProtein.unp2refseqNT(vustruct_row['unp'])
+                    if len(unp_refseq_list) == 0:
+                        msg = "Uniprot ID %s has no refseq cross-reference.  Replace %s with NA in your input file" % (
+                            vustruct_row['unp'], xref_refseq)
+                        bad_vustruct_rows[index].append(msg)
+                    else:
+                        matched = False
+                        for unp_refseq in unp_refseq_list:
+                            if unp_refseq.split('.')[0] == xref_refseq:
+                                matched = True
+                                break
+
+                        if not matched:
+                            msg = "The given refseq ID %s is not compatible with the uniprot cross references of [%s].  Please use uniprot cross-reference or simply NA in the input file" % (
+                                xref_refseq, unp_refseq_list)
+                            
+                            bad_vustruct_rows[index].append(msg)
+
+
         if 'mutation' in vustruct_row and vustruct_row['mutation']:
             transcript = unp2transcript[vustruct_row['unp']]
             trans_mut_pos = None
@@ -2308,11 +2333,11 @@ else:
     # We do not proceed if the user has bad input.  Instead, we direct the user to manually clean up the missense file
     bad_rows_count = len(bad_vustruct_rows)
     if bad_rows_count > 0:
-        msg = ("1 row of the vustruct_input file has") \
-            if bad_rows_count == 1 else (str(bad_rows_count) + " rows of the vustruct_input file have")
+        msg = ("1 row of the vustruct_input file has a problem which prevents") \
+            if bad_rows_count == 1 else (str(bad_rows_count) + " rows of the vustruct_input file have problems which prevent")
         msg += """\
-problems which prevent VUStruct processing.
-Please download the vustruct file, and correct, or #-comment out, the input lines.
+ VUStruct processing.
+Please download the vustruct file, and correct, or #-comment out, the problematic input rows.
 The most common issue is when Uniprot protein transcript sequences disagree with
 ENSEMBL transcript sequences.  For these, and other cases, please see the trouble-
 shooting steps at https://meilerlab.org/VUStruct/Contact.html
