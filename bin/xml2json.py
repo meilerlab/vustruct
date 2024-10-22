@@ -40,8 +40,13 @@ class Cxml2json(object):
   def __init__(self,xml_human_filename):
     # Init these structures one time only - and only if the class is instantiated once
     if not Cxml2json.__tree:
-      Cxml2json.__tree = ET.parse(xml_human_filename)
-      Cxml2json.__root = Cxml2json.__tree.getroot()
+      try:
+          LOGGER.info("Attempting to parse %s" % xml_human_filename)
+          Cxml2json.__tree = ET.parse(xml_human_filename)
+          Cxml2json.__root = Cxml2json.__tree.getroot()
+      except Exception as ex:
+          LOGGER.error("xml parse error of %s:\n%s" % (xml_human_filename, str(ex)))
+      
 
   def xmlForBaseUnp(self,uniprot_ac):
     found_list = []
@@ -53,31 +58,44 @@ class Cxml2json(object):
     return found_list
 
   def isCanonical(self,uniprot_ac):
+    # If init failed, then don't proceed
+    if Cxml2json.__root is None:
+        LOGGER.warn("For %s, Cxml2json__root not set by __init__" % uniprot_ac)
+        return False
+ 
     unp_split = uniprot_ac.split('-')
     if len(unp_split) < 2:
       return True  # no dash means you gave a canonical unp
     # DO NOT CHECK IN THIS TERRIBLE PATCH BELOW
-    # if uniprot_ac == 'Q10981-1':
-    #  return True
-    # DO NOT CHECK IN THIS TERRIBLE PATCH ^^^ ABOVE
+    # if uniprot_ac == 'Q8NDA2-5':
+    #     return True
+    #  DO NOT CHECK IN THIS TERRIBLE PATCH ^^^ ABOVE
     # When given ABC-n, you want to make sure the sequence CRC64 matches
     # between base-unp and specific isoform, and then you can say YES!
     base_unp = unp_split[0]
     isoform_node = Cxml2json.__root.findall("protein/[@id='%s']"%uniprot_ac)
     if len(isoform_node) != 1:
       failure_message = "%s was not found in xml file.  Return 'not canonical'"%uniprot_ac
-      LOGGER.critical(failure_message)
-      sys.exit(failure_message)
+      LOGGER.warn(failure_message)
+      return False
     baseunp_node = Cxml2json.__root.findall("protein/[@id='%s']"%base_unp)
     if len(baseunp_node) != 1:
       failure_message = "%s was not found in xml file"%base_unp
-      LOGGER.critical(failure_message)
-      sys.exit(failure_message)
+      LOGGER.warn(failure_message)
+      return False
     return isoform_node[0].get('crc64') == baseunp_node[0].get('crc64')
 
-  def PFAMgraphicsJSONfromUnp(self,uniprot_ac):
+  def PFAMgraphicsJSONfromUnp(self,uniprot_ac) -> dict:
+    if Cxml2json.__root is None:
+        LOGGER.warn("For %s, Cxml2json__root not set by __init__" % uniprot_ac)
+        return {} 
+
     if self.isCanonical(uniprot_ac):
       uniprot_ac = uniprot_ac.split('-')[0]
+    ### WARNING HACK BELOW
+    if uniprot_ac == 'Q9HCJ0':
+       return {}
+    ### WARNING HACK ABOVE
     # The final JSON graphics string has length, and lists of dictionaries called "regions" and "motifs"
     # See http://pfam.xfam.org/help#tabview=tab10 "A Guide to the PFam Domain Graohics"
     # which explains how to build up the JSON in a little detail
@@ -85,6 +103,9 @@ class Cxml2json(object):
     # regions and mitofs.
     PFAMxml = Cxml2json.__root.findall("protein/[@id='%s']"%uniprot_ac)
     assert PFAMxml != None,"Could not find %s in interpro XML"%uniprot_ac
+    # Sometimes we get an empty list of graphics.  In these cases, we can do no more
+    if not PFAMxml:
+        return {}
     color_disorder = "#cccccc"
     color_coiledcoil = "#32cd32"
 

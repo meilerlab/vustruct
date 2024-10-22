@@ -53,8 +53,7 @@ from psb_shared.psb_progress import PsbStatusManager
 from slurm import slurm_submit
 
 from lib import PDBMapSwiss
-from lib import PDBMapModbase2016
-from lib import PDBMapModbase2013
+from lib import PDBMapModbase2020
 
 
 #=============================================================================#
@@ -76,7 +75,7 @@ ch.setFormatter(log_formatter)
 LOGGER.setLevel(logging.DEBUG)
 ch.setLevel(logging.DEBUG)
 
-ddg_flavor='ddg_monomer'
+ddg_flavor='ddG_monomer'
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__,
                                                            os.path.dirname(os.path.dirname(__file__)),
@@ -153,10 +152,8 @@ if args.debug:
 
 required_config_items = [
     "pdb_dir",
-    "modbase2013_dir",
-    "modbase2013_summary",
-    "modbase2016_dir",
-    "modbase2016_summary",
+    "modbase2020_dir",
+    "modbase2020_summary",
     "swiss_dir",
     "swiss_summary"]
 
@@ -173,7 +170,7 @@ if not args.ddg_config:  # Usually ddg_config will come from a config file - but
     args.ddg_config = config_dict['ddg_config']
 
 ddg_repo = DDG_repo(args.ddg_config,
-                    calculation_flavor='ddg_monomer')
+                    calculation_flavor='ddG_monomer')
 
 
 # ddg_repo_dir must be extended below

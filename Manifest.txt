@@ -27,8 +27,6 @@ Therefore, I supplement the steps below with options
 
 ---------------------------------------------------------------------------------------------------------------
 
-
-
 1) Checkout CapraLab/psbadmin first.
 Example on the Vanderbilt accre cluster
    $ cd /dors/capra_lab/users/mothcw
@@ -85,7 +83,7 @@ ln -sv lib/*.pl .
 
 5) Precompile all python modules as user psbadmin.  Currently, accomplished with
 
-$ cd /dors/capra_lab/users/psbadmin
+$ cd /dors/capra_lab/users/mothcw
 $ ./precompile.bash
 
 6) Install the tabix and bgzip programs.  
@@ -157,7 +155,7 @@ I performed these commands to load ENSEMBL compatible PERL5 into the /dors/capra
 
 Your commands will differ as perl versions shift around
 
-$ cd /dors/capra_lab/users/psbadmin/
+$ cd /dors/capra_lab/users/mothcw/
 $ wget https://www.cpan.org/src/5.0/perl-5.34.0.tar.gz
 $ tar -xzf perl-5.34.0.tar.gz
 $ cd perl.5.34.0
@@ -173,26 +171,26 @@ $ unset PERL5LIB
 # users
 
 # Critically important to config the -Dprefix as shown here - NOT at the webpage!!!
-$ ./Configure -des -Dprefix=/dors/capra_lab/users/psbadmin/localperl
+$ ./Configure -des -Dprefix=/dors/capra_lab/users/mothcw/localperl
 
 # Build and install in the -Dprefix dir you set above
 $ make
 $ make test
 $ make install
 
-Modify your ~/bash_config or ~/.bashrc so that your PATH includes your new /dors/capra_lab/users/psbadmin/localperl/bin directory before other PERL binary locations.
+Modify your ~/bash_config or ~/.bashrc so that your PATH includes your new /dors/capra_lab/users/mothcw/localperl/bin directory before other PERL binary locations.
 Verify with:
 
 $ which perl
 
 which must rerefernce your local perl as in:
-/dors/capra_lab/users/psbadmin/localperl/bin/perl
+/dors/capra_lab/users/mothcw/localperl/bin/perl
 
 $ which cpan # should also report cpan in that same directory
 
 # CRITICAL -> Configure cpan to use your new local perl system for all module installations:
 $ cpan
-> o conf makepl_org INSTALL_BASE=/dors/capra_lab/users/psbadmin/localperl
+> o conf makepl_org INSTALL_BASE=/dors/capra_lab/users/mothcw/localperl
 > o conf commit
 > quit
 
@@ -203,7 +201,7 @@ $ cpan
 $ perl -MCPAN -e 'install Bundle::DBI'      # See https://metacpan.org/pod/Bundle::DBI
 
 # As the screen whizzes by during execution of above, watch for references to the PERL directory
-# If not /dors/capra_lab/users/psbadmin/local_perl, then things have come off the rails.  This is very easy 
+# If not /dors/capra_lab/users/mothcw/local_perl, then things have come off the rails.  This is very easy 
 # as there are these conflicts between this new perl, Anaconda conda init, and the operating system PERL
 # if you have missed an instruction above
 
@@ -234,7 +232,7 @@ https://useast.ensembl.org/info/docs/api/api_installation.html
 with (likely stale) documentation here:
 ftp://ftp.ebi.ac.uk/pub/databases/ensembl/Helpdesk/API_video_script.txt
 
-$ cd /dors/capra_lab/users/psbadmin
+$ cd /dors/capra_lab/users/mothcw
 $ mkdir ensembl
 $ cd ensembl            <<<< I use "ensembl" here and NOT "src" as in the video
 
@@ -245,12 +243,12 @@ It can be convenient to
 
 $ ln -s BioPerl-1.6.924 bioperl-live
 
-Otherwise, Be sure to update your /dors/capra_lab/users/psbadmin/psb_prep.bash file
+Otherwise, Be sure to update your /dors/capra_lab/users/mothcw/psb_prep.bash file
 to reflect the PATH of the specific bioperl version you install
 
 6c) Clone 5 Ensembl PERL API repositories:
 
-$ cd /dors/capra_lab/users/psbadmin/ensembl
+$ cd /dors/capra_lab/users/mothcw/ensembl
 
 I recommend you follow the procedures here.  It is very elegant to download using Ensembl's
 git extension, and then set the branch to the Ensembl Api you are using
@@ -263,7 +261,7 @@ cpan Try::Tiny
 See instructions here:  https://m.ensembl.org/info/docs/tools/vep/script/vep_download.html
 
 You should wind up with these subdirectories and a tar file like this one in your
-/dors/capra_lab/users/psbadmin/ensembl directory
+/dors/capra_lab/users/mothcw/ensembl directory
 
 BioPerl-1.6.924/
 BioPerl-1.6.924.tar.gz*
@@ -279,7 +277,7 @@ ensembl-vep/
 I like for ensembl-vep directory to be a sibling to the other ensembl- directories 
 installed above.
 
-$ cd /dors/capra_lab/users/psbadmin/ensembl
+$ cd /dors/capra_lab/users/mothcw/ensembl
 $ git clone https://github.com/Ensembl/ensembl-vep.git
 $ cd ensembl-vep
 $ git pull
@@ -300,10 +298,10 @@ Try the command:
 $ transcript_to_genomic.pl ENST00000375528
 
 You should get a lovely table of chromosome positions and amino acid translations.  The transcript_to_genomic.pl
-/dors/capra_lab/users/psbadmin/pdbmap
+/dors/capra_lab/users/mothcw/pdbmap
 
 TEST 2:
-$ /dors/capra_lab/users/psbadmin/ensembl/ensembl-vep/vep
+$ /dors/capra_lab/users/mothcw/ensembl/ensembl-vep/vep
 
 This is the main routine of a super-complex PERL code.  If you get a help screen, at least you are making _some_ progress
 There is a t/ test directory under ensembl-vep, but you'd have to be sure to repoint to your local

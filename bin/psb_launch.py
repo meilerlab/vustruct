@@ -12,8 +12,12 @@
 # =============================================================================#
 
 """\
-Launch pipeline jobs on a Slurm or LSF cluster given the UDN case ID
-   or a specific workplan.csv previously output from psb_plan.py
+   Launch pipeline jobs on a Slurm or LSF cluster given the UDN case ID
+   (defaults to current working directory)
+   or a specific workplan.csv file previously output from psb_plan.py
+
+   This is a tangled piece of code because it is usually run with a --nolaunch option
+   and a launch_casename.py is generated for running outside a container
 
    For help
         psb_plan.py --help
@@ -32,42 +36,24 @@ import pprint
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, Tuple, List
 from typing import TextIO
+
 # Inspect to recover bsub_submit() and slurm_submit() source code for integration
 # into generated final file
 import inspect
 
-
 import pandas as pd
-# from jinja2 import Environment, FileSystemLoader
 
+# slurm_submit() and bsub_submit() are simple python code to manage 
+# shell out (subprocess.run()) of sbatch or bsub command line launches
+# These codes return the runtime job number integer on the cluster, for
+# future interactive job management
 from slurm import slurm_submit
 from bsub import bsub_submit
 
 from psb_shared import psb_config
 from psb_shared import psb_perms
 
-
-# THIS BELOW IS CRAP
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except KeyError:
-    capra_group = os.getegid()
-# THIS ABOVE IS CRAP
-
-def set_capra_group_sticky(dirname):
-    return
-#    try:
-#        os.chown(dirname, -1, capra_group)
-#    except OSError:
-#        pass
-#
-#    # Setting the sticky bit on directories also fantastic
-#    try:
-#        os.chmod(dirname,
-#                 stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR|stat.S_IRGRP|stat.S_IWGRP|stat.S_IXGRP|stat.S_ISGID)
-#    except OSError:
-#        pass
-#
+from vustruct import VUStruct
 
 sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
@@ -99,6 +85,17 @@ cmdline_parser.add_argument("-n", "--nolaunch",
                             action="store_true")
 
 args, remaining_argv = cmdline_parser.parse_known_args()
+vustruct = VUStruct('launch', args.projectORworkplan, __file__)
+vustruct.stamp_start_time()
+vustruct.initialize_file_and_stderr_logging(args.debug)
+
+LOGGER = logging.getLogger()
+
+# Prior to getting going, we save the vustruct filename
+# and then _if_ we die with an error, at least there is a record
+# and psb_rep.py should be able to create a web page to that effect
+vustruct.exit_code = 1
+vustruct.write_file()
 
 if args.debug:
     sh.setLevel(logging.DEBUG)
@@ -108,6 +105,7 @@ elif args.verbose:
 
 # A period in the argument means the user wants to launch one mutation only,
 # directly from a single mutation output file of psb_plan.py
+# In 2024 this has not been tested excessively
 oneMutationOnly = ('.' in args.projectORworkplan and os.path.isfile(args.projectORworkplan))
 
 required_config_items = ['output_rootdir', 'collaboration', 'ddg_config']
@@ -136,20 +134,43 @@ if 'container_type' in config_dict:
         sys.exit("container_type set to %s in config file.  Must be Docker or Singularity" %
                  config_dict['container_type'])
 
+# The pipeline launches a wide and growning spectrum of calculation types
+# which are identified by their "flavor" string.  These flavors are used
+# to form working subdirectory names for .slurm and .bsub launch files
+#
+# PathProx is an outlier because slurm/bsub files for PathProx combine
+# a variety of calculations that are flavored like COSMIC_PP or CLINVAR_PP
+#
+# Except for this weird combination of _PP_ jobs into a single PathProx launch
+# file, things are relatively straightforward
+KNOWN_CALCULATION_FLAVOR_LIST = ['PathProx', 'DdgMonomer', 'DdgCartesian',
+                                 'MusiteDeep', 'ScanNet', # 'SequenceAnnotation',
+                                 'DiGePred', 'DIEP']
+
+# Recall that the .config files are read from locations which can be overridden on the command line
+# but which default to ../config/global.config, and then there are the two override options for username-wide
+# settings and case-specific settings
+# ../config/username.config, and ./casename.config (optional)
+#
+# You can create settings in a [SlurmParametersAll] or [BsubParametersAll] section which apply to ALL
+# job flavors.  And you can override those with individual settings for each of the
+# KNOWN_CALCULATION_FLAVOR_LIST above
+#
 
 try:
-    launchParametersAll: Dict[str, Any] = dict(config.items("%sParametersAll" % CLUSTER_TYPE))
+    launchParametersFromConfig_All: Dict[str, Any] = dict(config.items("%sParametersAll" % CLUSTER_TYPE))
 except KeyError:
-    launchParametersAll: Dict[str, Any] = {}
+    launchParametersFromConfig_All: Dict[str, Any] = {}
 
+# Dump the command line arguments seen by psb_launch.py as these will show what config files
+# have been read, among other useful settings and overrides that the user might have requested
 LOGGER.info("Command Line Arguments:\n%s", pprint.pformat(vars(args)))
 
-launchParametersPathProx: Dict[str, Any] = copy.deepcopy(launchParametersAll)
-launchParametersDDGMonomer: Dict[str, Any] = copy.deepcopy(launchParametersAll)
-launchParametersDDGCartesian: Dict[str, Any] = copy.deepcopy(launchParametersAll)
-  
-launchParametersUDNSequence: Dict[str, Any] = copy.deepcopy(launchParametersAll)
-launchParametersDiGePred: Dict[str, Any] = copy.deepcopy(launchParametersAll)
+launchParametersFromConfig = {}
+
+# Initialize each individual calculation flavor's launch parameters from the global "all" first.
+for flavor in KNOWN_CALCULATION_FLAVOR_LIST:
+    launchParametersFromConfig[flavor] = copy.deepcopy(launchParametersFromConfig_All)
 
 # Initialize the slurm/LSF parameters for each of the 4 possible calculation sets
 # Log the parameters (gathered from the config file
@@ -165,40 +186,41 @@ LSF_required_settings = [
     ('R', 'resource'),
     ('n', 'tasks')
 ]
-for launchParameterDictDesc, launchParameters in [
-    ('ParametersPathProx', launchParametersPathProx),
-    ('ParametersDDGMonomer', launchParametersDDGMonomer),
-    ('ParametersDDGCartesian', launchParametersDDGCartesian),
-    ('ParametersUDNSequence', launchParametersUDNSequence),
-    ('ParametersDiGePred', launchParametersDiGePred)
-]:
+
+for flavor in KNOWN_CALCULATION_FLAVOR_LIST:
+    launchParameterDictDesc = "Parameters%s" % flavor
+    LOGGER.debug("Checking for Parameters: %s" % launchParameterDictDesc)
+
     # Update each flavor-specific dictionaryof parameters
     # with the flavor-specific overrides in the config file
     slurm_or_lsf_section_name = CLUSTER_TYPE + launchParameterDictDesc
     config_items = {}
+    # If there is an entry in the config files like [ParametersLSFPathprox] (or [ParametersSlurmPathProx])
+    # then make sure these new settings, for Pathprox, overrides the default "All"
+    # settings
     if slurm_or_lsf_section_name in config:
-        launchParameters.update(dict(config.items(slurm_or_lsf_section_name)))
+        launchParametersFromConfig[flavor].update(dict(config.items(slurm_or_lsf_section_name)))
 
-    LOGGER.info("%s:\n%s", slurm_or_lsf_section_name, pprint.pformat(launchParameters))
+    LOGGER.info("%s:\n%s", slurm_or_lsf_section_name, pprint.pformat(launchParametersFromConfig[flavor]))
 
-    # Now make _sure_ that required parameters are in the (updated) launchParameters dictionary.
+    # Now make _sure_ that required parameters are in the (updated) launchParametersFromConfig dictionary.
     if CLUSTER_TYPE == 'Slurm':
         for req in slurm_required_settings:
-            if req not in launchParameters:
+            if req not in launchParametersFromConfig[flavor]:
                 LOGGER.error(
                     """\
-                    Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
-                    (or %sParametersAll)\n in either file %s or %s\n""", 
-                    CLUSTER_TYPE, req, CLUSTER_TYPE, slurm_or_lsf_section_name, args.config, args.userconfig
+Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
+(or %sParametersAll)\n in either file %s or %s""",
+                    CLUSTER_TYPE, req, slurm_or_lsf_section_name, CLUSTER_TYPE, args.config, args.userconfig
                 )
                 sys.exit(1)
     elif CLUSTER_TYPE == 'LSF':
         for req in LSF_required_settings:
-            if req[0] not in launchParameters and req[1] not in launchParameters:
+            if req[0] not in launchParametersFromConfig[flavor] and req[1] not in launchParametersFromConfig[flavor]:
                 LOGGER.error(
                     """\
-                    Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
-                    (or %sParametersAll)\n in either file %s or %s\n""",
+Can't launch jobs because you have not provided the required\n%s setting [%s] for section %s
+(or %sParametersAll)\n in either file %s or %s\n""",
                     CLUSTER_TYPE, req, CLUSTER_TYPE, slurm_or_lsf_section_name, args.config, args.userconfig
                 )
                 sys.exit(1)
@@ -231,22 +253,28 @@ psb_permissions.makedirs(collaboration_dir)
 
 class JobsLauncher:
     """
-    Create .slurm or .bsub files for a dataframe of jobs.
+    Create HPC-ready .slurm or .bsub files for a dataframe of jobs, for one mutation
     """
 
-    def __init__(self, workplan_or_case_filename: str, df_all_jobs: pd.DataFrame, df_prior_exit0: pd.DataFrame) -> None:
+    def __init__(self,
+                 workplan_filename_for_comment: str,
+                 workstatus_filename_for_comment: str,
+                 df_workplan_jobs: pd.DataFrame,
+                 df_prior_exit0: pd.DataFrame) -> None:
         """
-        @param workplan_or_case_filename: Retained for output to slurm/bsub comments section.
-        @param df_all_jobs:     Dataframe from workplan.csv, created by psb_plan.py.  IT contains all jobs and params
-        @param df_prior_exit0:  Dataframe from workstatus.csv, containing rows where previous jobs exited
+        @param workplan_filename_for_comment: Only output to slurm/bsub comments section.
+        @param workstatus_filename_for_comment: Only output to slurm/bsub comments section.
+        @param df_workplan_jobs:     Dataframe from workplan.csv, created by psb_plan.py.  It contains all jobs and params
+        @param df_prior_exit0:  Dataframe from any existing workstatus.csv, containing rows where previous jobs exited
                                 with code 0 (success)
         """
 
-        self._workplan_or_case_filename = workplan_or_case_filename
-        self._df_all_jobs = df_all_jobs
+        self._workplan_filename_for_comment = workplan_filename_for_comment
+        self._workstatus_filename_for_comment = workstatus_filename_for_comment
+        self._df_workplan_jobs = df_workplan_jobs
         self._df_prior_exit0 = df_prior_exit0
 
-        row0 = self._df_all_jobs.iloc[0]
+        row0 = self._df_workplan_jobs.iloc[0]
         self._gene = row0['gene']
         self._refseq = row0['refseq']
         self._mutation = row0['mutation']
@@ -264,7 +292,9 @@ class JobsLauncher:
         self._all_jobs_cwd = None
 
         # Whether by slurm, LSF or other, each job has s specific command line with arguments that must be run.
-        self._launch_strings = {'PathProx': [], 'ddG_monomer': [], 'ddG_cartesian': [],'SequenceAnnotation': [], 'DiGePred': []}
+        # Initialize each calculation_flavor's command line list to empty
+        self._launch_strings = {
+            calculation_flavor: [] for calculation_flavor in KNOWN_CALCULATION_FLAVOR_LIST}
 
         # After jobs are launched, we will create a 'submitted' file in the status directories for the jobs
         # Might collide with launched program though - so perhaps rethink a bit....
@@ -276,48 +306,62 @@ class JobsLauncher:
         self._jobinfo = {}
         self._jobprogress = {}
         self._exitcodes = {}
+        self._outputfiles = {} # The SLURM outputfiles, which we only know after we get a jobid
 
     @property
     def mutation_dir(self):
         return os.path.join(collaboration_dir, self._geneRefseqMutation_OR_casewideString)
 
-    def _build_a_launch_dir(self, flavor: str) -> Tuple[str,str]:
+    def _build_a_launch_dir(self, flavor: str) -> Tuple[str, str]:
+        """
+
+        @param flavor: One of the allowed calculation flabor strings
+        @return: launch directory name tuple for both (inside,outside) the container
+        """
+
         launch_dir_inside_container = os.path.join(self.mutation_dir,
-                            self._slurm_or_bsub,
-                            "PathProx" if "_PP_" in flavor else flavor
-                            )
+                                                   self._slurm_or_bsub,
+                                                   "PathProx" if "PP_" in flavor else flavor
+                                                   )
         if mounted_collaboration_directory:
             launch_dir_outside_container = os.path.join(mounted_collaboration_directory,
-                            self._geneRefseqMutation_OR_casewideString,
-                            self._slurm_or_bsub,
-                            "PathProx" if "_PP_" in flavor else flavor
-                            )
+                                                        self._geneRefseqMutation_OR_casewideString,
+                                                        self._slurm_or_bsub,
+                                                        "PathProx" if "PP_" in flavor else flavor
+                                                        )
         else:
             launch_dir_outside_container = None
 
         return launch_dir_inside_container, launch_dir_outside_container
 
-    def _add_launch_directory_to_df_all_jobs(self) -> None:
+    def _add_launch_directory_to_df_workplan_jobs(self) -> None:
         """
         Add a new column in the all_jobs dataframe, which
         will be named either 'slurm_directory' or 'bsub_directory'
         @return:  None
         """
-        self._df_all_jobs['launch_directory'] = self._df_all_jobs.apply(
-            lambda a_row: self._build_a_launch_dir(a_row['flavor'])[0],
+        self._df_workplan_jobs['launch_directory'] = self._df_workplan_jobs.apply(
+            lambda a_row: self._build_a_launch_dir(flavor=a_row['flavor'])[0],
             axis=1
         )
 
-    def _add_gene_refseq_mutation_flavor_to_df_all_jobs(self):
-        self._df_all_jobs['gene_refseq_mutation_flavor'] = self._df_all_jobs.apply(
+    def _add_gene_refseq_mutation_flavor_to_df_workplan_jobs(self):
+        self._df_workplan_jobs['gene_refseq_mutation_flavor'] = self._df_workplan_jobs.apply(
             lambda a_row: a_row['flavor'] if a_row['gene'] == 'casewide' else
             "%s_%s_%s_%s" % (a_row['gene'], a_row['refseq'], a_row['mutation'], a_row['flavor']),
             axis=1
         )
 
-    def _add_launch_filename_to_df_all_jobs(self):
-        self._df_all_jobs['launch_file'] = self._df_all_jobs.apply(
-            lambda a_row: os.path.join(a_row['launch_directory'], a_row['gene_refseq_mutation_flavor'] + '.' + self._slurm_or_bsub),
+    def _add_launch_filename_to_df_workplan_jobs(self):
+        self._df_workplan_jobs['launch_file'] = self._df_workplan_jobs.apply(
+            lambda a_row: os.path.join(a_row['launch_directory'],\
+                                       "%s_%s_%s_%s.%s" % (
+                                           a_row['gene'],
+                                           a_row['refseq'],
+                                           a_row['mutation'],
+                                           "PathProx" if ("PathProx" in a_row['flavor'] or "PP" in a_row['flavor']) else a_row['flavor'],
+                                           self._slurm_or_bsub)
+                                      ),
             axis=1
         )
 
@@ -326,19 +370,31 @@ class JobsLauncher:
         # Also create launch_strings for subsequence integration into slurm files
         # and launches
         self._all_jobs_cwd = None
-        for _, row in self._df_all_jobs.iterrows():
+        for _, row in self._df_workplan_jobs.iterrows():
             if (not self._df_prior_exit0.empty) and (row['uniquekey'] in self._df_prior_exit0.index):
-                LOGGER.info("Job %s was successful previously.  %s file will not be recreated", row['uniquekey'], self._slurm_or_bsub)
+                LOGGER.info("Job %s was successful previously.  %s file will not be recreated", row['uniquekey'],
+                            self._slurm_or_bsub)
             else:
                 assert self._all_jobs_cwd is None or self._all_jobs_cwd == row['cwd']
                 self._all_jobs_cwd = row['cwd']
                 # Create the meat of the slurm script for this job
                 # ddG monomer and cartesian are simpler because they is not managed by the pipeline
                 launch_string = "%(command)s %(options)s" % row
-                LOGGER.info("%s %s", row['flavor'], launch_string)
-                if 'ddG' not in row['flavor']:
-                    launch_string += " --outdir %(outdir)s/%(flavor)s --uniquekey %(uniquekey)s" % row
 
+                # Only ddG lacks an _outdir because it runs from a repository
+                # Note that the status directory is only added to the non ddG calculations, as well
+                _final_outdir = None
+                if 'Ddg' not in row['flavor']:
+                    # For ScanNet and MusiteDeep, do NOT re-append the flavor
+                    # Retain this behavior for our pathprox runs, however
+                    if ('ScanNet' in row['flavor']) or ('Musite' in row['flavor']):
+                        _final_outdir = row['outdir']
+                    else:  # Pathprox has the specific COSMIC/Clinvar etc flavor subdirectory
+                        _final_outdir = os.path.join(row['outdir'], row['flavor'])
+
+                    launch_string += " --outdir " + _final_outdir + " --uniquekey " + row['uniquekey']
+
+                LOGGER.info("%s: %s", row['flavor'], launch_string)
                 uniquekey_launch_string = (row['uniquekey'], launch_string)
                 # Launch PathProx Clinvar and COSMIC both with same parameters
                 # out of same .slurm file
@@ -350,33 +406,34 @@ class JobsLauncher:
                     print("I don't know this job flavor: ", row['flavor'])
                     sys.exit(1)
 
-                # Before launching a job, make path to its
+                # Before launching a non-ddG job, make path to its
                 # status directory and erase all files from that
                 # directory if any there from previous run
-                status_dir = os.path.join(row['outdir'], row['flavor'], "status")
-                old_umask = os.umask(2)
-                os.makedirs(status_dir, exist_ok=True)
-                os.umask(old_umask)
-                set_capra_group_sticky(status_dir)
+                if _final_outdir:
+                    status_dir = os.path.join(_final_outdir, "status")
+                    old_umask = os.umask(2)
+                    os.makedirs(status_dir, exist_ok=True)
+                    os.umask(old_umask)
+                    # set_capra_group_sticky(status_dir)
+                    psb_permissions.set_dir_group_and_sticky_bit(status_dir)
+                    # Since we are launching anew, clear out ANY old junk files hanging around'
+                    # the status_dir of the jobs
+                    for the_file in os.listdir(status_dir):
+                        file_path = os.path.join(status_dir, the_file)
+                        LOGGER.info('Deleting old file %s', file_path)
+                        try:
+                            if os.path.isfile(file_path):
+                                os.unlink(file_path, )
+                        except OSError:
+                            LOGGER.exception("Unable to delete %s in status directory", file_path)
+                            sys.exit(1)
 
-                # Since we are launching anew, clear out ANY old junk files hanging around'
-                # the status_dir of the jobs
-                for the_file in os.listdir(status_dir):
-                    file_path = os.path.join(status_dir, the_file)
-                    LOGGER.info('Deleting old file %s', file_path)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.unlink(file_path,)
-                    except OSError:
-                        LOGGER.exception("Unable to delete %s in status directory", file_path)
-                        sys.exit(1)
-
-                # Well, we have not _actually_ submitted it _quite_ yet - but just save this dirname
-                # to mark later
-                self._status_dir_list.append(status_dir)
+                    # Well, we have not _actually_ submitted it _quite_ yet - but just save this dirname
+                    # to mark later as submitted
+                    self._status_dir_list.append(status_dir)
 
     def _update_job_statuses_from_prior_exit0s(self):
-        for index, row in self._df_all_jobs.iterrows():
+        for index, row in self._df_workplan_jobs.iterrows():
             if (not self._df_prior_exit0.empty) and (row['uniquekey'] in self._df_prior_exit0.index):
                 LOGGER.info(
                     "Job %s was successful previously.  Prior results will be copied to new workstatus file", row[
@@ -385,6 +442,7 @@ class JobsLauncher:
                 self._jobinfo[row['uniquekey']] = prior_success['jobinfo']
                 self._jobprogress[row['uniquekey']] = prior_success['jobprogress']
                 self._jobids[row['uniquekey']] = prior_success['jobid']
+                self._outputfiles[row['uniquekey']] = prior_success['outputfiles']
                 self._arrayids[row['uniquekey']] = prior_success['arrayid'] if ('arrayid' in prior_success) else 0
                 self._exitcodes[row['uniquekey']] = prior_success['ExitCode']
 
@@ -395,6 +453,7 @@ class JobsLauncher:
 # Filename       : %s
 # Generated By   : %s
 # For work plan  : %s
+# Workstatus file: %s
 # Organization   : Vanderbilt Genetics Institute,
 #                : Program in Personalized Structural Biology,
 #                : Department of Biomedical Informatics,
@@ -402,7 +461,11 @@ class JobsLauncher:
 # Generated on   : %s
 # Description    : Runs a python script on a cluster to accomplish: %s
 #===============================================================================
-""" % (launch_filename, __file__, self._workplan_or_case_filename, str(datetime.now()), subdir))
+""" % (launch_filename, 
+       __file__, 
+       self._workplan_filename_for_comment, 
+       self._workstatus_filename_for_comment, 
+       str(datetime.now()), subdir))
 
     def _write_launch_independent_environment(self, launch_filename: str, slurm_f: TextIO, subdir: str):
         # In a container, our execution path should point to the container areas.  Annoyingly,
@@ -410,7 +473,7 @@ class JobsLauncher:
         # If NOT in a container, then init the PATH to be whatever it is outside the container.
 
         if CONTAINER_TYPE:
-            path_statement="PATH=%s" % ':'.join([
+            path_statement = "PATH=%s" % ':'.join([
                 "/opt/conda/bin",
                 "/ensembl/ensembl-git-tools/bin",
                 "/psbadmin/bin",
@@ -452,7 +515,6 @@ export PYTHONNOUSERSITE=x
 export PYTHONUNBUFFERED=x
 """)
 
-
     def _write_launch_independent_cd(self, launch_filename: str, slurm_f: TextIO, subdir: str):
         slurm_f.write("""
 cd %s
@@ -460,8 +522,8 @@ if [ $? != 0 ]; then
 echo Failure at script launch: Unable to change to directory %s
 exit 1
 fi
-""" % ( self._all_jobs_cwd,
-        self._all_jobs_cwd))
+""" % (self._all_jobs_cwd,
+       self._all_jobs_cwd))
 
     def _create_slurm_file(self, subdir: str, launch_filename: str, launch_stdout_directory: str):
         """
@@ -470,31 +532,39 @@ fi
         @param launch_stdout_directory: "stdout" subdir of above.
         @return:
         """
+
+        global CONTAINER_TYPE # HACK FOR NAR
         with open(launch_filename, 'w') as slurm_f:
             self._write_launch_independent_comments(launch_filename, slurm_f, subdir)
 
             slurm_f.write("\n# Slurm Parameters\n")
-            # It is important to make shallow copies of the default dictionaries,
-            # else mutations #7 can pick up dictionary entries set by mutation #4
+
             if "PathProx" in subdir:
-                slurm_dict = dict(launchParametersPathProx)
-            elif subdir == "ddG_monomer":
-                slurm_dict = dict(launchParametersDDGMonomer)
-            elif subdir == "ddG_cartesian":
-                slurm_dict = dict(launchParametersDDGCartesian)
-            # 2021-09-28: Remove SequenceAnnotaiton for time being
-            # elif subdir == "SequenceAnnotation":
-            #    slurm_dict = dict(launchParametersUDNSequence)
-            elif subdir == "DiGePred":
-                slurm_dict = dict(launchParametersDiGePred)
+                _flavor = 'PathProx'
             else:
-                print("I don't know what flavor(subdir) is: ", subdir)
+                _flavor = subdir
+
+            slurm_dict = None
+
+            if _flavor not in launchParametersFromConfig:
+                LOGGER.critical("_create_slurm_file: Unknown flavorsubdir=%s/flavor=%s", subdir, flavor)
                 sys.exit(1)
 
+            # It is important to make shallow copies of the default dictionaries,
+            # else mutations #7 can pick up dictionary entries set by mutation #4
+            slurm_dict = dict(launchParametersFromConfig[_flavor])
+
+            job_count = len(self._launch_strings[_flavor])
+            # If we are going to create a slurm array then include the slurm
+            # job number %A and %a array number in the output capture stdout filename
+            # But if only one job, then just output %A, as it is not property initialized to 0
+            # by slurm and looks like 2^32 instead
             slurm_dict['output'] = "%s/%s.out" % (
-                launch_stdout_directory, "%s_%%A_%%a" % self._geneRefseqMutation_OR_casewideString)
+                launch_stdout_directory,
+                (self._geneRefseqMutation_OR_casewideString + '_' +
+                 ('%A_%a' if (job_count > 1) else '%A'))
+            )
             slurm_dict['job-name'] = "%s_%s" % (self._geneRefseqMutation_OR_casewideString, subdir)
-            job_count = len(self._launch_strings[subdir])
 
             # Build a slurm array file if jobCount > 1
             if job_count > 1:
@@ -508,8 +578,9 @@ fi
             # if jobCount > 10:
             #   slurmDict['array'] += "%%10"
 
-            for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output', 'reservation',
-                                'partition', 'nodelist', 'exclusive', 'export','array']:
+            for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output',
+                                'reservation',
+                                'partition', 'nodelist', 'exclusive', 'export', 'array']:
                 if slurm_field in slurm_dict and slurm_dict[slurm_field]:
                     slurm_f.write("#SBATCH --%s=%s\n" % (slurm_field, slurm_dict[slurm_field]))
 
@@ -525,6 +596,13 @@ echo "SLURM_NNODES"=$SLURM_NNODES
 echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 """)
 
+            if "PathProx" in subdir:
+                ## TERRIBLE HACK FOR NAR
+                save_type = CONTAINER_TYPE
+                CONTAINER_TYPE="Singularity"
+                self._write_launch_independent_environment(launch_filename, slurm_f, subdir)
+                CONTAINER_TYPE=save_type
+
             self._write_launch_independent_environment(launch_filename, slurm_f, subdir)
 
             self._write_launch_independent_cd(launch_filename, slurm_f, subdir)
@@ -539,15 +617,22 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 if 'singularity_pre_command' in config_dict:
                     slurm_f.write("%s\n" % config_dict['singularity_pre_command'])
                 else:
-                    slurm_f.write("# No singularity pre command written.  Add singularity_pre_command to .config if this is desired\n")
+                    slurm_f.write(
+                        "# No singularity pre command written.  Add singularity_pre_command to .config if this is desired\n")
 
                 container_exec_prefix = 'singularity exec %s ' % SINGULARITY_IMAGE
             else:
                 container_exec_prefix = ''
+                if "PathProx" in subdir:
+                    ## TERRIBLE HACK FOR NAR
+                    # We're runnitng pathprox3, also hacked, outside the container we're launching
+                    container_exec_prefix = 'singularity exec /dors/capra_lab/users/mothcw/UDNtests/development.simg /dors/capra_lab/users/mothcw/psbadmin/pathprox/'
 
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
-                slurm_f.write(container_exec_prefix + self._launch_strings[subdir][0][1])
+                uniquekey_launchstring = self._launch_strings[subdir][0]
+                slurm_f.write(container_exec_prefix + uniquekey_launchstring[1])
+                
 
                 slurm_f.write("\n")
             else:
@@ -582,20 +667,19 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
             bsub_f.write("\n# LSF Parameters\n")
             # It is important to make shallow copies of the default dictionaries,
             # else mutations #7 can pick up dictionary entries set by mutation #4
+
             if "PathProx" in subdir:
-                bsub_dict = dict(launchParametersPathProx)
-            elif subdir == "ddG_monomer":
-                bsub_dict = dict(launchParametersDDGMonomer)
-            elif subdir == "ddG_cartesian":
-                bsub_dict = dict(launchParametersDDGCartesian)
-            # 2021-09-28: Remove SequenceAnnotaiton for time being
-            # elif subdir == "SequenceAnnotation":
-            #    bsub_dict = dict(launchParametersUDNSequence)
-            elif subdir == "DiGePred":
-                bsub_dict = dict(launchParametersDiGePred)
+                _flavor = 'PathProx'
             else:
-                print("I don't know what flavor(subdir) is: ", subdir)
+                _flavor = subdir
+
+            bsub_dict = None
+
+            if _flavor not in launchParametersFromConfig:
+                LOGGER.critical("_create_bsub_file: Unknown flavorsubdir=%s/flavor=%s", subdir, flavor)
                 sys.exit(1)
+
+            bsub_dict = launchParametersFromConfig[_flavor]
 
             bsub_dict['output'] = "%s/%s.out" % (
                 launch_stdout_directory, "%s_%%J_%%I" % self._geneRefseqMutation_OR_casewideString)
@@ -629,8 +713,8 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
                 ('W', 'limit'),
                 ('R', 'resource'),
                 ('n', 'tasks'),
-                ('o', 'output')     # Populated above
-             ]:
+                ('o', 'output')  # Populated above
+            ]:
                 bsub_value = None
                 # Accept either LSF short description or sanity preserving long description
                 # from CONFIG file
@@ -658,7 +742,6 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                 'LSB_JOBNAME', 'LSB_HOSTS', 'LSB_JOBPIDS', 'LSB_OUTDIR', 'LSB_PROJECT_NAME',
                 'LSB_QUEUE', 'LSB_BIND_CPU_LIST', 'LS_SUBCWD'
             ]:
-
                 bsub_f.write('echo "{0}="${0}\n\n'.format(lsf_environment_variable))
 
             if 'lsf_docker_volumes' in config_dict:
@@ -698,13 +781,14 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         which will be written back to disk by the mainline called
         @return: dataframe containing the workplan, extended with workstatus information from process launches.
         """
-        df_updated_workstatus = self._df_all_jobs.merge(pd.DataFrame(
+        df_updated_workstatus = self._df_workplan_jobs.merge(pd.DataFrame(
             list(self._jobids.items()),
             columns=['uniquekey', 'jobid']),
             on='uniquekey', how='left')
         df_updated_workstatus = df_updated_workstatus.merge(
             pd.DataFrame(list(self._arrayids.items()), columns=['uniquekey', 'arrayid']),
             on='uniquekey', how='left')
+
         df_updated_workstatus = df_updated_workstatus.merge(
             pd.DataFrame(list(self._jobinfo.items()), columns=['uniquekey', 'jobinfo']),
             on='uniquekey', how='left')
@@ -715,6 +799,13 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
             pd.DataFrame(list(self._exitcodes.items()), columns=['uniquekey', 'ExitCode']),
             on='uniquekey', how='left')
 
+        df_updated_workstatus = df_updated_workstatus.merge(
+            pd.DataFrame(list(self._outputfiles.items()), columns=['uniquekey', 'outputfile']),
+            on='uniquekey', how='left')
+
+        # Because arrayid is missing, we need to leave it as possibly not there
+        # df_update_workstatuis['arrayid'] = df_update_workstatuis['arrayid'].astype(int)
+
         return df_updated_workstatus.set_index(['uniquekey', 'jobid'], inplace=False)
 
     def doit(self) -> Tuple[pd.DataFrame, List[str]]:
@@ -723,9 +814,9 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                  List of .slurm or .bsub files that may need to be launched outside the container.
         """
 
-        self._add_launch_directory_to_df_all_jobs()
-        self._add_gene_refseq_mutation_flavor_to_df_all_jobs()
-        self._add_launch_filename_to_df_all_jobs()
+        self._add_launch_directory_to_df_workplan_jobs()
+        self._add_gene_refseq_mutation_flavor_to_df_workplan_jobs()
+        self._add_launch_filename_to_df_workplan_jobs()
 
         self._create_launch_strings()
 
@@ -735,7 +826,7 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         # retail the list of all the .slurm or .bsub files getting launched.
         launch_filenames = []
 
-        for subdir in ['PathProx', 'ddG_monomer', 'ddG_cartesian','SequenceAnnotation', 'DiGePred']:
+        for subdir in KNOWN_CALCULATION_FLAVOR_LIST:
             if len(self._launch_strings[subdir]) == 0:
                 # It's noteworth if we have a normal gene entry (not casewide) and a gene-related job is not running
                 if (self._gene == 'casewide' and subdir == 'DiGePred') or (
@@ -743,14 +834,14 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                     LOGGER.info(
                         "No %s jobs will be run for %s %s %s", subdir, self._gene, self._refseq, self._mutation)
             else:
-                launch_directory, launch_directory_outside_container = self._build_a_launch_dir(subdir)
+                launch_directory, launch_directory_outside_container = self._build_a_launch_dir(flavor=subdir)
                 launch_stdout_directory = os.path.join(launch_directory, "stdout")
-
                 old_umask = os.umask(2)
                 os.makedirs(launch_stdout_directory, exist_ok=True)
                 os.umask(old_umask)
 
-                set_capra_group_sticky(launch_stdout_directory)
+                # set_capra_group_sticky(launch_stdout_directory)
+                psb_permissions.set_dir_group_and_sticky_bit(launch_stdout_directory)
 
                 launch_filename = os.path.join(launch_directory,
                                                "%s_%s.%s" % (self._geneRefseqMutation_OR_casewideString,
@@ -763,9 +854,8 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                     launch_filename_outside_container = os.path.join(
                         launch_directory_outside_container,
                         "%s_%s.%s" % (self._geneRefseqMutation_OR_casewideString,
-                        subdir,
-                        self._slurm_or_bsub))
-
+                                      subdir,
+                                      self._slurm_or_bsub))
 
                 job_id = None
 
@@ -799,11 +889,18 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
                         # job_id = 999 # slurm_submit(['sbatch',slurm_file])
 
                 if not args.nolaunch:
+                    job_count = len(self._launch_strings[subdir])
+                    array_id = 0
                     for uniquekey_launchstring in self._launch_strings[subdir]:
                         self._jobids[uniquekey_launchstring[0]] = job_id
                         self._jobinfo[uniquekey_launchstring[0]] = 'Submitted'
                         self._jobprogress[uniquekey_launchstring[0]] = 'In queue'
                         self._exitcodes[uniquekey_launchstring[0]] = None
+                        self._outputfiles[uniquekey_launchstring[0]] = "%s/%s" % (
+                           launch_stdout_directory,
+                           (self._geneRefseqMutation_OR_casewideString + '_' +
+                           ("%d_%d" % (int(job_id), array_id)) if (job_count > 1) else '%d' % int(job_id)))
+                        array_id += 1
 
             # Now, finally, record "Submitted" in all the status info files
             for status_dir in self._status_dir_list:
@@ -813,26 +910,18 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         return self._df_updated_workstatus(), launch_filenames
 
 
-# collaboration_log_dir = os.path.join(collaboration_dir,"log")
-# if not os.path.exists(collaboration_log_dir):  # python 3 has exist_ok parameter...
-#   LOGGER.error("%s not found.  It should have been created by psb_plan.py"%collaboration_log_dir)
-#  sys.exit(1)
-
-mutation_dir = ''
-
-
-def launch_one_mutation(workplan_or_case_filename: str) -> Tuple[pd.DataFrame, str, List[str]]:
+def launch_one_mutation(workplan_filename: str) -> Tuple[pd.DataFrame, str, List[str]]:
     # Load the schedule of jobs that was created by psb_plan.py
-    df_all_jobs = pd.read_csv(workplan_or_case_filename, sep='\t', keep_default_na=False, na_filter=False)
+    df_workplan_jobs = pd.read_csv(workplan_filename, sep='\t', keep_default_na=False, na_filter=False)
 
-    if len(df_all_jobs) < 1:
-        LOGGER.warning("No rows in work plan file %s.  No jobs will be launched.", workplan_or_case_filename)
-        return pd.DataFrame(), workplan_or_case_filename, []
+    if len(df_workplan_jobs) < 1:
+        LOGGER.warning("No rows found in file %s.  No jobs will be launched.", workplan_filename)
+        return pd.DataFrame(), workplan_filename, []
 
-    LOGGER.info("%d rows read from work plan file %s", len(df_all_jobs), workplan_or_case_filename)
+    LOGGER.info("%d rows read from work plan file %s", len(df_workplan_jobs), workplan_filename)
 
     # Let's take care to not relaunch jobs that are already running, or complete, unless --relaunch flag is active
-    workstatus_filename = workplan_or_case_filename.replace('workplan', 'workstatus')
+    workstatus_filename = workplan_filename.replace('workplan', 'workstatus')
 
     df_prior_exit0 = pd.DataFrame()
 
@@ -842,7 +931,8 @@ def launch_one_mutation(workplan_or_case_filename: str) -> Tuple[pd.DataFrame, s
                                     dtype=str)
 
     except FileNotFoundError:
-        # It's A-OK to not have a workstatus
+        # It's A-OK to not have a workstatus file already in palce.
+        # With pass, we proceed to creating a new workstatus file on the disk.
         pass
 
     else:
@@ -852,15 +942,21 @@ def launch_one_mutation(workplan_or_case_filename: str) -> Tuple[pd.DataFrame, s
     if args.relaunch and len(df_prior_exit0) > 0:
         LOGGER.info("--relaunch flag was passed, including %d with prior ExitCode=0", len(df_prior_exit0))
 
-    jobs_launcher = JobsLauncher(workplan_or_case_filename, df_all_jobs, df_prior_exit0)
+    jobs_launcher = JobsLauncher(
+        workplan_filename_for_comment=workplan_filename,
+        workstatus_filename_for_comment=workstatus_filename,
+        df_workplan_jobs=df_workplan_jobs,
+        df_prior_exit0=df_prior_exit0)
+
     old_umask = os.umask(2)
     os.makedirs(jobs_launcher.mutation_dir, exist_ok=True)
     os.umask(old_umask)
 
-    set_capra_group_sticky(mutation_dir)
+    # set_capra_group_sticky(mutation_dir)
+    psb_permissions.set_dir_group_and_sticky_bit(jobs_launcher.mutation_dir)
 
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(mutation_dir, "psb_launch.log")
+    log_filename = os.path.join(jobs_launcher.mutation_dir, "psb_launch.log")
 
     if oneMutationOnly:
         sys.stderr.write("psb_launch log file is %s\n" % log_filename)
@@ -879,7 +975,7 @@ def launch_one_mutation(workplan_or_case_filename: str) -> Tuple[pd.DataFrame, s
     if need_roll:
         local_fh.doRollover()
 
-    df_updated_workstatus,launch_filenames = jobs_launcher.doit()
+    df_updated_workstatus, launch_filenames = jobs_launcher.doit()
 
     # Now create a new workstatus file
     print("Recording %d jobids in %s" % (len(df_updated_workstatus), workstatus_filename))
@@ -898,17 +994,19 @@ def main():
     # Main logic here.  A period in the argument means the user wants to launch one mutation only,
     # directly from a single mutation output file of psb_plan.py
 
-
     # custom_launcher_filename = os.path.join(
     #     collaboration_dir,
     #     ('launch_%s.py' % args.projectORworkplan) if not oneMutationOnly else "launch_custom.py")
 
-    custom_launcher_filename = ('launch_%s.py' % args.projectORworkplan) if not oneMutationOnly else "launch_custom.py"
+    if oneMutationOnly:
+        custom_launcher_filename = "launch_one_mutation_only.py"
+    else:
+        custom_launcher_filename = 'launch_%s.py' % args.projectORworkplan
 
     LOGGER.info("%s will be created as an external launch utility", custom_launcher_filename)
 
     # We create a super-simple (few dependencies) launcher program that can be run _outside_ the container
-    launcher_f = open(custom_launcher_filename,'w')
+    launcher_f = open(custom_launcher_filename, 'w')
 
     # Make the customer launcher .py file executable by user and group
     mode = os.fstat(launcher_f.fileno()).st_mode
@@ -929,13 +1027,14 @@ Created %s by command line:
     launcher_f.write('\n"""\n')
 
     launcher_f.write("""\
-import subprocess as sp
+import subprocess 
 import sys
 import re
 import csv
 import logging
 
 logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 """)
 
     bsub_submit_function_source_code = inspect.getsource(bsub_submit)
@@ -990,18 +1089,25 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
         df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(args.projectORworkplan)
     else:
         # The argument is an entire project UDN124356
-        udn_csv_filename = os.path.join(collaboration_dir,
-                                        "%s_missense.csv" % args.projectORworkplan)
-        print("Retrieving project mutations from %s" % udn_csv_filename)
-        df_all_mutations = pd.read_csv(udn_csv_filename, sep=',', index_col=None,
+        vustruct_filename = os.path.join(collaboration_dir,
+                                        "%s_vustruct.csv" % args.projectORworkplan)
+        print("Retrieving project mutations from %s" % vustruct_filename)
+        df_case_vustruct_all_variants = pd.read_csv(vustruct_filename, sep=',', index_col=None,
                                        keep_default_na=False, encoding='utf8',
                                        comment='#', skipinitialspace=True)
-        df_all_mutations.fillna('NA', inplace=True)
-        print("Launching all jobs for %d mutations" % len(df_all_mutations))
+
+        # If this is new format, trim out non-missense variants
+        if 'effect' in df_case_vustruct_all_variants:
+            df_vustruct_missense_variants = df_case_vustruct_all_variants[ df_case_vustruct_all_variants['effect'].str.contains('missense') ]
+        else: # Old format is all missense.  Simple retain all of it
+            df_vustruct_missense_variants = df_case_vustruct_all_variants
+
+        df_vustruct_missense_variants.fillna('NA', inplace=True)
+        print("Launching all jobs for %d mutations" % len(df_vustruct_missense_variants))
 
         # For each variant in the case, create workstatus files, and gather job ids if
         # launching now.  Build up the custom launcher launcher_f script for a later launch
-        for index, row in df_all_mutations.iterrows():
+        for index, row in df_vustruct_missense_variants.iterrows():
             print("Launching %-10s %-10s %-6s" % (row['gene'], row['refseq'], row['mutation']))
             if 'GeneOnly' in row['refseq']:
                 row['refseq'] = 'NA'
@@ -1018,7 +1124,8 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
             df_updated_workstatus, workstatus_filename, launch_filenames = launch_one_mutation(workplan_filename)
 
             if len(launch_filenames) == 0:
-                launcher_f.write("\n\n# No jobs were planned for %s_%s_%s\n" % (row['gene'], row['refseq'], row['mutation']))
+                launcher_f.write(
+                    "\n\n# No jobs were planned for %s_%s_%s\n" % (row['gene'], row['refseq'], row['mutation']))
                 continue
 
             # Very cheesy - but the idea is that we need the external launcher to use the mounted
@@ -1087,7 +1194,10 @@ def add_jobid_to_workstatus(workstatus_csv, launch_filename, job_id):
         LOGGER.info(user_launch_message)
         print("\n\n" + user_launch_message)
 
+    vustruct.exit_code = 0
+    vustruct.stamp_end_time()
+    vustruct.write_file()
+
 
 if __name__ == '__main__':
     main()
-

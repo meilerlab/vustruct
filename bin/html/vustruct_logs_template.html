@@ -1,0 +1,102 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
+<head>
+	<meta charset="UTF-8" name="viewport" content="width=device-width, intial-scale=1">
+{% if refreshFlag %}
+   <meta http-equiv="refresh" content="10">
+{% endif %}
+    <title>Log Files for {{ case }}</title>
+</head>
+	<!-- jQuery -->
+	<script type="text/javascript" src="../html/javascript/jquery-3.5.1/jquery-3.5.1.min.js"></script>
+
+	<!-- Demo stuff from mottie.github.io -->
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
+    <script src="../html/javascript/tablesorter_docs/js/prettify.js"></script>
+	<script src="../html/javascript/tablesorter_docs/js/docs.js"></script>
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
+	<link rel="stylesheet" href="../html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
+    <script src="../html/javascript/tablesorter_docs/js/prettify.js"></script>
+	<script src="../html/javascript/tablesorter_docs/js/docs.js"></script>
+
+	<!-- Tablesorter required -->
+	<link rel="stylesheet" href="../html/javascript/tablesorter/css/theme.blue.css">
+	<script type="text/javascript" src="../html/javascript/tablesorter/js/jquery.tablesorter.js"></script>
+
+<script type="text/javascript">
+	// In current javascript, syntax below does what we need
+   $(function() {
+                                $(".tablesorter").tablesorter({
+                                        // sortReset: 'true',
+                                        theme: 'blue'
+                                });
+        });
+
+
+</script>
+
+
+{% if refreshFlag %}
+	<body> <!-- onload = "JavaScript:AutoRefresh(10000);"> -->
+{% else %}
+	<body>
+{% endif %}
+
+<h1>{{ case }} Log Files</h1>
+
+{% if refreshFlag %}
+	<p>This page will refresh every 10 seconds</p>
+{% endif %}
+
+{% for module in ['preprocess', 'plan', 'launch', 'report'] if vustruct[module]['log_basename'] %}
+<div id="{{module}}_div">
+<h3>
+<A href="{{ vustruct[module]['log_basename'] }}" >View {{ vustruct[module]['log_basename'] }}</A>
+<br>
+<A href="{{ vustruct[module]['log_basename'] }}" download>Download {{ vustruct[module]['log_basename'] }}</A>
+</h3>
+<br>
+{% endfor %}
+
+{% if case_missense_filename %}
+<A href="../{{case_missense_filename}}" download={{ case_missense_filename }}>Download {{case_missense_filename}}</A>
+
+<TABLE cellspacing="1" class="tablesorter">
+    <THEAD>
+    {% for column_header in case_missense_df.columns %}
+    <TH>{{ column_header }}</TH>
+    {% endfor %}
+    </THEAD>
+
+    {% for index, row in case_missense_df.iterrows() %}
+    <TR>
+    {% for column_header in case_missense_df.columns %}<TD>
+            {{ row[column_header] }}
+        </TD>{% endfor %}
+    </TR>
+    {% endfor %}
+
+</TABLE>
+
+<textarea id=missense_file_data readonly=true cols=80 rows={{ case_missense_df.index | length }} name=comments>
+    {{ case_missense_csv_data }}
+
+</textarea>
+    <script type="text/javascript" id="js">
+function missense_text_copy() {
+  let textarea = document.getElementById("missense_file_data");
+  textarea.select();
+  document.execCommand("copy");
+  window.alert('Missense file copied to clipboard.');
+};
+
+
+</script>
+    <button onclick="missense_text_copy()">Copy</button>
+
+{% endif %}
+</div>
+</body>
+</html>

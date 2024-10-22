@@ -2,17 +2,23 @@
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
 <head>
-	<meta charset="utf-8">
+	<meta charset="UTF-8">
+{% if refreshFlag %}
+   <meta http-equiv="refresh" content="{{ refresh_interval_seconds }}">
+{% endif %}
 	<title>Personal Structural Biology case {{case}}</title>
 
 	<!-- jQuery -->
 	<script type="text/javascript" src="html/javascript/jquery-3.5.1/jquery-3.5.1.min.js"></script>
 
 	<!-- Demo stuff from mottie.github.io -->
+	<!-- 2024 June removing this because it fouls up main stylesi, then put it back after editing it: 
 	<link rel="stylesheet" href="html/javascript/tablesorter_docs/css/jq.css" type="text/css" media="print, projection, screen" />
 	<link rel="stylesheet" href="html/javascript/tablesorter_docs/css/prettify.css" type="text/css" media="print, projection, screen" />
-    <script src="html/javascript/tablesorter_docs/js/prettify.js"></script>
-	<script src="html/javascript/tablesorter_docs/js/docs.js"></script>
+    <script src="html/javascript/tablesorter_docs/js/prettify.js" type="text/javascript"></script>
+	<script src="html/javascript/tablesorter_docs/js/docs.js" type="text/javascript"></script> -->
+
+	<link rel="stylesheet" href="html/javascript/tablesorter/css/jq.css" type="text/css" media="print, projection, screen" />
 
 	<!-- Tablesorter required -->
 	<link rel="stylesheet" href="html/javascript/tablesorter/css/theme.blue.min.css">
@@ -20,6 +26,9 @@
 
 	<!-- Tablesorter: optional -->
 	<script type="text/javascript" src="html/javascript/tablesorter/js/extras/jquery.tablesorter.pager.min.js"></script>
+
+ <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+
 
     <!-- right and down chevrons for open and close icons in tablesorter -->
     <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
@@ -34,9 +43,15 @@
 
     <link rel="stylesheet" href="html/css/psbstyles.css" />
 
-	<!-- later
     <link rel="stylesheet" href="html/css/typography.css" />
-    -->
+      <link rel="stylesheet" href="../html/css/typography.css" />
+                <style media="print" type="text/css">
+                h4{text-align:center;margin:0;padding:0.1in;}
+                h5{text-align:center;margin:0;padding:0.1in;}
+                .container{width:8in;float:left;}
+                .box{width:2in;float:left;height:auto;}
+                .big-box{width:3in;float:left;height:auto;}
+                </style>
 
 <script type="text/javascript" id="js">
 	$(document).ready(function() {
@@ -95,13 +110,21 @@
 
 </head>
 
-<body>
+
+
+{% if refreshFlag %}
+	<body> <!-- onload = "JavaScript:AutoRefresh({{ 1000 * refresh_interval_seconds }} );"> -->
+{% else %}
+	<body>
+{% endif %}
+
 
 <div>
   <span class="span2">
 <img src="html/PSBgraphicHeader.png" alt="PSB Graphic"/>
   </span>
 
+<div style="margin-left:15%">
 <table class="w3-table span2" style="width:50%">
 	<tr>
 		<th >Date</th>
@@ -111,18 +134,201 @@
 		<th>Case</th>
 		<td>{{ case }}</td>
 	</tr>
+	<tr>
+		<th>Log Files</th>
+		<td><A href="./log"/>Click for log files</A></td>
+	</tr>
+	<tr>
+		<th>Supplemental Report Files</th>
+		<td><A href="./report_files"/>Click for supplemental report files</A></td>
+	</tr>
+
+</table>
+</div>
+</div>
+
+{% if seconds_remaining %}
+<p id='ShowEndTime'>placeholder</p>
+<script type="text/javascript" id="js">
+var currentTime = new Date()
+var futureTime = currentTime
+futureTime.setSeconds(currentTime.getSeconds() + {{seconds_remaining}});
+function showEndTime() {
+    document.getElementById("ShowEndTime").innerHTML = "Maximum Cluster Compute End " + futureTime.toLocaleDateString() + " " + futureTime.toLocaleTimeString();
+}
+window.onload = showEndTime;
+</script>
+{% endif %}
+
+{% if refreshFlag %}
+        {% if refresh_interval_seconds > 60 %}
+	   <p>This page will refresh every {{ "%.1f"|format(refresh_interval_seconds/60.0)|float }} minutes</p>
+        {% else %}
+	   <p>This page will refresh every {{ refresh_interval_seconds }} seconds </p>
+        {% endif %}
+{% endif %}
+
+{% set failure=None %}
+
+<table cellspacng="1" class="tablesorter" style="width:75%;margin-left:5%">
+   <caption align="left">Case Preparation</caption>
+	<thead>
+		<tr>
+			<th class=sorter-false>VUStruct Phase</th>
+			<th class=sorter-false>Application</th>
+			<th class=sorter-false>Start Time</th>
+			<th class=sorter-false>End Time</th>
+			<th class=sorter-false>Input File</th>
+			<th class=sorter-false>Log</th>
+      </tr>
+   </thead>
+	<tbody>
+
+{% for phase in ['preprocess', 'plan', 'launch', 'monitor'] %}
+{% if vustruct[phase] and vustruct[phase].executable and vustruct[phase].start_time %}
+		<tr>
+                        <td>
+{% if vustruct[phase].exit_code and vustruct[phase].exit_code != '0' %} 
+<div style="color: red;">
+&#9888; FAILED {{phase}}
+</div>
+{% else %}
+<div>
+{{phase}}
+{% endif %}
+</div>
+</td> 
+			<td>{{vustruct[phase].executable}}</td>
+			<td>{{vustruct[phase].start_time}}</td>
+			<td>{{vustruct[phase].end_time}}</td>
+			<td>
+                        {% if vustruct[phase].input_filename %}
+                        <A href="{{vustruct[phase].input_filename}}" download="{{ vustruct[phase].input_filename | filter_basename }}">Input File</A></td>
+                        {% endif %}
+			<td><A href="{{vustruct[phase].log_filename}}">Log File</A></td>
+      </tr>
+           
+{% endif %}
+{% endfor %}
+	</tbody>
 </table>
 
-	</div>
 
 
 
 <div id="main">
 	
-	<h1>{{ case }}</h1>
+	<!-- <h1>{{ case }}</h1> -->
+        {% if status_header %}
+        <h2 
+          {% if module_failure_info %} style="color: red;"{% endif %}>
+        Status: {{status_header}}</h2>
+        <h3 style="color:red;">Run has been halted</h3>
+        {% endif %}
+
+        <!-- If we had a kickoff preprocess or plan or launch failure, that's a big deal and we put a red box out there -->
+        {% if module_failure_info %}
+        <div style="border: 1px solid black; padding: 6px; margin: 3px; border-color: red;">  
+
+        {% if preprocess_failed %}
+            <p>
+            The preprocessor failed.  See details below and restart VUStruct with a corrected input file.
+            </p>
+        {% elif plan_failed %}
+            <h4 style="width:85%;color=red">
+            VUStruct's plan module has failed.</h4>  
+            <p>Details are in the output box below, and in the log file.</p>
+            <p>The most common issue is that Uniprot protein transcript sequences can disagree with 
+            ENSEMBL GRCh38 ENST... transcript sequences.
+            </p><p>To correct these problems, or work around them:
+            <ol>
+            <li>Download the <a href={{ vustruct['plan'].input_filename }} download="{{vustruct['plan'].input_filename|filter_basename}}">Input file</a> </li>
+            <li>Comment out offending lines with #</li>
+            <li>Resubmit a new vustruct by selecting "vustruct" fileformat and uploading your edited file (Do NOT re-use a pre-processor)</li>
+        {% elif launch_failed %}
+            <h4 style="width:85%;color=red">
+            VUStruct's launch module has failed.</h4>  
+            <p>Details are in the output box below, and in the log file.</p>
+            <p>Please double check any suppled refseq identifiers, if supplied.  These must match uniprot cross-references.</p>
+            </p><p>To correct these problems, or work around them:
+            <ol>
+            <li>Download the <a href={{ vustruct['plan'].input_filename }} download="{{vustruct['plan'].input_filename|filter_basename}}">Input file</a> </li>
+            <li>Comment out offending lines with #</li>
+            <li>Resubmit a new vustruct by selecting "vustruct" fileformat and uploading your edited file (Do NOT re-use a pre-processor)</li>
+            </ol>
+        {% endif %}
+
+       <div style="border: 2px solid black;margin-left:3%;margin-right:3%;"><pre style="margin: 4px;background-color:#fff0f0">
+{{module_failure_info}}</pre></div>
+        </div>
+
+        {% endif %} {# endif module_failure_info #}
+
+{% if not module_failure_info %}
+ <button id="loadSqueueBtn">Refresh Cluster Jobs Information (slurm squeue)</button>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            loadSqueueBtn = document.querySelector('#loadSqueueBtn');
+            const squeueTableBody = document.querySelector('#squeue-table tbody');
+            fetchURL = new URL("vustruct/slurm_status", "https://staging.meilerlab.org/")
+            fetchURL.searchParams.append('case_uuid',  "{{case_uuid}}");
+https://vucommodores.com/this-magic-moment/
+            // loadSqueueBtn.innerHTML = fetchURL 
+
+            loadSqueueBtn.addEventListener('click', () => {
+                fetch(fetchURL)
+                    .then(response => response.json() )
+                    .then(json_data  => {
+                        // Clear existing table rows
+                        squeueTableBody.innerHTML = '';
+
+                        // Iterate over the data and populate the table
+                        for (const [gene_refseq_mutation, jobs] of Object.entries(json_data)) {
+                        // console.log("startup 3", gene_refseq_mutation, jobs);
+                            for (const [unique_id, job] of Object.entries(json_data[gene_refseq_mutation])) {
+                            const row = document.createElement('tr');
+://vucommodores.com/this-magic-moment/
+                            row.innerHTML = `
+                                <td>${unique_id}</td>
+                                <td>${job.job_key}</td>
+                                <td>${job.start_time}</td>
+                                <td>${job.job_state}</td>
+                                <td>${job.jobinfo}</td>
+                                <td>${job.ExitCode}</td>
+                            `;
+                            squeueTableBody.appendChild(row);
+                        }
+                    }})
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                    });
+            });
+        });
+    </script>
+    <table id="squeue-table" class="table-sorter">
+        <thead>
+            <tr>
+                <th>Job Name</th>
+                <th>Job Id</th>
+                <th>Start Time</th>
+                <th>Slurm State</th>
+                <th>Job Info</th>
+                <th>ExitCode</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Table rows will be added here -->
+        </tbody>
+    </table>
+   {% endif %} {# endif not module_failure_info #}
+
+
+
+        {# {% if not (vustruct['plan'] and vustruct['plan'].executable and vustruct['plan'].start_time) %}: Structures and being selected.  Compute jobs are being planned.
+{% endif %} #}
 		
-		<table cellspacing="1" class="tablesorter">
 			{% if genome_headers %}
+				<table cellspacing="1" class="tablesorter">
 				<thead>
 				<tr>
 					<th>#</th>
@@ -135,8 +341,13 @@
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th class="sorter-false">Alpha</th>
+					<th class="sorter-false">ScanNet</th>
+					<th class="sorter-false">MusiteDeep</th>
+					<!--
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
-					<th class="sorter-false"></th> <!-- Above Notes -->
+                                        -->
+					<th class="sorter-false"></th> <!-- Blank Above Notes -->
 <!-- Sometimes for debugging - dump everything -
 					{% for colname in variant_isoform_summaries[0] %}
 					<th>{{ colname }}</th>
@@ -160,8 +371,13 @@
 					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
+					<th>Missense</th>
+					<th>PPI</th>
+					<th>PTM</th>
+					<!--
 					<th class="sorter-false">Generic</th>
 					<th class="sorter-false">Familial</th>
+					-->
 					<th class="sorter-false">Notes</th>
 				</tr>
 
@@ -239,11 +455,31 @@
 						{%endif %}
 					</td>
 
+					<td>
+						{% if genome_header['alphamissense_score'] is not none %}
+						    {{ genome_header['alphamissense_score'] }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['ScanNetPPI'] is not none %}
+						    {{ genome_header['ScanNetPPI'] }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['MusiteDeepPTM'] is not none %}
+						    {{ genome_header['MusiteDeepPTM'] }}
+						{%endif %}
+					</td>
+
+					<!--
 					<td> {{ genome_header['Gene Interactions Generic'] }}
 					</td>
 
 					<td> {{ genome_header['Gene Interactions Familial'] }}
 					</td>
+					-->
 					<td> {{ genome_header['Error'] }}</td>
 
 					<!--
@@ -321,17 +557,43 @@
 						{%endif %}
 					</td>
 
+					<td>
+						{% if isoform_summary['alphamissense_score'] is not none %}
+						    {{ isoform_summary['alphamissense_score'] }}
+						{%endif %}
+					</td>
 
 
-					<td /> <!-- skip 2 gene interaction columns -->
+					<td>
+						{% if isoform_summary['ScanNetPPI'] is not none %}
+						    {{ ( isoform_summary['ScanNetPPI'][0]['Binding site probability']*100.0)|round(0)|int }}%
+						{% endif %}
+					</td>
+
+
+					<td>
+						{% if isoform_summary['MusiteDeepPTM'] is not none %}
+                                                    {% for ptm_record in isoform_summary['MusiteDeepPTM'] %}
+                                                        {{ (ptm_record['PTM Probability'] * 100.0)|round(0)|int }}% at {{ ptm_record['PTM Residue'] }}: {{ ptm_record['PTM Type'] }}
+                                                        <br>
+				                    {% endfor %}
+						{%endif %}
+					</td>
+
+
+					<!-- skip 2 gene interaction columns 
 					<td />
+					<td /> -->
 					<td> {{ isoform_summary['Error'] }} </td>
 				</tr>
 				{% endfor %}
 
 			{% endfor %}
 			</tbody>
+			</thead>
+			</table>
 			{% elif variant_isoform_summaries %}
+                        <table cellspacng="1" class="tablesorter">
 			{# This is the second major case report structure.  Here, there are no genomic headers
 			becauase there were no genomic coordinates on initial input #}
 			<thead>
@@ -346,7 +608,10 @@
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th class="sorter-false">Alpha</th>
+                                        <!--
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
+                                        -->
 					<th class="sorter-false"></th> <!-- Above Notes -->
 <!-- Sometimes for debugging - dump everything -
 					{% for colname in variant_isoform_summaries[0] %}
@@ -371,8 +636,11 @@
 					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
+					<th>Missense</th>
+                                        <!--
 					<th class="sorter-false">Generic</th>
 					<th class="sorter-false">Familial</th>
+                                        -->
 					<th class="sorter-false">Notes</th>
 				</tr>
 			</thead>
@@ -441,9 +709,17 @@
 						{%endif %}
 					</td>
 
+					<td>
+						{% if isoform_summary['alphamissense_score'] is not none %}
+						    {{ isoform_summary['alphamissense_score'] }}
+						{%endif %}
+					</td>
 
-					<td /> <!-- skip 2 gene interaction columns -->
-					<td />
+
+					<!-- If we ever return gene interaction columns put these 2 back
+					     <td />
+					     <td />
+                                        -->
 					<td> {{ isoform_summary['Error'] }} </td>
 
 
@@ -455,9 +731,35 @@
 				</tr>
 				{% endfor %}
 			</tbody>
+		</table>
+{% elif vustruct_logs_info %}
+
+{# Only output this table if the preprocess run and plan not really engaged #}
+{% if not module_failure_info %}
+<TABLE cellspacing="1" class="tablesorter">
+    <THEAD>
+    {% for column_header in vustruct_logs_info.case_vustruct_df.columns %}
+    <TH>{{ column_header }}</TH>
+    {% endfor %}
+    </THEAD>
+
+    {% for index, row in vustruct_logs_info.case_vustruct_df.iterrows() %}
+    <TR>
+    {% for column_header in vustruct_logs_info.case_vustruct_df.columns %}<TD>
+            {{ row[column_header] }}
+        </TD>{% endfor %}
+    </TR>
+    {% endfor %}
+
+</TABLE>
+{% endif %}
+
+         
+					{% else %}
+					{# We are early in the pipeline.  Output the status message created in psbrep.py #}
+					<h1>{{ early_or_fail_message }}</h1>
 			{% endif %}
 
-		</table>
 
     <br>
 
@@ -531,8 +833,18 @@
     <h3>Familial Gene Interactions Report</h3>
     {{ secondGeneReport }} 
 {% endif %}
+
+{% if diep_png_plot_filename %}
+<h3>DIEP Digenic Interaction Analysis Heatmap</h3>
+<img src={{ diep_png_plot_filename }} alt="DIEP Heatmap" style="display block; width:50%; height: auto;"/>
+{% endif %}
 	
 </div>
+{% if show_wait_cursor %}
+     <script type="text/javascript" id="hourglass">
+document.body.style.cursor = 'wait';
+</script>
+{% endif %} 
+
 </body>
 </html>
-

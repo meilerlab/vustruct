@@ -26,9 +26,9 @@ class _DefaultOsInterface(object):
         assert read_or_write == 'r' or read_or_write == 'w'
 
         # file_create_mode =(self._file_create_mode if (read_or_write == 'w') else 0)
-        # file_create_mode = 0o660
+        file_create_mode = 0o660
 
-        # old_umask = os.umask(0)
+        old_umask = os.umask(0)
 
         fd = os.open(filename,
                      (os.O_CREAT | os.O_WRONLY | os.O_TRUNC) if (read_or_write == 'w') else os.O_RDONLY,
@@ -44,17 +44,22 @@ class _DefaultOsInterface(object):
                     read_or_write,
                     fd)
         # self.set_group(filename)
-        # os.umask(old_umask)
+        os.umask(old_umask)
         return fd
+
+    @property
+    def _os_makedir_mode(self) -> int:
+        return 0o660
+
 
     def makedirs(self,name : str, exist_ok = True ) -> None:
         """
         name: fullpath of all directories to be made
         """
-        os.makedirs(name,self._os_makedir_mode,exist_ok)
+        os.makedirs(name,mode=self._os_makedir_mode,exist_ok=exist_ok)
 
     def touch(self,filename: str):
-        Path(filename).touch(exist_ok=True,mode=0o660)
+        Path(filename).touch(exist_ok=True,mode=0o770)
 
 
 class PsbStatusManager(object):
@@ -68,6 +73,7 @@ class PsbStatusManager(object):
 
     def clear_status_dir(self) -> None:
         if not os.path.exists(self._status_dir):
+            # import pdb; pdb.set_trace()
             try:
                 self._os_interface.makedirs(self._status_dir)
             except:

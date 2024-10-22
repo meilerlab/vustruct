@@ -7,6 +7,7 @@
 # Organization   : Vanderbilt Genetics Institute,
 #                : Vanderbilt University
 # Email          : mike.sivley@vanderbilt.edu
+#                  chris.moth@vanderbilt.edu Current Maintainer
 # Date           : 2017-01-22
 # Description    : Identifies available structures for a specific mutation
 #                : and generates a table of work for the computer cluster
@@ -32,65 +33,25 @@ The three output files for each gene include:
   workplan.csv
 """
 
-print("%s: Pipeline execution plan generator.  -h for detailed help" % __file__)
-
-import os
-import sys
-import grp
-import stat
-import pwd
-import gzip
-import lzma
-import logging
 import datetime
+import gzip
+import logging
+import lzma
+import os
+import shutil
+import sys
+from collections import defaultdict
 from io import StringIO
-
-from typing import Dict
-
 from logging.handlers import RotatingFileHandler
-from logging import handlers
-
-sh = logging.StreamHandler()
-LOGGER = logging.getLogger()
-global_fh = None  # Setup global fileHandler log when we get more info
-
-# Now that we've added streamHandler, basicConfig will not add another handler (important!)
-log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-date_format_string = '%H:%M:%S'
-log_formatter = logging.Formatter(log_format_string, date_format_string)
-
-# Dictionary to map uniprot IDs for this case to a pre-loaded set of transcripts
-unp2transcript = {}
-
-
-def gene_specific_set_log_formatter(log_handler: logging.Handler, entry: int, gene: str) -> None:
-    log_format_string = '%3d %-7s' % (
-    entry, gene) + ' %(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
-    date_format_string = '%H:%M:%S'
-
-    log_handler.setFormatter(logging.Formatter(log_format_string, date_format_string))
-
-
-LOGGER.setLevel(logging.DEBUG)
-sh.setLevel(logging.INFO)
-sh.setFormatter(log_formatter)
-LOGGER.addHandler(sh)
-
+from typing import Dict, Tuple
 import pandas as pd
+from tabulate import tabulate
 
-pd.options.mode.chained_assignment = 'raise'
-pd.set_option("display.max_columns", 100)
-pd.set_option("display.width", 1000)
 import numpy as np
-import time
-from get_structures import get_pdbs, get_modbase_swiss
-import argparse, configparser
-from glob import glob
+from lib import PDBMapGlobals
 from lib import PDBMapSIFTSdb
 from lib import PDBMapProtein
 from lib import PDBMapSwiss
-# from lib import PDBMapModbase2016
-# from lib import PDBMapModbase2013
 from lib import PDBMapAlphaFold
 from lib import PDBMapModbase2020
 from lib import PDB36Parser
@@ -99,13 +60,26 @@ from lib.PDBMapTranscriptUniprot import PDBMapTranscriptUniprot
 from lib.PDBMapAlignment import PDBMapAlignment
 # The planning phase will ask the DDG class about structure quality only
 from psb_shared.ddg_base import DDG_base
-from lib.amino_acids import longer_names
+
+from psb_shared.psb_progress import PsbStatusManager
 import pprint
-import shutil
-import warnings
-# from jinja2 import Environment, FileSystemLoader
 
 from psb_shared import psb_config
+
+from vustruct import VUStruct
+
+
+
+# psb_plan.py is unique in that the log is much more readable when the entry #
+# and gene name fly by in the left column.  We create the log format here
+# and we ask vustruct to update its log format
+# 
+def gene_specific_set_log_formatter(entry: int, gene: str) -> None:
+    log_format_string = '%3d %-7s' % (
+    	entry, gene) + ' %(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
+    date_format_string = '%H:%M:%S'
+    vustruct.set_custom_log_formatter(log_format_string, date_format_string)
+
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__, os.path.dirname(os.path.dirname(__file__)))
 
@@ -119,14 +93,26 @@ cmdline_parser.add_argument("refseq", nargs='?', type=str, help="Omit OR NM_... 
 cmdline_parser.add_argument("mutation", nargs='?', type=str, help="Omit OR HGVS mutation string (ex S540A)")
 args, remaining_argv = cmdline_parser.parse_known_args()
 
-infoLogging = False
+# infoLogging = False  Old/ancient idea about printing vs. logging.  Everything logged now
 
-if args.debug:
-    infoLogging = True
-    sh.setLevel(logging.DEBUG)
-elif args.verbose:
-    infoLogging = True
-    sh.setLevel(logging.INFO)
+vustruct = VUStruct('plan', args.project,  __file__)
+vustruct.stamp_start_time()
+vustruct.initialize_file_and_stderr_logging(args.debug)
+
+LOGGER = logging.getLogger()
+
+# Prior to getting going, we save the vustruct filename
+# and then _if_ we die with an error, at least there is a record
+# and psb_rep.py should be able to create a web page to that effect
+vustruct.exit_code = 1
+vustruct.write_file()
+
+
+
+pd.options.mode.chained_assignment = 'raise'
+pd.set_option("display.max_columns", 100)
+pd.set_option("display.width", 1000)
+
 # If neither option, then logging.WARNING (set at top of this code) will prevail for stdout
 
 # If we can reload from RAM, it saves a ton of time
@@ -157,31 +143,48 @@ required_config_items = ["dbhost", "dbname", "dbuser", "dbpass",
 # parser.add_argument("udn_csv",type=str,help="Parsed output pipeline filename (e.g. filename.csv)")
 
 config, config_dict = psb_config.read_config_files(args, required_config_items)
+# The case_dir is the master directory for the case, i.e. for one patient
+# Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
+udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
+case_dir = os.path.join(udn_root_directory, args.project)
+
+case_vustruct_filename = os.path.join(case_dir, "%s_vustruct.csv" % args.project)
+vustruct.input_filename = os.path.join("./" + os.path.basename(case_vustruct_filename))
+# Write it again, now we have input filename
+vustruct.write_file()
+
 
 # You can add a [KeepPDBs] section to a config file and list pdb IDs which must not be dropped by the structure filterer
 keep_pdbs = []
 if 'KeepPDBs' in config:
     keep_pdbs = dict(config.items('KeepPDBs'))['keeppdbs'].upper().split(',')
 
-digepred_program = None
+digepred_program_from_config = None
+diep_program_from_config = None
 if 'CaseWide' in config:
-    digepred_program = dict(config.items('CaseWide')).get('digepred', None)
+    digepred_program_from_config = dict(config.items('CaseWide')).get('digepred', None)
+    diep_program_from_config = dict(config.items('CaseWide')).get('diep', None)
+
 
 from psb_shared import psb_perms
 
 psb_permissions = psb_perms.PsbPermissions(config_dict)
 
-# The collaboration_dir is the master directory for the case, i.e. for one patient
-# Example: /dors/capra_lab/projects/psb_collab/UDN/UDN532183
-udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
-collaboration_dir = os.path.join(udn_root_directory, args.project)
-psb_permissions.makedirs(collaboration_dir)
-# collaboration_log_dir = os.path.join(collaboration_dir,"log")
+psbplan_status_manager = PsbStatusManager(
+    status_dir_parent=os.path.join(os.getcwd(),"vustruct_plan_status"),
+    os_interface = psb_permissions)
+
+psbplan_status_manager.clear_status_dir()
+psbplan_status_manager.write_info("Initializing")
+
+
+psb_permissions.makedirs(case_dir)
+# case_log_dir = os.path.join(case_dir,"log")
 
 # Whether we made it above or not, we want our main directory for this run to be group capra_lab and sticky!
-psb_permissions.set_dir_group_and_sticky_bit(collaboration_dir)
+psb_permissions.set_dir_group_and_sticky_bit(case_dir)
 
-# psb_permissions.makedirs(collaboration_log_dir)
+# psb_permissions.makedirs(ccase_log_dir)
 
 LOGGER.info("Loading UniProt ID mapping...")
 
@@ -208,21 +211,22 @@ config_dict_reduced = {x: config_dict[x] for x in required_config_items}
 
 config_dict = config_dict_reduced
 
-config_dict_shroud_password = {x: config_dict[x] for x in required_config_items}
-dbpass = config_dict.get('dbpass', '?')
-config_dict_shroud_password['dbpass'] = '*' * len(dbpass)
+config_dict_shroud_password = PDBMapGlobals.shroud_config_dict(config_dict)
 
 oneMutationOnly = args.gene or args.refseq or args.mutation
 
 # If this is a "global" run of psb_plan, then make a global log file in the collaboration directory
 if not oneMutationOnly:
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(collaboration_dir, "%s_psb_plan.log" % args.project)
+    pass
+    """
+    # All this here commented out conflicts with new vustruct logging method
+    plan_wide_log_filename = os.path.join("./log", "psb_plan.log")
 
-    sys.stderr.write("Collaboration-wide  psb_plan log file is %s\n" % log_filename)
-    needRoll = os.path.isfile(log_filename)
+    sys.stderr.write("psb_plan log file is %s\n" % plan_wide_log_filename)
+    needRoll = os.path.isfile(plan_wide_log_filename)
 
-    global_fh = RotatingFileHandler(log_filename, backupCount=7)
+    global_fh = RotatingFileHandler(plan_wide_log_filename, backupCount=7)
     formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
                                   datefmt="%H:%M:%S")
     global_fh.setFormatter(formatter)
@@ -231,6 +235,7 @@ if not oneMutationOnly:
 
     if needRoll:
         global_fh.doRollover()
+    """
 
 # print "Command Line Arguments"
 # pprint.pprint(vars(args))
@@ -292,11 +297,9 @@ LOGGER.info("Pathprox Disease 1 command line argument: %s" % pathprox_arguments[
 LOGGER.info("Pathprox Disease 2 command line argument: %s" % pathprox_arguments['disease2'])
 LOGGER.info("Pathprox Neutral   command line argument: %s" % pathprox_arguments['neutral'])
 
-LOGGER.info("Results for patient case %s will be rooted in %s" % (args.project, collaboration_dir))
+LOGGER.info("Results for patient case %s will be rooted in %s" % (args.project, case_dir))
 
 swiss_filename = os.path.join(config_dict['swiss_dir'], config_dict['swiss_summary'])
-if not infoLogging:
-    print("Loading swiss model JSON metadata from %s" % swiss_filename)
 LOGGER.info("Loading swiss model JSON metadata from %s" % swiss_filename)
 
 # import cProfile
@@ -304,12 +307,10 @@ LOGGER.info("Loading swiss model JSON metadata from %s" % swiss_filename)
 # sys.exit(0)
 PDBMapSwiss.load_swiss_INDEX_JSON(config_dict['swiss_dir'], config_dict['swiss_summary'])
 # In order to set the directories, we need the gene name worted out, interestingly enough
-if not infoLogging:
-    print("Loading idmapping file from %s" % config_dict['idmapping'])
 
-LOGGER.info("Loading idmapping")
+LOGGER.info("Loading idmapping from %s" % config_dict['idmapping'])
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
-LOGGER.info("Loading done")
+LOGGER.debug("Loading done")
 
 
 # print "Establishing connection with the PDBMap database..."
@@ -387,7 +388,7 @@ def get_pdb_pos(*args):
         df = pd.read_sql(ModbaseSwiss_sql, io._con, params={'sid': sid, 'chain': chain,
                                                             'trans': transcript, 'trans_pos': trans_pos})
         if df.empty:
-            LOGGER.info("WARNING: Residue %s is missing in %s %s.%s." % (trans_pos, label, sid, chain))
+            LOGGER.warning("WARNING: Residue %s is missing in %s %s.%s." % (trans_pos, label, sid, chain))
             return np.nan
 
     return df["chain_seqid"].values[0]
@@ -431,16 +432,21 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     # if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
-    if "DiGePred" in flavor and job['pdbid'] == 'N/A':
-        job['uniquekey'] = job['flavor']
+    if flavor in ["MusiteDeep", "ScanNet"] and job['pdbid'] == 'N/A':
+        # import pdb; pdb.set_trace()
+        job['uniquekey'] = "%s_%s_%s_%s" % (
+            job['gene'], job['refseq'], job['unp'], flavor)
+        job['outdir'] = os.path.join(params['mutation_dir'],flavor)
+    elif flavor in ["DiGePred", "DIEP"] and job['pdbid'] == 'N/A':
+        job['uniquekey'] = flavor
         job['outdir'] = params['mutation_dir']
     else:  # Most output directories have pdbid and chain suffixes
         if not job['chain'].strip() or job['chain'] == "''" or job['chain'] == "' '":
             pdb_chain_segment = job['pdbid']
         else:
             pdb_chain_segment = "%s_%s" % (job['pdbid'], job['chain'])
-        if "ddG" in flavor:
-            job['outdir'] = "ddG repository"
+        if "Ddg" in flavor:
+            job['outdir'] = "Ddg repository"
         else:
             job['outdir'] = os.path.join(params['mutation_dir'], pdb_chain_segment)
         job['uniquekey'] = "%s_%s_%s_%s_%s" % (
@@ -503,7 +509,7 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             else:
                 structure_designation = "--%s=%s " % ("biounit" if multimer else "pdb", params['structure_id'].lower())
             pathprox_job_series = makejob(pathprox_flavor, "pathprox3.py", params,
-                        ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_mutation)s' " +
+                        ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_variant)s' " +
                          "--chain%(chain)sunp='%(unp)s' " +
                          structure_designation +
                          ("--chain='%s' " % ci_row['chain_id'] if not multimer else "") +
@@ -523,9 +529,21 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
 #     # Secondary structure prediction and sequence annotation
 #     return makejob("SequenceAnnotation","udn_pipeline2.py",params,   #command
 #           ("--config %(config)s --userconfig %(userconfig)s " +
-#            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_mutation)s")%params)
+#            "--project %(collab)s --patient %(project)s --gene %(gene)s --transcript %(transcript_variant)s")%params)
 
-def _makejob_either_ddg(ddG_monomer_or_cartesian, ddg_run_command, params):
+def makejob_MusiteDeep(params: Dict[str, str]):
+    return makejob("MusiteDeep","run_MusiteDeep.py", params,
+                   ("--config %(config)s --userconfig %(userconfig)s " +
+                    "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
+
+
+def makejob_ScanNet(params: Dict[str, str]):
+    return makejob("ScanNet","run_ScanNet.py", params,
+                   ("--config %(config)s --userconfig %(userconfig)s " +
+                    "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
+
+
+def _makejob_either_ddg(ddgmonomer_or_cartesian, ddg_run_command, params):
     # User models are odd in that the argument to ddg_run*.py is --usermodel full_filename
     if params['label'] == 'usermodel':
         structure_id_argument = params['struct_filename']
@@ -535,18 +553,18 @@ def _makejob_either_ddg(ddG_monomer_or_cartesian, ddg_run_command, params):
     # Just catch in case some nut tries to have crazy model name
     assert '%' not in structure_id_argument
 
-    return makejob(ddG_monomer_or_cartesian, ddg_run_command, params,  # command
+    return makejob(ddgmonomer_or_cartesian, ddg_run_command, params,  # command
                    ("--config %(config)s --userconfig %(userconfig)s " +
                     "--%(label)s " + structure_id_argument + ' ' +
                     "--chain %(chain)s --variant %(pdb_mutation)s") % params)  # options
 
 
 def makejob_ddg_monomer(params):
-    return _makejob_either_ddg('ddG_monomer', 'ddg_run.py', params)
+    return _makejob_either_ddg('DdgMonomer', 'ddg_run.py', params)
 
 
 def makejob_ddg_cartesian(params):
-    return _makejob_either_ddg('ddG_cartesian', 'ddg_run_cartesian.py', params)
+    return _makejob_either_ddg('DdgCartesian', 'ddg_run_cartesian.py', params)
 
 
 # Save ourselves a lot of trouble with scoping of df_dropped by declaring it global with apology
@@ -554,7 +572,44 @@ def makejob_ddg_cartesian(params):
 df_dropped = None
 
 
-def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_model: str = None, unp: str = None):
+# Dictionary to map uniprot IDs for this case to a pre-loaded set of transcripts
+unp2transcript = {}
+
+class PlanOneMutationResult(object):
+   """
+   2024-June-20
+   plan_one_mutation() is a gnarly but critical function that must be refactored for sanity
+   As a first step towards refactoring, I encapsulate the results of this 1500 line function
+   """
+
+def __init__(self, skip_reason = None):
+    # To return a failure from psb_plan(), simply instantiate the class with a skip_reason
+    # For success, just construct the class without arguments and init the members
+    self.skip_reason = skip_reason  # On failed psb_plan, skip reason is non-None.  Log that and ski
+
+    if not self.skip_reason:
+        # Our calling code will populate these variables back to the higher level
+        self.df_all_jobs = None
+        self.workplan_filename = None
+        self.df_structures = None  # On successful plan, this is populated by ChainInfo records
+        self.df_dropped = None  # On successful plan, this is populated by ChainInfo records
+        self.log_filename = None
+
+def plan_one_mutation(index: int, 
+    gene: str, 
+    refseq: str, 
+    mutation: str, 
+    user_model: str = None, 
+    unp: str = None) -> PlanOneMutationResult:
+    """
+    Given input uniprot ID, gene, etc, find all available PDB and model structures - then select the "best"
+    ones for ddG and PathProx calculations
+    This very complex code must be refactored
+
+    For now know that it returns a "skip reason" if the variant cannot be processed and that should be presented to user on 
+    web page, and not halt processing of everything
+
+    """
     # Use the global database connection
     global io
     global args
@@ -562,6 +617,10 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     global df_dropped
 
     df_dropped = pd.DataFrame()
+
+    # The psb_plan.log is quite long
+    # Showing the missense.csv entry number and gene name at left makes for easier log reading
+    gene_specific_set_log_formatter(index, gene)
 
     LOGGER.info("Planning mutation for %s %s %s %s", args.project, gene, refseq, mutation)
     if user_model:
@@ -593,41 +652,29 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         else:
             msg = "Neither refseq nor unp enable transcript identification"
             LOGGER.critical(msg)
-            sys.exit(msg)
-            LOGGER.warning(
-                "Refseq %s does not map to a uniprot identifier.  Attempting map of gene %s\n" % (refseq, gene))
+            psbplan_status_manager.sys_exit_failure(msg)
+            # LOGGER.warning(
+            #     "Refseq %s does not map to a uniprot identifier.  Attempting map of gene %s\n" % (refseq, gene))
             # io = PDBMapIO(config_dict['dbhost'],config_dict['dbuser'],config_dict['dbpass'],config_dict['dbname']) # ,slabel=args.slabel)
             # unp,gene = detect_entity(io,entity)
 
     if not gene:
         LOGGER.critical("A gene name was not matched to the refseq or uniprot ID.  Gene will be set to %s", gene)
 
-    mutation_dir = os.path.join(collaboration_dir, "%s_%s_%s" % (gene, refseq, mutation))
+    mutation_dir = os.path.join(case_dir, "%s_%s_%s" % (gene, refseq, mutation))
     psb_permissions.makedirs(mutation_dir)
     mutation_log_dir = mutation_dir
     psb_permissions.makedirs(mutation_log_dir)
 
     # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(mutation_log_dir, "psb_plan.log")
+
+    # We additionally echo the log to the directory of the specific mutation
+    temp_log_filename = vustruct.add_temp_logger_to_psb_plan(mutation_log_dir)
 
     if oneMutationOnly:
-        sys.stderr.write("psb_plan log file is %s\n" % log_filename)
+        sys.stderr.write("psb_plan log file is %s\n" % temp_log_filename)
     else:
-        LOGGER.info("Additionally logging to file %s" % log_filename)
-    needRoll = os.path.isfile(log_filename)
-
-    local_fh = RotatingFileHandler(log_filename, backupCount=7)
-    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                                  datefmt="%H:%M:%S")
-    local_fh.setFormatter(formatter)
-    local_fh.setLevel(logging.INFO)
-    LOGGER.addHandler(local_fh)
-
-    if needRoll:
-        local_fh.doRollover()
-
-    gene_specific_set_log_formatter(global_fh, index, gene)
-    gene_specific_set_log_formatter(sh, index, gene)
+        LOGGER.info("Additionally logging to file %s" , temp_log_filename)
 
     # LOGGER.info("MySQL: Marking psb_collab.MutationSummary incomplete for %s %s %s %s %s"%
     #         (args.project,gene,refseq,mutation,unp))
@@ -729,12 +776,19 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                     self.analyzable = 'No'
 
                 resid = alignment.seq_to_resid.get(self.trans_mut_pos, None)
+
                 if resid:
                     self.continuous_to_left = 0
                     self.continuous_to_right = 0
                     self.mut_pdb_res = resid[1]
                     self.mut_pdb_icode = resid[2]
-                    chain_aa_letter = seq1(structure[0][self.chain_id][resid].get_resname().lower())
+                    # It is wonderful to have a resolved resdiue in the 
+                    # deposited structure.  BUT, rosetta will still have trouble
+                    # if the side chain is missing
+                    residue_3d = structure[0][self.chain_id][resid]
+                    if self.method.find('SOLUTION SCATTERING') > -1:
+                       self.analyzable = 'No'
+                    chain_aa_letter = seq1(residue_3d.get_resname().lower())
                     while True:
                         test_left = self.trans_mut_pos - self.continuous_to_left - 1
                         if (test_left <= 0) or (test_left not in alignment.seq_to_resid):
@@ -745,7 +799,12 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                         if (test_right > transcript.len) or (test_right not in alignment.seq_to_resid):
                             break
                         self.continuous_to_right += 1
-                else:
+                else: # resid is Falsey
+                    # 2024 Feb 16 Chris Moth
+                    # If we have a missing residue, say in a PDB structure, then we need to 
+                    # make sure that covering structures override this one in selection process
+                    if self.analyzable == 'Yes':
+                        self.analyzable = 'Maybe'
                     LOGGER.info("No resolved residue is present in %s for transcript position %d" % (
                     structure.id, trans_mut_pos))
 
@@ -832,7 +891,6 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 
     from Bio.PDB import MMCIFParser
     from Bio.PDB import PDBParser
-    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
     from Bio.SeqUtils import seq1
     mmCIF_parser = MMCIFParser(QUIET=True)
     pdb_parser = PDBParser(QUIET=True)
@@ -976,7 +1034,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
 
         first_swiss_chain_id = next(swiss_structure[0].get_chains()).get_id()
 
-        # We have the task of figuring out the best chain ID to run ddG on - typically
+        # We have the task of figuring out the best chain ID to run Ddg on - typically
         # we run best on the template chain  in the structure name... but only bother 
         # to try to figure this out if we have a multimeric swiss model
 
@@ -1163,7 +1221,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
                                                                                               len(transcript.aa_seq),
                                                                                               ci.trans_mut_pos)
         else:
-            alphafold_modelid = alphafold.transcript_first_modelid(unp)
+            alphafold_modelid = alphafold.first_window_modelid(unp)
             model_seq_start = 1
 
         ci.struct_filename = alphafold.get_coord_filename(alphafold_modelid)
@@ -1246,7 +1304,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         ci.set_alignment_profile(alignment, alphafold_structure)
         # The very weird thing is that for alpha fold models, the residue ID
         # residue that is in the disk file... and that _could_ be different
-        # if we are, for example running a ddG deep inside a -F8- named partial window model
+        # if we are, for example running a Ddg deep inside a -F8- named partial window model
         if model_seq_start > 1:
             ci.mut_pdb_res -= (model_seq_start - 1)
         return ci
@@ -1891,7 +1949,7 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
               "mers": "N/A",
               "gene": gene, "refseq": refseq, "unp": unp, 'mutation_dir': mutation_dir,
               "mutation": mutation,
-              "transcript_mutation": mutation,
+              "transcript_variant": mutation,
               "pdb_mutation": "N/A"  # Replace for ddG and Pathprox when we have coverage
               }
 
@@ -1901,6 +1959,13 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
     # 2021-09-28 Remove SequenceAnnotation calculations
     # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
     # df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
+
+    # 2023 Dec - integrate Container-based run of MusiteDeep from Alican for all sequences
+    df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_MusiteDeep(params, )])], ignore_index=True)
+
+    # 2023 Dec - run ScanNet if this uniprot ID is canonical
+    if unp_is_canonical:
+        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ScanNet(params, )])], ignore_index=True)
 
     # LOGGER.info("%d Structures/models of %s %s (unp=%s)"%(len(df),refseq,gene,unp))
     # If no structures at all are available, then the work plan takes a very different course
@@ -2001,23 +2066,32 @@ def plan_one_mutation(index: int, gene: str, refseq: str, mutation: str, user_mo
         LOGGER.warning("Removing prior workstatus file: %s" % workstatus_filename)
         os.remove(workstatus_filename)
 
-    # Close out the local log file for this mutation
-    local_fh.flush()
-    local_fh.close()
-    LOGGER.removeHandler(local_fh)
-    return df_all_jobs, workplan_filename, ci_df, df_dropped, log_filename
+    # End the selective echo logger for this mutation
+    vustruct.remove_temp_logger_from_psbplan()
+
+    # End of psb_plan()
+
+    return df_all_jobs, workplan_filename, ci_df, df_dropped, temp_log_filename
 
 
 def makejob_DiGePred(params, options: str):
-    # Secondary structure prediction and sequence annotation
+    # Souhrid Mukherjee's digenic interaction predictor
     return makejob("DiGePred",  # Flavor
-                   digepred_program,
+                   digepred_program_from_config,
                    # something like python /dors/capra_lab/projects/psb_collab/UDN/souhrid_scripts/Run_DiGePred_PSB.py
                    params,  # Parameters for dataframe
                    options)  # Command line options
 
+def makejob_DIEP(params, options: str):
+    # Alternate digenic interaction program
+    return makejob("DIEP",  # Flavor
+                   diep_program_from_config,
+                   params,  # Parameters for dataframe
+                   options)  # Command line options
 
-def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
+
+def plan_casewide_work() -> Tuple[str, str]:
+    """Plan DiGePred run, and anything else we may later add which is run against the _entire_ case"""
     # Use the global database connection
     global args
     global io
@@ -2026,36 +2100,18 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
     # 2017-10-03 Chris Moth modified to key off NT_ refseq id
 
     casewideString = "casewide"
-    casewide_dir = os.path.join(collaboration_dir, casewideString);
+    casewide_dir = os.path.join(case_dir, casewideString);
     psb_permissions.makedirs(casewide_dir)
     casewide_log_dir = casewide_dir  # os.path.join(casewide_dir,"log")
     psb_permissions.makedirs(casewide_log_dir)
 
-    # pw_name = pwd.getpwuid( os.getuid() ).pw_name # example jsheehaj or mothcw
-    log_filename = os.path.join(casewide_log_dir, "psb_plan.log")
-
-    if oneMutationOnly:
-        sys.stderr.write("psb_plan log file is %s\n" % log_filename)
-    else:
-        LOGGER.info("Additionally logging to file %s" % log_filename)
-    needRoll = os.path.isfile(log_filename)
-
-    local_fh = RotatingFileHandler(log_filename, backupCount=7)
-    formatter = logging.Formatter('%(asctime)s %(levelname)-4s [%(filename)20s:%(lineno)d] %(message)s',
-                                  datefmt="%H:%M:%S")
-    local_fh.setFormatter(formatter)
-    local_fh.setLevel(logging.INFO)
-    LOGGER.addHandler(local_fh)
-
-    if needRoll:
-        local_fh.doRollover()
 
     # whether we had some structures or not, we have our completed workplan to save - and then exit  
     workplan_filename = os.path.join(casewide_dir, "%s_workplan.csv" % casewideString)
 
     workstatus_filename = os.path.join(casewide_dir, "%s_workstatus.csv" % casewideString)
 
-    df_all_jobs = pd.DataFrame()
+    df_casewide_jobs = pd.DataFrame()
     params = {"config": args.config, "userconfig": args.userconfig, "collab": config_dict['collaboration'],
               "case": args.project,
               "project": args.project,
@@ -2064,22 +2120,32 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
               "mers": "N/A",
               "gene": casewideString, "refseq": "N/A", "unp": "N/A", 'mutation_dir': casewide_dir,
               "mutation": "N/A",
-              "transcript_mutation": "N/A",
+              "transcript_variant": "N/A",
               "pdb_mutation": "N/A"}
 
     # DiGePred is a Vanderbilt UDN specific analysis which should only be activated if you have _precisely_
-    if digepred_program:
-        digepred_options = "-n %s -e %s" % (args.project, original_Vanderbilt_UDN_case_xlsx_filename)
+    if digepred_program_from_config:
+        digepred_options = "--vustruct %s_vustruct.csv -n %s" % (args.project, args.project)
 
         # We run one sequence analysis on each transcript and mutation point.. Get that out of the way
-        # depcreated: df_all_jobs = df_all_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
-        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_DiGePred(params, digepred_options)])], ignore_index=True)
+        # depcreated: df_casewide_jobs = df_casewide_jobs.append(makejob_DiGePred(params, digepred_options), ignore_index=True)
+        df_casewide_jobs = pd.concat([df_casewide_jobs,pd.DataFrame([makejob_DiGePred(params, digepred_options)])], ignore_index=True)
     else:
         LOGGER.info(
             "No digepred entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
 
-    df_all_jobs.set_index('uniquekey', inplace=True);
-    df_all_jobs.sort_index().to_csv(workplan_filename, sep='\t')
+    # DIEP is an addition analysis to prediction digenic interactions
+    if diep_program_from_config:
+        # Asof July 2024, we read the standard new vustruct.csv file directly - not a special genes file
+        diep_options = "--genesfile=%s_vustruct.csv" % args.project
+
+        df_casewide_jobs = pd.concat([df_casewide_jobs,pd.DataFrame([makejob_DIEP(params, diep_options)])], ignore_index=True)
+    else:
+        LOGGER.info(
+            "No diep entry in config files' [CaseWide] section(s).  Vanderbilt-specific UDN analysis will not be performed")
+
+    df_casewide_jobs.set_index('uniquekey', inplace=True);
+    df_casewide_jobs.sort_index().to_csv(workplan_filename, sep='\t')
     LOGGER.info("Workplan written to %s" % workplan_filename)
 
     if os.path.exists(workstatus_filename):
@@ -2087,56 +2153,70 @@ def plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename):
         os.remove(workstatus_filename)
 
     # Close out the local log file for this mutation
-    local_fh.flush()
-    local_fh.close()
-    LOGGER.removeHandler(local_fh)
-    return df_all_jobs, workplan_filename, log_filename
+    return df_casewide_jobs, workplan_filename
 
 
 if oneMutationOnly:
-    print("Planning work for one mutation only: %s %s %s %s" % (args.project, args.entity, args.refseq, args.mutation))
+    # LATER - This needs to be cleaned up.s
+    LOGGER.info("Planning work for one mutation only: %s %s %s %s" % (args.project, args.entity, args.refseq, args.mutation))
     df_all_jobs, workplan_filename, df, df_dropped, log_filename = plan_one_mutation(args.entity, args.refseq,
                                                                                      args.mutation)
-    print("Workplan of %d jobs written to:" % len(df_all_jobs), workplan_filename)
-    print("%3d structures/models will be processed." % len(ci_df))
-    print("%3d structures/models were considered, but dropped." % len(df_dropped))
-    print("Full details in %s", log_filename)
+    LOGGER.info("Workplan of %d jobs written to:" % len(df_all_jobs), workplan_filename)
+    LOGGER.info("%3d structures/models will be processed." % len(ci_df))
+    LOGGER.info("%3d structures/models were considered, but dropped." % len(df_dropped))
+    LOGGER.info("Full details in %s", log_filename)
 else:
-    original_Vanderbilt_UDN_case_xlsx_filename = None
-    if digepred_program:
-        original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(collaboration_dir, "%s.xlsx" % args.project)
-    else:
-        LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific UDN analysis will not be performed')
+    # original_Vanderbilt_UDN_case_xlsx_filename = None
+    # if digepred_program_from_config:
+    #     original_Vanderbilt_UDN_case_xlsx_filename = os.path.join(case_dir, "%s.xlsx" % args.project)
+    #     if original_Vanderbilt_UDN_case_xlsx_filename and (not os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename)):
+    #         LOGGER.info('Vanderbilt-specific case file %s not found.  DiGePred will not be performed' % \
+    #                 original_Vanderbilt_UDN_case_xlsx_filename)
+    #         original_Vanderbilt_UDN_case_xlsx_filename = None
+    # else:
+    #     LOGGER.info('No digepred entry in config file(s).  Vanderbilt-specific DiGePred analysis will not be performed')
 
     df_all_jobs = pd.DataFrame()
-    if original_Vanderbilt_UDN_case_xlsx_filename and os.path.exists(original_Vanderbilt_UDN_case_xlsx_filename):
-        LOGGER.info('Planning casewide work from %s' % original_Vanderbilt_UDN_case_xlsx_filename)
-        df_all_jobs, workplan_filename, log_filename = plan_casewide_work(original_Vanderbilt_UDN_case_xlsx_filename)
-    elif original_Vanderbilt_UDN_case_xlsx_filename:
-        LOGGER.info('Vanderbilt-specific file %s not found.  No casewide work will be performed' % \
-                    original_Vanderbilt_UDN_case_xlsx_filename)
-
+    # We no longer care: (already tested above that this xlsx file is in the case directory...)
+    # AND that we have digepred_program_from_config set to an executable path
+    # if original_Vanderbilt_UDN_case_xlsx_filename:
+    msg = 'Planning casewide work from %s_vustruct.csv' % args.project
+    LOGGER.info(msg)
+    psbplan_status_manager.write_info(msg)
+    df_all_jobs, workplan_filename = plan_casewide_work()
     if len(df_all_jobs):
-        fulldir, filename = os.path.split(log_filename)
-        fulldir, casewide_dir = os.path.split(fulldir)
-        fulldir, project_dir = os.path.split(fulldir)
-        print(" %4d casewide jobs will run.  See: $UDN/%s" % (
-        len(df_all_jobs), os.path.join(project_dir, casewide_dir, filename)))
+        # fulldir, casewide_dir = os.path.split(fulldir)
+        # fulldir, project_dir = os.path.split(fulldir)
+        LOGGER.info(" %4d DiGePred jobs will run.  See: %s" , 
+             len(df_all_jobs), vustruct.log_filename)
     else:
-        print(" No casewide jobs will be run.")
+        LOGGER.info("Following read of %s, no DiGePred work will be performed" ,  original_Vanderbilt_UDN_case_xlsx_filename)
+    # else:
+    #     pass  # We don't need another log entry.  We logged above if we lacked a config entry for DiGePred, or if xlsx file not found
+
 
     # Now plan the per-mutation jobs
-    udn_csv_filename = os.path.join(collaboration_dir, "%s_missense.csv" % args.project)
-    print("Retrieving project mutations from %s" % udn_csv_filename)
-    df_all_mutations = pd.read_csv(udn_csv_filename, sep=',', index_col=None, keep_default_na=False, encoding='utf8',
+    LOGGER.info("Retrieving project mutations from %s", case_vustruct_filename)
+    df_case_vustruct_all_variants = pd.read_csv(case_vustruct_filename, sep=',', index_col='index', keep_default_na=False, encoding='utf8',
                                    comment='#', skipinitialspace=True)
-    print("Work for %d mutations will be planned" % len(df_all_mutations))
 
-    if 'unp' not in df_all_mutations.columns:
-        df_all_mutations['unp'] = None
+    # If this is new format, trim out non-missense variants
+    if 'effect' in df_case_vustruct_all_variants:
+        df_vustruct_missense_variants = df_case_vustruct_all_variants[ df_case_vustruct_all_variants['effect'].str.contains('missense') ]
+    else: # Old format is all missense.  Simple retain all of it
+        df_vustruct_missense_variants = df_case_vustruct_all_variants
+
+
+    LOGGER.info("Work for %d missense variants will be planned" % len(df_vustruct_missense_variants))
+
+    bad_vustruct_rows = defaultdict(list) # We need to create a nice message at the end if we halt due to file check
+
+    LOGGER.info("Sanity Checking %s" % case_vustruct_filename)
+    if 'unp' not in df_vustruct_missense_variants.columns:
+        df_vustruct_missense_variants['unp'] = None
         LOGGER.warning("Populating unp column of missense from gene and refseq")
         unps_from_refseq_gene = {}
-        for index, row in df_all_mutations.iterrows():
+        for index, row in df_vustruct_missense_variants.iterrows():
             unpsForRefseq = PDBMapProtein.refseqNT2unp(row['refseq'])
             if len(unpsForRefseq):
                 unp = ','.join(PDBMapProtein.refseqNT2unp(row['refseq']))
@@ -2155,9 +2235,15 @@ else:
                 unps_from_refseq_gene[index] = unp
 
         for index in unps_from_refseq_gene:
-            df_all_mutations.loc[index]['unp'] = unps_from_refseq_gene[index]
+            df_vustruct_missense_variants.loc[index]['unp'] = unps_from_refseq_gene[index]
     else:  # 'unp' is in the original columns - make sure the unps are known and queryable
-        for unp in df_all_mutations['unp']:
+        for index,vustruct_row in df_vustruct_missense_variants.iterrows():
+            unp = vustruct_row['unp']
+            # 2023 July 09..  We now support non-missense variants in the row
+            # But we need to skip them for now
+            if 'effect' in vustruct_row and vustruct_row['effect'] != 'missense':
+                LOGGER.info('Skipping non-missense vustruct row:\n%s', str(vustruct_row))
+                continue
             if not PDBMapProtein.unp2uniparc(unp):
                 if '-' in unp and PDBMapProtein.unp2uniparc(unp.split('-')[0]):
                     msg = "unp %s appears to be an invalid isoform of %s as it references no UniParc sequence" % (
@@ -2165,55 +2251,121 @@ else:
                 else:
                     msg = "unp %s was not found in the uniprot IDMapping file with a UniParc AA sequence" % unp
                 LOGGER.critical(msg)
-                sys.exit(msg)
+                bad_vustruct_rows[index].append(msg)
 
-    # Now that a uniprot ID (unp) has been assigned to all rows, verify that all mutation positions are OK
+    # Now that a uniprot ID (unp) has been assigned to all rows where effect=missense,
+    #  verify that all mutation positions are OK
     # Simultaneously, build up  a global dictionary of preloaded uniprot Transcripts for this case
-    LOGGER.info("Checking %d uniprot identifiers" % len(df_all_mutations))
-    for index, row in df_all_mutations.iterrows():
-        if 'unp' not in row or not str(row['unp']):
+    LOGGER.info("Checking %d uniprot identifiers" % len(df_vustruct_missense_variants))
+    for index, vustruct_row in df_vustruct_missense_variants.iterrows():
+        if 'effect' in vustruct_row and vustruct_row['effect'] != 'missense':
+            continue
+        if 'unp' not in vustruct_row or not str(vustruct_row['unp']):
             msg = "%s %d Gene %s invalid.  The Pipeline cannot operate on proteins which lack a valid uniprot identifier" % (
-                udn_csv_filename, index + 1, row['Gene'])
+                case_vustruct_filename, index + 1, vustruct_row['Gene'])
             LOGGER.critical(msg)
-            sys.exit(msg)
-        if row['unp'] not in unp2transcript:
-            LOGGER.debug("Creating transcript from unp=%s" % row['unp'])
-            uniprot_transcript = PDBMapTranscriptUniprot(row['unp'])
-            unp2transcript[row['unp']] = uniprot_transcript
+            bad_vustruct_rows[index].append(msg)
+        if vustruct_row['unp'] not in unp2transcript:
+            LOGGER.debug("Creating transcript from unp=%s" % vustruct_row['unp'])
+            uniprot_transcript = PDBMapTranscriptUniprot(vustruct_row['unp'])
+            unp2transcript[vustruct_row['unp']] = uniprot_transcript
 
-    LOGGER.info("All %d unique uniprot identifiers succesfully instantiated as transcripts" % len(unp2transcript))
+    LOGGER.info("%d uniprot identifiers were succesfully instantiated as transcripts" % len(unp2transcript))
 
-    LOGGER.info("Checking variants (mutations)")
-    for index, row in df_all_mutations.iterrows():
-        if 'mutation' in row and row['mutation']:
-            transcript = unp2transcript[row['unp']]
+    LOGGER.info("Checking variant formatting and Uniprot<>Genome crossreferences")
+    for index, vustruct_row in df_vustruct_missense_variants.iterrows():
+        # If the user has given us a refseq ID - then we want to make sure that cross-references to uniprot correctly
+        # This is a bit of an additional check to the main event in this loop
+        if 'refseq' in vustruct_row:
+            xref_refseq = vustruct_row['refseq'].split('.')[0]
+            if xref_refseq != 'NA':
+                if len(vustruct_row['unp']):
+                    unp_refseq_list = PDBMapProtein.unp2refseqNT(vustruct_row['unp'])
+                    if len(unp_refseq_list) == 0:
+                        msg = "Uniprot ID %s has no refseq cross-reference.  Replace %s with NA in your input file" % (
+                            vustruct_row['unp'], xref_refseq)
+                        bad_vustruct_rows[index].append(msg)
+                    else:
+                        matched = False
+                        for unp_refseq in unp_refseq_list:
+                            if unp_refseq.split('.')[0] == xref_refseq:
+                                matched = True
+                                break
+
+                        if not matched:
+                            msg = "The given refseq ID %s is not compatible with the uniprot cross references of [%s].  Please use uniprot cross-reference or simply NA in the input file" % (
+                                xref_refseq, unp_refseq_list)
+                            
+                            bad_vustruct_rows[index].append(msg)
+
+
+        if 'mutation' in vustruct_row and vustruct_row['mutation']:
+            transcript = unp2transcript[vustruct_row['unp']]
             trans_mut_pos = None
             try:
-                trans_mut_pos = int(row['mutation'][1:-1])
+                trans_mut_pos = int(vustruct_row['mutation'][1:-1])
             except:
-                sys.exit("Something wrong with mutation [%s] in line %d: %s.  Must be format AnnnnB" % (
-                row['mutation'], index + 1, str(row)))
-
+                msg = "Something wrong with mutation [%s] in line %d: %s.  Must be format AnnnnB" % (
+                    vustruct_row['mutation'], index + 1, str(vustruct_row))
+                bad_vustruct_rows[index].append(msg)
+                continue
+                
             if trans_mut_pos > len(transcript.aa_seq):
-                sys.exit("Position %d in %s is too large for transcript len %d" % (
-                    trans_mut_pos, transcript.id, len(transcript.aa_seq)))
-            if transcript.aa_seq[trans_mut_pos - 1] != row['mutation'][0]:
-                sys.exit(
-                    "Position %d in %s is %s, but your mutation is [%s] in line %d: %s.\nYour mutation must start with %s" % (
-                        trans_mut_pos, transcript.id, transcript.aa_seq[trans_mut_pos - 1], row['mutation'], index + 1,
-                        str(row), transcript.aa_seq[trans_mut_pos - 1]))
-            if row['mutation'][0] == row['mutation'][-1]:
-                sys.exit("Pipeline does not handle synonymous variants.  See line %d: %s." % (
-                    index + 1, str(row)))
+                msg = "Position %d in %s is too large for transcript len %d" % (
+                    trans_mut_pos, transcript.id, len(transcript.aa_seq))
+                bad_vustruct_rows[index].append(msg)
+                continue 
+
+            if transcript.aa_seq[trans_mut_pos - 1] != vustruct_row['mutation'][0]:
+                msg = "Position %d in uniprot ID %s is %s, but your mutation is [%s] in line %d:.\nYour mutation must start with %s" % (
+                        trans_mut_pos, transcript.id, transcript.aa_seq[trans_mut_pos - 1], 
+                        vustruct_row['mutation'], index , transcript.aa_seq[trans_mut_pos - 1])
+                bad_vustruct_rows[index].append(msg)
+                continue 
+
+            if vustruct_row['mutation'][0] == vustruct_row['mutation'][-1]:
+                msg = "VUStruct does not handle synonymous variants.  See line %d." % (
+                    index + 1)
+                bad_vustruct_rows[index].append(msg)
+                continue 
+        # ^^^ end loop over all vustruct input rows
+
+    # We do not proceed if the user has bad input.  Instead, we direct the user to manually clean up the missense file
+    bad_rows_count = len(bad_vustruct_rows)
+    if bad_rows_count > 0:
+        msg = ("1 row of the vustruct_input file has a problem which prevents") \
+            if bad_rows_count == 1 else (str(bad_rows_count) + " rows of the vustruct_input file have problems which prevent")
+        msg += """\
+ VUStruct processing.
+Please download the vustruct file, and correct, or #-comment out, the problematic input rows.
+The most common issue is when Uniprot protein transcript sequences disagree with
+ENSEMBL transcript sequences.  For these, and other cases, please see the trouble-
+shooting steps at https://meilerlab.org/VUStruct/Contact.html
+
+The problematic input rows are:""" 
+
+        for index,vustruct_row_problem_messages in bad_vustruct_rows.items():
+            original_df_row = df_vustruct_missense_variants.loc[[index]]
+            msg += "\n%s\n" % (
+               tabulate(original_df_row, headers='keys', tablefmt='plain'), )
+
+            for problem_msg in vustruct_row_problem_messages:
+                msg += "^^ " + problem_msg + "\n"
+            msg += "-----------------------------\n"
+
+
+        final_msg = "Input file must be corrected:\n%s" % msg
+        psbplan_status_manager.sys_exit_failure(final_msg)
+
 
     LOGGER.info("All variant (mutation) entries passed sanity test")
 
     ui_final_table = pd.DataFrame()
-    for index, row in df_all_mutations.iterrows():
-        print("Planning %3d,%s,%s,%s,%s" % (
+    for index, row in df_vustruct_missense_variants.iterrows():
+        LOGGER.info("Planning %3d,%s,%s,%s,%s" % (
         index, row['gene'], row['refseq'], row['mutation'], row['unp'] if 'unp' in row else "???"))
         if ('unp' in row) and ('user_model' in row):
-            print("....Including user_model %s" % row['user_model'])
+            LOGGER.info("Including user_model %s" % row['user_model'])
         ui_final = {}
         for f in ['gene', 'refseq', 'mutation', 'unp']:
             ui_final[f] = row[f]
@@ -2231,7 +2383,7 @@ else:
         fulldir, filename = os.path.split(log_filename)
         fulldir, mutation_dir = os.path.split(fulldir)
         fulldir, project_dir = os.path.split(fulldir)
-        print(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s" % (
+        LOGGER.info(" %4d structures retained  %4d dropped. %4d jobs will run.  See: $UDN/%s" % (
         len(df_structures), len(df_dropped), len(df_all_jobs), os.path.join(project_dir, mutation_dir, filename)))
         ui_final['retained'] = len(df_structures)
         ui_final['dropped'] = len(df_dropped)
@@ -2249,8 +2401,16 @@ else:
         justify='center',
         formatters={'gene': myLeftJustifiedGene, 'refseq': myLeftJustifiedRefseq, 'unp': myLeftJustifiedUNP,
                     'planfile': myLeftJustifiedPlanfile})
-    print(("Structure Report\n%s" % final_structure_info_table))
-    LOGGER.info("%s", final_structure_info_table)
+    LOGGER.info(("Structure Report\n%s" % final_structure_info_table))
+
+    # log_missense_filename = os.path.join("log/", case_vustruct_filename)
+    # LOGGER.info("Saving %s file to %s", case_vustruct_filename, log_missense_filename)
+    # shutil.copy(src=case_vustruct_filename, dst=log_missense_filename)
+
+    vustruct.exit_code = 0
+    vustruct.stamp_end_time()
+    vustruct.write_file()
+
 
     # It is so easy to forget to create this phenotypes file - so remind user again!
     # if not os.path.exists(phenotypes_filename):

@@ -1,24 +1,23 @@
 #!/usr/bin/env python
 #
-# Project        : PDBMap
-# Filename       : PDBMap.py
-# Author         : R. Michael Sivley - refactored by Chris Moth 2019 November
+# Project        : PSB Pipeline - support for MutationExplorer Server
+                   Deployed by Rene Staritzbichler Danie Wiegreffe et al
+                   https://www.biorxiv.org/content/10.1101/2023.03.23.533926v1
+# Filename       : vcf2rosetta.py
+# Author         : Chris Moth
 # Organization   : Center for Human Genetics Research,
 #                : Department of Biomedical Informatics,
 #                : Vanderbilt University Medical Center
-# Email          : mike.sivley@vanderbilt.edu  chris.moth@vanderbilt.edu
-# Date           : 2014-02-17                  2019-11-19
+# Email          : chris.moth@vanderbilt.edu
+# Date           : 2022 December
 #
 #=============================================================================#
-"""PDBMap is a command-line interface for loading data
-and providing access to the PDBMap* library modules.
-PDBMap library modules map codons in the human exome to
-their corresponding amino acids in known and predicted
-protein structures. Using this two-way mapping, PDBMap
-allows for the mapping of genomic annotations onto protein
-structures and the mapping of protein structural annotation 
-onto genomic elements. The methods to build and utilize this
-tool may be called from this master class."""
+"""vcf2rosetta.py is similar to the vcf2missense.py used generally in the
+VUstruct pipeline.  For the MutationExplorer in Leipzig, I modifed
+vcf2missense.py to output alpha-fold model names, focus on the canoncial 
+uniprot transcript, and few other things quickly revealed by
+$ diff vcf2rosetta.py vcf2missense.py
+"""
 
 # See main check for cmd line parsing
 import argparse,configparser
@@ -35,7 +34,8 @@ from lib import PDBMapVEP
 # from lib import PDBMapVCF
 from lib import PDBMapProtein
 from lib import PDBMapAlignment,PDBMapData
-from lib import PDBMapModel, PDBMapSwiss
+from lib import PDBMapModel
+from lib import PDBMapAlphaFold
 from lib.PDBMapVisualize import PDBMapVisualize
 from lib import amino_acids
 import logging
@@ -65,6 +65,9 @@ args = cmdline_parser.parse_args()
 required_config_items = ['vep','vep_cache_dir','idmapping']
 config,config_dict = psb_config.read_config_files(args,required_config_items)
 PDBMapProtein.load_idmapping(config_dict['idmapping'])
+
+pdbmap_AlphaFold = PDBMapAlphaFold(config_dict)
+
 pdbmap_vep = PDBMapVEP(config_dict)
 
 vcf_input_filename = args.vcffile # Will change if we do a liftover
@@ -150,17 +153,20 @@ if args.liftover:
 
 vcf_reader =  pdbmap_vep.vcf_reader_from_file_supplemented_with_vep_outputs(vcf_input_filename)
 
-raw_missense_df = pd.DataFrame(columns=['gene','chrom','pos','change','transcript','unp','refseq','mutation'])
+raw_missense_df = pd.DataFrame(columns=['gene','chrom','pos','change','transcript','unp','refseq','mutation','alphafold_id'])
 
 for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
     for CSQ in vcf_record.CSQ:
         unp = PDBMapProtein.enst2unp(CSQ['Feature'])
-        if type(unp) is list: # << This is typical
+        if unp and type(unp) is list: # << This is typical
             unp = unp[0]
         refseq = "NA"
         if not unp:
             LOGGER.warning("%-10s No uniprot ID for Ensembl transcript %s",
                            CSQ['SYMBOL'] + ':' if CSQ['SYMBOL'] else '', CSQ['Feature'])
+            continue
+        if not PDBMapProtein.isCanonicalByUniparc(unp):
+            LOGGER.info("Skipping non-canonical unp %s" % unp)
             continue
         if unp:
             refseq = PDBMapProtein.unp2refseqNT(unp)
@@ -172,6 +178,8 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
         if CSQ['Ref_AminoAcid'] == CSQ['Alt_AminoAcid']:
             LOGGER.warning("Excluding %s VEP-predicted synonymous variant %s"%(unp,variant_aa))
             continue
+
+        model_seq_start, model_seq_end, alphafold_id = pdbmap_AlphaFold.best_covering_model(unp,2700,int(CSQ['Protein_position']))
         next_df_row = pd.DataFrame.from_dict(
             [{'gene': CSQ['SYMBOL'],
              'chrom': vcf_record.CHROM,
@@ -180,7 +188,8 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
              'transcript': CSQ['Feature'],
              'unp': unp,
              'refseq': refseq,
-             'mutation': variant_aa
+             'mutation': variant_aa,
+             'alphafold_id': alphafold_id
              }]
             )
         raw_missense_df = pd.concat([raw_missense_df,next_df_row],ignore_index=True)
