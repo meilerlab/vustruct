@@ -1,64 +1,82 @@
 A Docker (Singularity) container is the preferred mechanism for production runs.
-See Container.md
+See Container.md, as the insights for building a turn-key container are instructive as you think through
+building a development environment.
 
 The instructions below are for creating an editable set of development-oriented source files
 in the filesystem.
 ---------------------------------------------------------------------------------------------------------------
-0) CREATE a psbadmin top level directory for the pipeline
+0) Development can take place either on the filesystem of the cluster, or on a local development workstation, 
+or perhaps in a virtual machine in which you have root access.
 
-All steps make most sense in a local environment directory tree such as ~/psbadmin/
+A benefit of root access is that you can run ENSEMBL PERL API routines using the OS's native PERL5 install and 
+update mechanisms.  Without root access, you will have to download and build a local copy of PERL which you can
+add modules to (such as SQL).
 
-At Vanderbilt, I do cluster development and website work from /dors/capra_lab/users/mothcw/psbadmin.
-The following instructions fall out of that setup.
+Each development option comes with strenghts and weaknesses.  Local development is excellent for working in
+the PyCharm IDE for examples.  But the slow latency of storage on a compute cluster renders that same 
+sophisticated IDE worthless.
 
-However, for local "development environment", I let git create a /dors/capra_lab/users/mothcw/psbadmin
-directory and place all the below under there.  You are welcome to globally replace /dors/capra_lab/users/
-in these instructions - just do not attempt to commit that change
+Development on the cluster is of course essential for end-to-end case processing.
 
-Anaconda3 installations are utterly immoveable.  So, your choice of a root directory will be fixed
-until you start over.  You must maintain the sibling directory of psbadmin/bin and psbadmin/pdbmap 
-as cloned from github in these instructions
+It sometimes is helpful to work iteratively...  One can work locally on one of the pipeline modules, then copy
+it to the cluster to run an entire test care, then repeat.
+
+There is no one right answer for every development task.
+
+Therefore, I supplement the steps below with options
+
 ---------------------------------------------------------------------------------------------------------------
 
-
-
-1) Checkout CapraLab/psbadmin to /dors/capra_lab/users/mothcw
-   $ cd /dors/capra_lab/users
-   $ mv psbadmin psbadmin.SaveOldWithSomeLabelIfYouLike
+1) Checkout CapraLab/psbadmin first.
+Example on the Vanderbilt accre cluster
+   $ cd /dors/capra_lab/users/mothcw
    $ git clone https://github.com/CapraLab/psbadmin/
-   (The psbadmin git repository is essentially a backup of the write-protected /dors/capra_lab/users/mothcw/psbadmin directory)
+   
+Or for development off fast local storage:   
+
+   $ cd ~
+   $ git clone https://github.com/CapraLab/psbadmin/
+
    $ cd psbadmin
    $ git status # << Check that you are on the branch, typically master, you expect
 
-2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/mothcw/psbadin/pdbmap
-   $ cd /dors/capra_lab/users/mothcw/psbadmin # << you may already be there
+2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/psbadmin/pdbmap
+   $ cd to the psbadmin directory created in the above step.
    $ git clone https://github.com/CapraLab/pdbmap/
    $ git status # << Check that you are on the branch, typically master, you expect
 
-3) Download Anaconda3  and install to /dors/capra_lab/users/mothcw/anaconda3
+3) Download Anaconda3  from https://www.anaconda.com/
+
+- For a cluster install, perhaps pick a target directory of /dors/capra_lab/users/mothcw/anaconda3/. 
+- For a local install, accept the default ~/anaconda3/
+
    Answer 'yes' at the end when prompted whether to install conda/init
    This will modify the end of your ~/.bashrc file, in a block clearly annotated
      with >>>> conda_init <<<< style comments at begin and end of that block
 
    The conda_init block will place a number of new executables in front of your
-   Operating System tools.  Not only python3, but also perl5 - by the time we 
-   are finished.  You may want to excerpt the conda init block into its own 
-   sourceable file  
+   Operating System tools.
+   
+   This installer is generally a good thing, but it can create troubles if you build your own
+   PERL install.
    
 
-4) Login/login to acquire these .bashrc changes.  
+4) Login/login to acquire these .bashrc changes.  Check that your PATH points to the new python3, not the 
+   OS version.  Check the python version too...
 
 $ which python
-/dors/capra_lab/users/mothcw/anaconda3/bin/python
+~/anaconda3/bin/python
+$ which python3
+~/anaconda3/bin/python3
+$ python3 --version
+Python 3.9.13
 
-$ python --version
-Python 3.10.9
+5) Install numberous required python add-on modules with the same script
+   we use for our container assembly:
 
+$ ./rampup/pip_install_modules.bash
 
-# Then install add-on numerous python add-on libraries with:
-./rampup/pip_install_modules.bash
-
-4d) Use "ln -s" so three perl scripts in pdbmap/lib visible in pdbmap directory
+4d) Use "ln -s" so three perl scripts in pdbmap/lib are visible in pdbmap directory
 
 cd $psbadmin/../pdbmap
 ln -sv lib/*.pl .
@@ -68,21 +86,41 @@ ln -sv lib/*.pl .
 $ cd /dors/capra_lab/users/mothcw
 $ ./precompile.bash
 
-6) It now looks like "yum install htslib-tools" is sufficient to get bgzip and tabix
+6) Install the tabix and bgzip programs.  
 
-On CentOS 7, this may be easiest via "sudo yum install htslib-tools" and perhaps "sudo yum install htslib-devel"
+With root access, On CentOS 7 you do this easily  with:
 
+# yum install htslib-tools            # to get bgzip and tabix
+# yum install htslib-devel            # just in case you want to develop tools at API level
 
-If you lack sudo priviledge, it is not too difficult to download and build the tools for installation
-/dors/capra_lab/users/mothcw/htslib-1.11 and include the bin subdirectory off that in the PATH there in your psb_prep.bash script
+If you lack root access, you should download and config/make htslib from http://www.htslib.org/   
+It is a relatively quick and painless build.
 
-See: http://www.htslib.org/  and http://www.htslib.org/download/ which explains how to build
+Add the directory containing the bgzip and tabix binaries to your PATH (in ~/.bashrc always a good idea).
 
 =================================================================================================================
+Following is all mostly quite wrong.
 
-6) INSTALL the Ensembl PERL API.
+6) INSTALL (or configure) PERL to support the Ensembl PERL API.
 
 Access to the Ensembl PERL API requires PERL5 and BioPerl.  In my experience, PERL is a fading star, and it is difficult to imagine that there will not soon be an Ensembl Python API.  Until then, we follow Ensembl's very strict prescription for preparing the required PERL software stack.
+
+
+
+
+7) Install the ENSEMBL PERL files.
+
+My religion in November of 2022 is that the _best_ solution is to fully embrace "git", and the "Ensembl git tools" which need to precede git in your PATH.  Full details of how to install the tools, set the PATH, and _then_ select the branch for the current ENSEMBL version (108) are at:
+
+http://useast.ensembl.org/info/docs/api/api_git.html
+
+Follow the instructions at the above link.  I prefer installing this to an "ensembl/" named top-level directory, and not "src", but otherwise, I do everything asked.  The final step, selecting the correct branch for the database version is important and will be quite like this in the documentation
+
+$ cd ensembl
+$ git ensembl --checkout --branch release/108 api
+
+
+
 
 2020-Oct-31 Update: A potential nuisance is that the anaconda python installation conda insists on creating a ~/perl5 
 somewhere along the above setup.  Because we need SQL database access from PERL, bioperl, and other modules that
