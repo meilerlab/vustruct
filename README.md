@@ -7,7 +7,7 @@ an additional thin layer of python (flask) code to manage the web back-end  (see
 
 # We welcome collaborations:
 
-- use of our open website
+- use of our open [website](https://meilerlab.org/VUStruct)
 - deeper analysis of your data on our cluster
 - deployment of VUStruct to your system
 - suggestions for the VUStruct pipeline
