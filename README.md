@@ -9,7 +9,7 @@ an additional thin layer of python (flask) code to manage the web back-end  (see
 
 - use of our open website
 - deeper analysis of your data on our cluster
-- deployment of our code on your platform
+- deployment of VUStruct to your system
 - suggestions for the VUStruct pipeline
 
 This repository is maintained by
