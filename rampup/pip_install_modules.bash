@@ -7,8 +7,10 @@
 # pip install --upgrade setuptools
 # pip install --upgrade pip
 
-# As of March 2019 python 3, pandas seems to have been loaded by default
-# pip install pandas
+# While anaconda includes numy and pandas default, raw OS installs of python3
+# typically don't
+pip install numpy
+pip install pandas
 
 # apScheduler allows the flask web front end to perform web updates 
 # at fixed intervals
@@ -41,3 +43,6 @@ pip install tabulate
 
 # Digenic analysis code requires plotly
 pip install plotly
+
+# We use openpyxl to support generation of case summary spreadsheet
+pip install openpyxl
