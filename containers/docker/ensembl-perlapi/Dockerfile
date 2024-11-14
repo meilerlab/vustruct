@@ -11,6 +11,8 @@ ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl-compara/modules
 ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl-variation/modules
 ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl-funcgen/modules
 
+# Add our short perl scripts that call the extensive 
+# ENSEMBL libraries in the container
 COPY ./vustruct_perl /opt/vustruct_perl
 
 # I am installing Rocky9 intrinsic perl
