@@ -5,11 +5,11 @@ FROM rockylinux:9
 #  https://useast.ensembl.org/info/docs/api/api_installation.html
 
 ENV PATH="/opt/vustruct_perl:/opt/ensembl_perlapi/src:$PATH"
-ENV PERL5LIB=/opt/ensembl_perlapi/src/bioperl-1.6.924
-ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl/modules
-ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl-compara/modules
-ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl-variation/modules
-ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/src/ensembl-funcgen/modules
+ENV PERL5LIB=/opt/ensembl_perlapi/bioperl-1.6.924
+ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/ensembl/modules
+ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/ensembl-compara/modules
+ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/ensembl-variation/modules
+ENV PERL5LIB=${PERL5LIB}:/opt/ensembl_perlapi/ensembl-funcgen/modules
 
 # Add our short perl scripts that call the extensive 
 # ENSEMBL libraries in the container
