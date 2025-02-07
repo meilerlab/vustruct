@@ -13,11 +13,6 @@ The root container in our pipeline, vustruct contains all the python codes in th
 ### ensembl-perlapi
 Interconverts ENSEMBL transcript IDs, genomic coordinates, and Amino Acid sequences.
 
-### 
-
-
-| Container     | Purpose          | Cool  |
-| ------------- | ------------- | -----:|
-| vustruct.simg | Python Code Base | $1600 |
-| col 2 is      | centered         |   $12 |
-| zebra stripes | are neat         |    $1 |
+### ddG3.13
+Hosts the Rosetta ddG Cartesian code in a version which gives results closest
+to Frenz et al https://pmc.ncbi.nlm.nih.gov/articles/PMC7579412/
