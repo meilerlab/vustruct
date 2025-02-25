@@ -29,7 +29,7 @@ echo $cmd
 eval $cmd
 
 echo Create a new area to house the transferred final binary set, libraries, symlinks
-mkdir --verbose --parents $ROSETTA_MAIN_DEST/source/bin
+mkdir --verbose --parents $ROSETTA_MAIN_DEST/main/source/bin
 
 ddG_filelist_file=/tmp/rosetta.filelist
 rm -f $ddG_filelist_file
@@ -73,7 +73,7 @@ eval $cmd
 
 echo All script commands completed without error
 echo All needed ddGCartesian files have been un-tar\'d from $ROSETTA_TAR_BUNDLE to $ROSETTA_MAIN_DEST
-echo "$ROSETTA_MAIN_DEST/source contains $(find $ROSETTA_MAIN_DEST/source -type f | wc -l) files"
-echo "$ROSETTA_MAIN_DEST/database contains $(find $ROSETTA_MAIN_DEST/database -type f | wc -l) files"
+echo "$ROSETTA_MAIN_DEST/main/source contains $(find $ROSETTA_MAIN_DEST/main/source -type f | wc -l) files"
+echo "$ROSETTA_MAIN_DEST/main/database contains $(find $ROSETTA_MAIN_DEST/main/database -type f | wc -l) files"
 echo Containers should copy these files to /opt and prefix the PATH and LD_LIBRARY_PATH with:
 echo PATH=/opt/rosetta3.13_ddGCartesian/main/source/bin:\$PATH
