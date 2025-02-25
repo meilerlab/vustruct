@@ -1,5 +1,5 @@
 ### Steps to create a Rosetta3.13_ddGCartesian.sif singularity container.
-1. Install singularity / apptainer
+1. Install singularity / apptainer  (I have had success building the container on the Windows Subsystem for Linux, and Linux itself.  root is not required for this container)
 
 2. Verify your licensing at
   https://github.com/RosettaCommons/rosetta/blob/main/LICENSE.md
