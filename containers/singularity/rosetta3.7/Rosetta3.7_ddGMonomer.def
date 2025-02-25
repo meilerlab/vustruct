@@ -1,0 +1,49 @@
+# 2025-02-25 Build a singularity container with the Rocky9 Base OS
+# with three Rosetta3.7 ddGMonomer component binaries and supporting
+# Rosetta databases
+#
+# See the %help section below for more details
+#
+# The first layer is the latest Rocky Linux 9 OS
+# which we obtain from dockerhub:
+Bootstrap:docker
+From:rockylinux:9
+
+%runscript
+    /bin/bash
+
+%environment
+    export CONTAINER_TYPE=Singularity
+    export PATH=/opt/rosetta3.7_ddGMonomer/main/source/bin:$PATH
+
+# You must modify the first directory name to match the directory to
+# which you extracted files from the rosetta3.7 distribution
+%files
+    /mnt/c/users/mothcw/rosetta3.7_ddGMonomer /opt/rosetta3.7_ddGMonomer
+
+# Details returned by singularity inspect Rosetta3.7.sif
+%labels
+    MyLabel Rosetta3.7 ddG_Monomer Extract
+    Author chris.moth@vanderbilt.edu
+    Version 1.0
+    CreationScripts https://github.com/meilerlab/vustruct/tree/master/containers
+    AcademicLicense  https://github.com/RosettaCommons/rosetta/blob/main/LICENSE.md
+    CommercialLicense https://els2.comotion.uw.edu/product/rosetta
+
+# Container information/details returned by singularity run-help Rosetta3.7.sif
+%help
+  Singularity container to implement the Rosetta3.7 ddG Monomer algorithm
+  in support of the VUStruct Compute Pipeline: https://meilerlab.org/VUStruct
+
+  The base layer is Rocky9 Linux
+  The three Rosetta binaries and database files are at /opt/rosetta3.7_ddGMonomer
+
+  Academic and non-commercial users may run these binaries under the Rosetta
+  Software Non-Commerical License agreement found at:
+      https://github.com/RosettaCommons/rosetta/blob/main/LICENSE.md
+
+  Use for commercial purposes requires purchase of a separate license per:
+      https://els2.comotion.uw.edu/product/rosetta
+
+  Citations and command line parameter suggestions are at:
+      https://docs.rosettacommons.org/docs/latest/application_documentation/analysis/ddg-monomer
