@@ -1,0 +1,50 @@
+# 2025-02-25 Build a Rosetta3.13_ddGCartesian.sif 
+# singularity container with the Rocky9 Base OS
+# with two Rosetta3.13 ddGCartesian component binaries and supporting
+# Rosetta databases
+#
+# See the %help section below for more details
+#
+# The first layer is the latest Rocky Linux 9 OS
+# which we obtain from dockerhub:
+Bootstrap:docker
+From:rockylinux:9
+
+%runscript
+    /bin/bash
+
+%environment
+    export CONTAINER_TYPE=Singularity
+    export PATH=/opt/rosetta3.13_ddGCartesian/main/source/bin:$PATH
+
+# You must modify the first directory name to match the directory to
+# which you extracted files from the rosetta3.13 distribution
+%files
+    /mnt/c/users/mothcw/rosetta3.13_ddGCartesian /opt/rosetta3.13_ddGCartesian
+
+# Details returned by singularity inspect Rosetta3.13.sif
+%labels
+    MyLabel Rosetta3.13 ddG_Cartesian Extract
+    Author chris.moth@vanderbilt.edu
+    Version 1.0
+    CreationScripts https://github.com/meilerlab/vustruct/tree/master/containers
+    AcademicLicense  https://github.com/RosettaCommons/rosetta/blob/main/LICENSE.md
+    CommercialLicense https://els2.comotion.uw.edu/product/rosetta
+
+# Container information/details returned by singularity run-help Rosetta3.13_ddGCartesian.sif
+%help
+  Singularity container to implement the Rosetta3.13 ddG Cartesian algorithm
+  in support of the VUStruct Compute Pipeline: https://meilerlab.org/VUStruct
+
+  The base layer is Rocky9 Linux
+  Both Rosetta binaries and database files are at /opt/rosetta3.13_ddGCartesian
+
+  Academic and non-commercial users may run these binaries under the Rosetta
+  Software Non-Commerical License agreement found at:
+      https://github.com/RosettaCommons/rosetta/blob/main/LICENSE.md
+
+  Use for commercial purposes requires purchase of a separate license per:
+      https://els2.comotion.uw.edu/product/rosetta
+
+  Citations and command line parameter suggestions are at:
+      https://docs.rosettacommons.org/docs/latest/cartesian-ddG
