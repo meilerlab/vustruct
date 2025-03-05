@@ -3,7 +3,12 @@ pdbmap/
 pipeline_download_scripts/
 anaconda2/
 anaconda3/
+
+# Container images are very large should be copied in 
+# from their repos after installation
+# and not checked in to git/github
 *.simg
+*.sif
 
 ## File types ##
 *.bak
