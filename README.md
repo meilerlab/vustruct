@@ -17,4 +17,4 @@ This repository is maintained by
 [Chris Moth](https://meilerlab.org/user/mothc/)
 
 
-See Manifest.txt for tips on creating a dynamic development environment pre-containerization
+See [Manifest.txt](./Manifest.txt) for tips on creating a dynamic development environment pre-containerization
