@@ -1,13 +1,18 @@
-A Docker (Singularity) container is the preferred mechanism for production runs.
-See Container.md, as the insights for building a turn-key container are instructive as you think through
-building a development environment.
+VUStruct calculations are primarily deployed in Singularity (Apptainer) containers.
 
-The instructions below are for creating an editable set of development-oriented source files
+If you wish to create a local command-line implementation (or website), then you will need
+local copies of the containers, as described in the file containers/deployment.txt
+
+The instructions below are primarily for creating an editable set of development-oriented source files
 in the filesystem.
 ---------------------------------------------------------------------------------------------------------------
-0) Development can take place either on the filesystem of the cluster, or on a local development workstation, 
+1) Development can take place either on the filesystem of the cluster, or on a local development workstation, 
 or perhaps in a virtual machine in which you have root access.
 
+These instructions assume that the VUStruct code base will run an unmodified ENSEMBL VEP and PERL API functions
+out of their respective containers.  It is possible to install perl and bypass these containers, but that is 
+quite involved and left at end of this documentation
+(* Resume editing here *)
 A benefit of root access is that you can run ENSEMBL PERL API routines using the OS's native PERL5 install and 
 update mechanisms.  Without root access, you will have to download and build a local copy of PERL which you can
 add modules to (such as SQL).
