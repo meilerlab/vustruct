@@ -11,8 +11,8 @@ or perhaps in a virtual machine in which you have root access.
 
 These instructions assume that the VUStruct code base will run an unmodified ENSEMBL VEP and PERL API functions
 out of their respective containers.  It is possible to install perl and bypass these containers, but that is 
-quite involved and left at end of this documentation
-(* Resume editing here *)
+quite involved and left to the end of this documentation
+
 A benefit of root access is that you can run ENSEMBL PERL API routines using the OS's native PERL5 install and 
 update mechanisms.  Without root access, you will have to download and build a local copy of PERL which you can
 add modules to (such as SQL).
@@ -32,71 +32,78 @@ Therefore, I supplement the steps below with options
 
 ---------------------------------------------------------------------------------------------------------------
 
-1) Checkout CapraLab/psbadmin first.
+1) Checkout meilerlab/vustruct first.  This is the "pipeline" development code
+
 Example on the Vanderbilt accre cluster
    $ cd /dors/capra_lab/users/mothcw
-   $ git clone https://github.com/CapraLab/psbadmin/
+   $ git clone https://github.com/meilerlab/vustruct.git
    
 Or for development off fast local storage:   
 
    $ cd ~
-   $ git clone https://github.com/CapraLab/psbadmin/
+   $ git clone https://github.com/meilerlab/vustruct.git
 
-   $ cd psbadmin
-   $ git status # << Check that you are on the branch, typically master, you expect
+   $ cd vustruct
+   $ git status # << Check that you are on the vustruct branch, typically master, you expect
 
-2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/psbadmin/pdbmap
-   $ cd to the psbadmin directory created in the above step.
+2) Checkout CapraLab/pdbmap to /dors/capra_lab/users/vustruct/pdbmap.  pdbmap is a general purpose
+   structure and sequence management library
+
+   $ cd to the vustruct directory created in the above step 1.
    $ git clone https://github.com/CapraLab/pdbmap/
-   $ git status # << Check that you are on the branch, typically master, you expect
+   $ git status # << Check that you are on the pdbmap branch, typically master, you expect
 
-3) Download Anaconda3  from https://www.anaconda.com/
+Note: pdbmap resides "under" vustruct.  However, it is it's own github repository by virtual of an entry in the ../.gitignore file
 
-- For a cluster install, perhaps pick a target directory of /dors/capra_lab/users/mothcw/anaconda3/. 
-- For a local install, accept the default ~/anaconda3/
+3) To build a complete local development environment, it will be necessary to download external data from many locations.
+   The download scripts should not be entangled with the other two repositories
 
-   Answer 'yes' at the end when prompted whether to install conda/init
-   This will modify the end of your ~/.bashrc file, in a block clearly annotated
-     with >>>> conda_init <<<< style comments at begin and end of that block
+   $ cd ~/
+   $ git clone https://github.com/CapraLab/pipeline_download_scripts.git
 
-   The conda_init block will place a number of new executables in front of your
-   Operating System tools.
-   
-   This installer is generally a good thing, but it can create troubles if you build your own
-   PERL install.
-   
+See Readme.md and instructions in the indivual directories for more details.
 
-4) Login/login to acquire these .bashrc changes.  Check that your PATH points to the new python3, not the 
-   OS version.  Check the python version too...
+4) Configure a python development environment.
 
-$ which python
-~/anaconda3/bin/python
+For several years, we used Anaconda.  However, with the new distribution restrictions we are tending to develop
+using the environments provided by Rocky9 Linux "natively" or, for development on our cluster 
+$ module load StdEnv
+
+At Vanderbilt, this above or ($ module load SciPy-2024b) load a reference platform of tools documented here:
+https://docs.alliancecan.ca/wiki/Technical_documentation
+
 $ which python3
-~/anaconda3/bin/python3
-$ python3 --version
-Python 3.9.13
+/cvmfs/soft.computecanada.ca/gentoo/2023/x86-64-v3/usr/bin/python3
 
-5) Install numberous required python add-on modules with the same script
-   we use for our container assembly:
+On this software, we layer a conda environment which we init in .bashrc with:
+
+# activate the vustruct virtual environment
+source ~/venv/vustruct/bin/activate
+
+4a) THE MAIN POINT is that you need to have a python library stack specific to our software
+Perform these "pip installs" from your vustruct checkout directory
 
 $ ./rampup/pip_install_modules.bash
 
-4d) Use "ln -s" so three perl scripts in pdbmap/lib are visible in pdbmap directory
+5) PERL
+VUStruct's approach to perl (interfaces to ENSEMBL genomic databases and VEP)
+is evolving.  Geerally, we now run perl codes only via container
+invocations.  So this section should be unnecessary.  But, if one were
+developing new PERL routines, it might be helpful
 
-cd $psbadmin/../pdbmap
+Use "ln -s" so three perl scripts in pdbmap/lib are visible in pdbmap directory
+
+cd vustruct/pdbmap
 ln -sv lib/*.pl .
 
-5) Precompile all python modules as user psbadmin.  Currently, accomplished with
-
-$ cd /dors/capra_lab/users/mothcw
-$ ./precompile.bash
+See mode details on PERL below
 
 6) Install the tabix and bgzip programs.  
 
-With root access, On CentOS 7 you do this easily  with:
+With root access, On Rocky 9 you do this easily  with:
 
-# yum install htslib-tools            # to get bgzip and tabix
-# yum install htslib-devel            # just in case you want to develop tools at API level
+# dnf install htslib-tools            # to get bgzip and tabix
+# dnf install htslib-devel            # just in case you want to develop tools at API level
 
 If you lack root access, you should download and config/make htslib from http://www.htslib.org/   
 It is a relatively quick and painless build.
@@ -104,28 +111,35 @@ It is a relatively quick and painless build.
 Add the directory containing the bgzip and tabix binaries to your PATH (in ~/.bashrc always a good idea).
 
 =================================================================================================================
-Following is all mostly quite wrong.
+=================================================================================================================
+PERL installation details (to be avoided if at all possible).  The pain points arise from:
+- mysql calls from PERL require C libraries that may or may not be present or compatible with the environment
+- Unlike python, there is no widely-adopted method to create a "local conda-esque" environment that runs well
+  on all cluster nodes.
+- If you are using anaconda python for development, there are conflicts with a PERL binary they seem to include 
+  for some reasons.
 
-6) INSTALL (or configure) PERL to support the Ensembl PERL API.
+I recommend you skip installation of PERL and embrace the singularity/apptainer runs of VEP and the ENSEMBL API
+in the containers
 
-Access to the Ensembl PERL API requires PERL5 and BioPerl.  In my experience, PERL is a fading star, and it is difficult to imagine that there will not soon be an Ensembl Python API.  Until then, we follow Ensembl's very strict prescription for preparing the required PERL software stack.
+If you insist.....
+a) INSTALL (or configure) PERL to support the Ensembl PERL API.
 
-
-
+Access to the Ensembl PERL API requires PERL5 and BioPerl.
 
 7) Install the ENSEMBL PERL files.
 
-My religion in November of 2022 is that the _best_ solution is to fully embrace "git", and the "Ensembl git tools" which need to precede git in your PATH.  Full details of how to install the tools, set the PATH, and _then_ select the branch for the current ENSEMBL version (108) are at:
+Embrace "git", and the "Ensembl git tools" which need to precede git in your PATH.  Full details of how to install the tools, set the PATH, and _then_ select the branch for the current ENSEMBL version (113) are at:
 
 http://useast.ensembl.org/info/docs/api/api_git.html
+
+Loading SQL databases is explained here:
+http://useast.ensembl.org/info/docs/api/api_installation.html
 
 Follow the instructions at the above link.  I prefer installing this to an "ensembl/" named top-level directory, and not "src", but otherwise, I do everything asked.  The final step, selecting the correct branch for the database version is important and will be quite like this in the documentation
 
 $ cd ensembl
-$ git ensembl --checkout --branch release/108 api
-
-
-
+$ git ensembl --checkout --branch release/113 api
 
 2020-Oct-31 Update: A potential nuisance is that the anaconda python installation conda insists on creating a ~/perl5 
 somewhere along the above setup.  Because we need SQL database access from PERL, bioperl, and other modules that
