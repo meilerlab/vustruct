@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 #
 # vustruct_flask
+# The main "brain" behind the pipeline, vustruct runs on a dedicated cluster
+# node, from which it coordinates all back-end case
+# planning, launching, monitoring, and reporting.
+# 
+# Restated, vustruct_flask replaces the "human" running of the
+# command line applications: preproces, plan, launch, monitor, report 
+# and it performs this in coordination with a rest-api that responds to 
+# user initial input, and progress report requests
 #
 # Via flask, implements RESTAPI calls which
 # 
@@ -29,56 +37,13 @@
 # updated
 #
 # The progress each of running case is recorded in the
-# working_directory of each running flask case under
+# case_directory of each running flask case under
 # management
 
 from __future__ import annotations
-
-import uuid
-import threading
 import logging
 import os
 import sys
-from io import StringIO
-from datetime import datetime
-from datetime import timedelta
-import time
-import json
-import subprocess
-import tempfile
-import csv
-import string
-import pprint
-
-import pandas as pd
-import numpy as np
-
-from functools import wraps
-from flask import Flask
-from flask import abort
-from flask import request
-from flask import jsonify
-from flask import Blueprint
-from flask import current_app
-from flask import make_response
-
-# from flask_script import Manager, Server
-
-from werkzeug.exceptions import HTTPException
-import werkzeug
-werkzeug.serving._log_add_style = False
-# requests is used to read the excel or missense filess uploaded to wordpress.
-import requests
-from requests_file import FileAdapter
-from typing import Dict
-
-# import time
-from logging.handlers import RotatingFileHandler
-from typing import Dict, Any, Tuple, List
-from typing import TextIO
-# Inspect to recover bsub_submit() and slurm_submit() source code for integration
-# into generated final file
-import inspect
 
 
 
@@ -135,6 +100,54 @@ logging.config.dictConfig({
 
 
 # We need to load the cases ONLY once
+
+import uuid
+import threading
+import sys
+from io import StringIO
+from datetime import datetime
+from datetime import timedelta
+import time
+import json
+import subprocess
+import tempfile
+import csv
+import string
+import pprint
+
+import pandas as pd
+import numpy as np
+
+import smtplib
+from email.mime.text import MIMEText
+
+from functools import wraps
+from flask import Flask
+from flask import abort
+from flask import request
+from flask import jsonify
+from flask import Blueprint
+from flask import current_app
+from flask import make_response
+
+# from flask_script import Manager, Server
+
+from werkzeug.exceptions import HTTPException
+import werkzeug
+werkzeug.serving._log_add_style = False
+# requests is used to read the excel or missense filess uploaded to wordpress.
+import requests
+from requests_file import FileAdapter
+from typing import Dict
+
+# import time
+from typing import Dict, Any, Tuple, List
+from typing import TextIO
+# Inspect to recover bsub_submit() and slurm_submit() source code for integration
+# into generated final file
+import inspect
+
+
 # trying idea from 
 # https://stackoverflow.com/questions/27465533/run-code-after-flask-application-has-started
 
@@ -185,11 +198,6 @@ fakeargs = FakeArgs()
 fakeargs.config = vustruct_config_filename
 fakeargs.userconfig = vustruct_userconfig_filename
 fakeargs.caseconfig = ''
-# UDN="/dors/capra_lab/users/mothcw/VUStruct/"
-# UDN = os.getenv("UDN")
-# if not UDN:
-#     errormsg = "UDN environment variable must be defined before launch of %s" % UDN
-#     sys.exit(errormsg)
 
 # These items moved to the global.config file
 # config = {
@@ -201,8 +209,32 @@ fakeargs.caseconfig = ''
 #     'monitored_caselist_file': '/dors/capra_lab/users/mothcw/VUStruct/vustruct_flask_monitored_caselist.txt'
 # }
 
-class GlobalActiveCases:
 
+# subject = "Email Subject"
+# body = "This is the body of the text message"
+# sender = "chris.w.moth@gmail.com"
+# recipients = ["cmoth@comcast.net"]
+# password = "vrmgigwlsqmpuvub"
+
+
+def send_smtp_email(subject, body, sender, recipients):
+    _smtp_server_address = VUStructFlask_config['smtp_server_address']
+    _smtp_server_port = int(VUStructFlask_config['smtp_server_port']) 
+    app.logger.info("Sending message from %s to %s subject=%s over server=%s port=%d", sender, str(recipients),  subject,
+        _smtp_server_address,_smtp_server_port)
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = ', '.join(recipients)
+    try:
+        with smtplib.SMTP_SSL(_smtp_server_address, _smtp_server_port)  as smtp_server:
+           smtp_server.login(VUStructFlask_config['smtp_account'], VUStructFlask_config['smtp_server_password'])
+           smtp_server.sendmail(sender, recipients, msg.as_string())
+    except Exception as ex:
+        app.logger.error("smptlib.SMTP_SSL email failed:\n%s",      
+            str(ex))
+
+class GlobalActiveCases:
     # static variables shared among all GlobalActiveCases members
     save_filename = os.path.join(os.getcwd(), "GlobalActiveCases_vustruct_flask.json")
     global_lock = threading.Lock()
@@ -220,6 +252,12 @@ class GlobalActiveCases:
         uuids_final_website_update = set()
 
         save_needed = True
+
+    @staticmethod
+    def count() -> int:
+        """return count of cases being monitored"""
+        with GlobalActiveCases.global_lock:
+            return len(GlobalActiveCases.uuid_VUStructFlask_dict)
 
     @staticmethod
     def add_flask_case(flask_case):
@@ -243,6 +281,9 @@ class GlobalActiveCases:
 
     @staticmethod
     def save_active_cases() -> None:
+        """In case of a restart of this vustruct_flask.py, we want to be able
+           to read in all the running case uuids and then restart the monitor/report cycles
+        """
         if not GlobalActiveCases.save_needed:
             return
         
@@ -251,9 +292,12 @@ class GlobalActiveCases:
         _active_cases = []
         with GlobalActiveCases.global_lock:
             for case_uuid in GlobalActiveCases.uuid_VUStructFlask_dict:
+                _flask_case = GlobalActiveCases.uuid_VUStructFlask_dict[case_uuid]
                 _active_cases.append({
-                    'case_id': GlobalActiveCases.uuid_VUStructFlask_dict[case_uuid].case_id,
-                    'case_uuid': case_uuid
+                    'case_id': _flask_case.case_id,
+                    'case_uuid': case_uuid,
+                    'email': _flask_case.email,
+                    'init_time': _flask_case.init_time
                     }) 
 
         _active_cases_json = json.dumps(
@@ -274,6 +318,11 @@ class GlobalActiveCases:
     
     @staticmethod
     def reload_from_save_file():
+        """
+        Following a restart of this vustruct_flask program
+          -Reload the cases that vustruct_flask are monitoring
+          -Restart the monitor/report loops in each case
+        """
         app.logger.info("GlobalActiveCases: Attempting to restart monitoring of cases in %s" % \
             GlobalActiveCases.save_filename)
 
@@ -315,19 +364,19 @@ class GlobalActiveCases:
                     str(ex))
                 continue
 
-            flask_case.load_psb_monitor_json()
-            if flask_case.psb_monitor_results_dict:
-                flask_case.psb_load_jobids_from_psb_monitor_results()
-            else:
-                flask_case.psb_load_jobids_from_workstatus_file()
+            # flask_case.load_psb_monitor_json()
+            # if flask_case.psb_monitor_results_dict:
+            #     flask_case.psb_load_jobids_from_psb_monitor_results()
+            # else:
+            #     flask_case.psb_load_jobids_from_workstatus_file()
+            flask_case.psb_load_jobids_from_workstatus_files()
 
 
-            for (unique_id, job_id_int, array_id_int) in flask_case.launched_jobs:
-                if array_id_int is not None:
-                    job_key = "%s_%s" % (job_id_int, array_id_int)
+            for (unique_id, job_id_int, array_id_int_or_none) in flask_case.launched_jobs:
+                if array_id_int_or_none is not None:
+                    job_key = "%s_%s" % (job_id_int, array_id_int_or_none)
                 else:
                     job_key = str(job_id_int)
-                    # import pdb; pdb.set_trace()
                     temp = global_squeue_df 
 
 
@@ -341,10 +390,13 @@ class GlobalActiveCases:
             flask_case.last_module_launched = 'launch'
             flask_case.last_module_returncode = 0
             flask_case.last_module_error_message = ""
+
+            # Let's bet that when we relaunch from the save_file, that squeue _will_ have
+            # worked before this and thus we need to act as if it is over if squeue is now empty
+            flask_case.squeue_once_reported_jobs = True
         
             # This so far has been very quick.  Now run the background thread to run the entire pipeline
             # Return to caller immediately of course.
-        
             dev_report_vustruct_thread = threading.Thread(target=monitor_report_loop, args=(flask_case,False))
             dev_report_vustruct_thread.start()
         
@@ -361,6 +413,57 @@ class GlobalActiveCases:
         with GlobalActiveCases.global_lock:
             GlobalActiveCases.uuids_final_website_update.add(flask_case_uuid)
         app.logger.info("case_uids final websites = %s", '\n'.join(GlobalActiveCases.uuids_final_website_update))
+
+    @staticmethod
+    def update_cases_with_squeue_df(squeue_df_indexed_on_job_key: pd.DataFrame):
+        """Having just completed a new squeue_df from running squeue, we now want
+           to update each individual flask_case with squeue_df entries relevant to itself only
+           These entries are passed to psb_monitor.py next time we run it"""
+
+        with GlobalActiveCases.global_lock:
+            # Job one is to quickly create an index from job_id_array_id back to the individual cases
+            # Now that we can immediately find a case from a job key, create a dataframe connecting
+            # job keys to case uuids - a precursor to a df we can join
+            _job_keys = []
+            _case_uuids = []
+            _workstatus_uniquekeys = []
+
+            if len(squeue_df_indexed_on_job_key) == 0: # If squeue returned nothing then we just need to nuke all the individual case.squeues...
+                for flask_case in list(GlobalActiveCases.uuid_VUStructFlask_dict.values()):
+                    flask_case.update_case_squeue_df(pd.DataFrame())
+                return
+                
+            # For every active case, cross reference the job IDs back to the case UUID
+            for flask_case in list(GlobalActiveCases.uuid_VUStructFlask_dict.values()):
+                if len(flask_case.launched_jobs) == 0:
+                    app.logger.critical("%s: No launched jobs for case %s", threading.get_ident(), flask_case.case_uuid)
+                for launched_job in flask_case.launched_jobs:
+                    unique_key = launched_job[0]
+                    job_id_int =     int(launched_job[1])
+                    array_id_int_or_none =   launched_job[2] # It is toally OK for there to be no array_id
+                    if array_id_int_or_none is not None:
+                        job_key = "%s_%d" % (job_id_int, int(float(array_id_int_or_none)))
+                    else:
+                        job_key = str(job_id_int)
+                    _workstatus_uniquekeys.append(unique_key)
+                    _job_keys.append(job_key)
+                    _case_uuids.append(flask_case.case_uuid)
+
+            _job_key_case_uuid_df = pd.DataFrame({
+                'job_key': _job_keys,
+                'case_uuid': _case_uuids,
+                'workstatus_uniquekeys': _workstatus_uniquekeys
+                })
+
+            # Perform a left join on the squeue_df and the new _job_key_case_uuid_df
+            # This will add 'case_uuid' to each of the squeue_df rows
+            sq_df = squeue_df_indexed_on_job_key.join(_job_key_case_uuid_df.set_index('job_key'))
+            for flask_case in list(GlobalActiveCases.uuid_VUStructFlask_dict.values()):
+                # Extract only those rows from squeue_df that apply to the particular flask_case
+                case_specific_squeue_df = sq_df.loc[sq_df['case_uuid'] == flask_case.case_uuid]
+                # Update the flask case so the next time it calls psb_monitor or answers a REST_API 
+                # call, it will know the recent job statuses
+                flask_case.update_case_squeue_df(case_specific_squeue_df)
 
     @staticmethod
     def cases_needing_website_refresh(clear = True) -> list[dict]:
@@ -381,12 +484,14 @@ class GlobalActiveCases:
                     cases_needing_website_refresh.append({
                        'case_id': flask_case.case_id,
                        'case_uuid': case_uuid,
-                       'working_directory': flask_case.working_directory
+                       'case_directory': flask_case.case_directory
                        })
 
                     # If this webupdate is the LAST one (after what could have been days)
                     # Then we are performing a final update and this is important
-                    if clear and case_uuid in GlobalActiveCases.uuids_final_website_update:
+                    if clear and (case_uuid in GlobalActiveCases.uuids_final_website_update):
+                        user_email = GlobalActiveCases.uuid_VUStructFlask_dict[case_uuid]
+                        # We del the datastructure because the generating thread is no more
                         del GlobalActiveCases.uuid_VUStructFlask_dict[case_uuid]
                         # We dare not write to file system now - but we could stand to do it later
                         GlobalActiveCases.save_needed = True
@@ -395,6 +500,12 @@ class GlobalActiveCases:
             # Clear out the set of jobs needing website refresh
             if clear:
                 GlobalActiveCases.uuids_needing_website_refresh = set()
+
+        # Don't delay returning to the restapi caller - but DO save the updated GlobalActiveCases
+        # which now likely won't have as many members
+        if GlobalActiveCases.save_needed:
+            save_active_cases_thread = threading.Thread(target=GlobalActiveCases.save_active_cases)
+            save_active_cases_thread.start()
 
         return cases_needing_website_refresh 
 
@@ -414,12 +525,24 @@ VUStructFlask_floats = [
     'report_interval_initial_minutes',
     'report_interval_stretch_factor',
     'report_interval_max_minutes',
+    'case_minimum_hours',
     'case_timeout_days']
+
+VUStructFlask_strings = [
+    'webmaster',
+    'webmaster_email',
+    'smtp_account', 
+    'smtp_server_password', 
+    'smtp_server_address', 
+    'smtp_server_port']
 
 #Before we get cranked up, check that the convig items are there and convertable to float
 for numerical_item in VUStructFlask_floats:
     VUStructFlask_config[numerical_item] = float(
         VUStructFlask_config[numerical_item])
+
+for string_item in VUStructFlask_strings:
+    assert string_item in VUStructFlask_config,"Missing VUSTructFlask config item: %s" % string_item
 
 
 # print("Level is %s " % os.getenv("FLASK_ENV"))
@@ -427,8 +550,8 @@ for numerical_item in VUStructFlask_floats:
 #     app.logger.setLevel(logging.INFO)
 # app.logger.setFormatter(log_formatter)
 
-UDN = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
-app.logger.info("%s running web-input cases in %s", __file__, UDN)
+udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
+app.logger.info("%s running web-input cases in %s", __file__, udn_root_directory)
 
 def kill_vustruct_flask(caller_info: str = "No caller info provided"):
 
@@ -438,43 +561,40 @@ def kill_vustruct_flask(caller_info: str = "No caller info provided"):
     app.logger.info(f"{caller_info}\nShutting down with kill(pid={our_pid},signal={signal_number})")
     os.kill(our_pid,signal_number)
 
-# We cann squeue and load the slurm status of all running jobs
-# The status is indexed on job_key, the slurm concatenation
-# of a job id, and then if array id, _array_id
-# So that for any _particular_ case, we can quickly
-# get the squeue 
-global_squeue_df = pd.DataFrame()
 def global_squeue_df_refresh() -> None:
+    """If VUStruct jobs are being actively monitored, then we
+       want to call squeue periodically to watch for job status changes
+       and we want to break apart the results by case"""
+
     global global_squeue_df
+    if GlobalActiveCases.count() == 0:
+        global_squeue_df = pd.DataFrame()
+        return
+
     _slurm_user_id = config_dict['cluster_user_id']
 
     # Shell out to squeue, to gather status of all our running jobs
     # across all cases
-    parse_return = slurm.slurm_squeue(_slurm_user_id)
+    (_squeue_returncode, _squeue_stdout_json, _squeue_stderr_str) = slurm.slurm_squeue(_slurm_user_id)
 
-    if parse_return.returncode != 0:
-        app.logger.error("Unable to run squeue return_code=%d:\n%s", parse_return.returncode, parse_return.stderr)
+    if _squeue_returncode != 0:
+        app.logger.error("squeue refresh thread:Unable to run squeue return_code=%d:\n%s", _squeue_returncode, _squeue_stdout_json)
         return
 
     # Set the index to job_key
-    _latest_squeue_df = slurm.flatten_squeue_stdout_to_df(parse_return.stdout).set_index('job_key')
-    app.logger.info("%d active slurm jobs for user %s", len(_latest_squeue_df), config_dict['cluster_user_id'])
+    _latest_squeue_df = slurm.flatten_squeue_stdout_to_df(_squeue_stdout_json).set_index('job_key')
+    app.logger.info("squeue_refresh_thread: %d active slurm jobs for user %s", len(_latest_squeue_df), config_dict['cluster_user_id'])
     global_squeue_df = _latest_squeue_df
+    GlobalActiveCases.update_cases_with_squeue_df(global_squeue_df)
+
 
 def global_squeue_df_refresh_thread() -> None:
     while True:
         _sleep_seconds = int(VUStructFlask_config['squeue_interval_minutes']) * 60
-        app.logger.info("Next squeue refresh in %d seconds" % _sleep_seconds)
+        app.logger.info("squeue_refresh thread: Next squeue refresh in %d seconds" % _sleep_seconds)
         time.sleep(_sleep_seconds)
         global_squeue_df_refresh()
 
-squeue_refresh_thread = None
-    
-if os.environ.get("WERKZEUG_RUN_MAIN"):
-    global_squeue_df_refresh()    
-
-    squeue_refresh_thread = threading.Thread(target=global_squeue_df_refresh_thread)
-    squeue_refresh_thread.start()
 
 
 # An unhandled exception demands a total shutdown of this process
@@ -550,7 +670,7 @@ class CaseManager:
         self.vustruct_csv = ""
         self.email = ''
 
-        # The running of psb_rep is particularly important.
+        # The running of psb_rep is particularly important
         self.last_psb_rep_start = ""
         self.last_psb_rep_end = ""
 
@@ -561,9 +681,9 @@ class CaseManager:
         # during final website installation
         # external_user_prefix replaced with property functions to eliminate
         # refundancy.  It is NOT needed to be part of JSON returned by restAPIs
-        # self.external_user_prefix = "external_user_%s_%s" % (case_id, case_uuid)
+        # See property self.external_user_prefix = "external_user_%s_%s" % (case_id, case_uuid)
 
-        self.working_directory = os.path.join(UDN, self.external_user_prefix)
+        self.case_directory = os.path.join(udn_root_directory, self.external_user_prefix)
         self.data_format = ""
 
         # After launch, we (again) generate a report
@@ -584,6 +704,20 @@ class CaseManager:
 
         # After each call to psb_monitor, we need to harvest the status of all case-wide jobs
         self.psb_monitor_results_dict = {}
+
+        # Everytime that we call squeue globally, we partition the dynamic squeue status back to the owning cases
+        # This, when psb_monitor_is called, we can hand it the squeue results within last few minutes to
+        # include on the report it creates
+        self.case_squeue_df = pd.DataFrame()
+        self.squeue_once_reported_jobs = False
+
+    def update_case_squeue_df(self, latest_case_squeue_df: pd.DataFrame) -> None:
+        self.case_squeue_df = latest_case_squeue_df
+        app.logger.info("%s %d rows in case_squeue_df", threading.get_ident(), len(self.case_squeue_df))
+        # Once we see any active jobs from squeue, then it's time to be open to all the jobs being finished
+        if len(self.case_squeue_df) > 0:
+            self.squeue_once_reported_jobs = True
+            
 
     @property
     def external_user_prefix(self) -> str:
@@ -608,7 +742,7 @@ class CaseManager:
     @property
     def fullpath_case_progress_filename(self):
         return  os.path.join(
-            self.working_directory, 
+            self.case_directory, 
             "%s_flask_progress.json" % self.external_user_prefix)
 
     def save_as_json(self):
@@ -624,7 +758,7 @@ class CaseManager:
         with tempfile.NamedTemporaryFile(
             mode='w+t',
             prefix=os.path.join(
-                self.working_directory, 
+                self.case_directory, 
                 "%s_progress" % (self.case_id)),
             suffix=".tmp",
             delete=False,
@@ -648,10 +782,15 @@ class CaseManager:
         self.from_dict(flask_case_as_dict)
     
     def create_failure_website(self, body_html: str, website_filelist: list[str]):
-        # When something goes terribly wrong in flask processing, flask can create 
+        # When something goes terribly wrong in flask's running of a command line vustruct application,
+        # or anything else really,  flask can create 
         # the website update itself - but it is not pretty
-        with open("index.html","w") as f:
-            f.write(f"""<html>\
+
+        index_html_filename = os.path.join(self.case_directory,"index.html")        
+        bytes_written = 0
+
+        with open(index_html_filename,"w") as f:
+            bytes_written = f.write(f"""<html>\
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="en-us" xmlns="http://www.w3.org/1999/xhtml" >
@@ -662,43 +801,75 @@ class CaseManager:
 </head>
 <body>
 {body_html}
+<br>
+<hr>
+<code>    Your VUStruct case id: {self.case_id}</code>
+<code>     VUStruct internal id: {self.case_uuid}</code>
 </body>
 </html>
 """)
 
-
+        app.logger.info("%s: %d bytes written to failure website %s", threading.get_ident(), bytes_written, index_html_filename)
 
         # The temp filename has a hideous UTC timestamp on it
 
-        website_filelist_filename = os.path.join(UDN,self.external_user_prefix,
+        website_filelist_filename = os.path.join(self.case_directory,
                                              "%s_website_files.list" % self.external_user_prefix) 
 
+        # Dump out all the filenames, with \n terminated lines
+        # Prepred the relative directory location to the udn_root_directory
         with open(website_filelist_filename, "w") as f:
             f.write('\n'.join((os.path.relpath(
-                website_file,  # os.path.realpath(website_file),
-                os.path.realpath(UDN))
+                os.path.join(self.case_directory,website_file),  # os.path.realpath(website_file),
+                start = udn_root_directory)
                 for website_file in website_filelist)))
-        app.logger.info("A filelist for creating a website is in %s", website_filelist_filename)
+
+        app.logger.info("%s A %d line filelist for creating a website is in %s", threading.get_ident(), len(website_filelist), website_filelist_filename)
 
 
-        website_tar_temp_filename = "%s_%s.tar.gz" % (
+        # We make a relative path prefix for the files in the tar file
+        website_tar_temp_filename = os.path.join(self.case_directory,"%s_%s.tar.gz" % (
             self.external_user_prefix,
-            datetime.now().replace(microsecond=0).isoformat().translate(str.maketrans('','',string.punctuation)))
+            datetime.now().replace(microsecond=0).isoformat().translate(str.maketrans('','',string.punctuation))))
 
-        website_tar_filename = "%s.tar.gz" % self.external_user_prefix
+        website_tar_filename = os.path.join(self.case_directory,"%s.tar.gz" % self.external_user_prefix)
 
-        search_string = os.path.join(self.external_user_prefix, self.external_user_prefix)
-        replace_string = f"{self.external_user_prefix}/{self.case_id}"
-        tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
-        tar_maker = 'cd ..; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' > %s.stdout; cd -; mv %s %s; mv %s.stdout %s.stdout' % (
-            os.path.join(self.external_user_prefix, website_tar_temp_filename),
-            os.path.join(self.external_user_prefix, website_filelist_filename),
-            tar_transformer,
-            os.path.join(self.external_user_prefix, website_tar_temp_filename), # Last file before cd -
-            website_tar_temp_filename,website_tar_filename, # The temp and final tar files
-            website_tar_temp_filename,website_tar_filename) # The temp and final stdout files
-        app.logger.info("Creating .tar website file with: %s", tar_maker)
-        subprocess.call(tar_maker, shell=True)
+        # In the tar file, we replace 
+        # external_user_prefix/external_user_prefixx...
+        # with the final external_user_prefix/case_id format used on final website
+        # search_string = os.path.join(self.external_user_prefix, self.external_user_prefix)
+        # replace_string = f"/{self.external_user_prefix}"
+        # replace_string = f"/{self.case_id}"
+        # tar_transformer = f"--transform 's[{search_string}[{replace_string}[g' --show-transformed-names"
+
+        # Does not appear to be necessary to transform filenames for these little case fail websites.
+        tar_transformer = ''
+       
+        # I use the gnu tar via shell out, because it is reportedly 1) Much faster than python tarfile, and 2) Supports file name translations
+        tar_maker = 'cd %s; tar cvzf %s --files-from %s %s --mode=\'a+rX,go-w,u+w\' &> %s.stdout_err;  mv %s %s; mv %s.stdout_err %s.stdout_err' % (
+            udn_root_directory,       # We go up a directory above the case, then we create the files with the prepended directory
+            website_tar_temp_filename, # The tar filename being created, -c argument
+            website_filelist_filename, # The --files-from argument
+            tar_transformer, # s[ to replace old external unneeded filename parts
+            website_tar_temp_filename, # The prefix for the .stdout file from tar
+            #  website_tar_temp_filename, # The prefix for the .stderr file from tar
+            website_tar_temp_filename,website_tar_filename, # mv temp tar filename to final final tar files
+            website_tar_temp_filename,website_tar_filename) # mv temp stdout file to final stdout files
+        app.logger.info("%s Creating .tar website file with: %s", threading.get_ident(), tar_maker)
+        tar_return = subprocess.run(tar_maker, shell=True, encoding='UTF-8',
+                       cwd=self.case_directory,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        app.logger.info("Returned from tar shell...")
+        if tar_return.returncode != 0:
+            app.logger.critical("%s tar failed with code %s.  stdout=%s\nstderr=%s",
+                threading.get_ident(),
+                tar_return.returncode, tar_return.stdout, tar_return.stderr)
+        else:
+            app.logger.info("%s create_failure_website ended successfully", threading.get_ident())
+
+        # Try to Send Chris email about the troubles
+        mail_result = subprocess.run("mail -s failure_website_created chris.moth@vanderbilt.edu", shell=True, input = "%s %s" % (self.case_uuid, self.case_id), text=True, capture_output=True)
+
 
     def fetch_input_file(self,file_extension_including_period: str) -> str:
         """
@@ -733,7 +904,7 @@ class CaseManager:
 
         # Write out the uploaded csv, spreadseet or vcf in the final directory where it will be run
         final_VUStruct_input_filename = os.path.join(
-              self.working_directory,
+              self.case_directory,
              "%s%s" % (self.external_user_prefix, file_extension_including_period))
 
         with open(final_VUStruct_input_filename, "wb") as f:
@@ -744,12 +915,12 @@ class CaseManager:
         return None
 
     def run_coordinates_parser_command_line(self, parser_python_filename: str) -> subprocess.CompletedProcess:
-        os.makedirs(self.working_directory, exist_ok=True)
-        app.logger.info("Running: %s in \n%s", parser_python_filename, self.working_directory)
+        os.makedirs(self.case_directory, exist_ok=True)
+        app.logger.info("Running: %s in \n%s", parser_python_filename, self.case_directory)
 
         parse_return = \
             subprocess.run(parser_python_filename, shell=True, encoding='UTF-8',
-                       cwd=self.working_directory,
+                       cwd=self.case_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         app.logger.debug("%s finshed with exit code %d", parser_python_filename, parse_return.returncode)
         return parse_return
@@ -775,7 +946,7 @@ class CaseManager:
  
     @property
     def vustruct_filename(self) -> str:
-        return os.path.join(self.working_directory, "%s_vustruct.csv" % self.external_user_prefix)
+        return os.path.join(self.case_directory, "%s_vustruct.csv" % self.external_user_prefix)
 
     def load_vustruct_csv(self) -> None:
         """
@@ -800,7 +971,7 @@ class CaseManager:
 
         launch_plan_return = \
             subprocess.run(launch_plan_command, shell=False, encoding='UTF-8',
-                       cwd = self.working_directory,
+                       cwd = self.case_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         app.logger.debug("%s %s finshed with exit code %s", threading.get_ident(), launch_plan_command, launch_plan_return.returncode)
 
@@ -823,7 +994,7 @@ class CaseManager:
             app.logger.critical(jobid_fail)
             return (None, None)
     
-        array_id_int = None
+        array_id_int_or_none = None
         arrayid_fail = None
         # It's fine for arrayid to be missing - but NOT to be 
         # a weird number if it is there
@@ -831,78 +1002,79 @@ class CaseManager:
         # to not think of that as null/missing
         if job_status_row['arrayid']:
             try:
-                # Offen, array_id is not used - and will be nan
+                # Offen, array_id is not used - and will be nan or empty
                 # Because pandas dataframes cannot store None in int columns
                 # I store the array ID as a float... and that means a bit of
                 # type conversion to get back to the int.
-                array_id_int = int(float(job_status_row['arrayid']))
-                if array_id_int < 0:
+                array_id_int_or_none = int(float(job_status_row['arrayid']))
+                if array_id_int_or_none < 0: # << negative would be very weird
                     arrayid_fail = "Bad array ID in %s" % job_status_row
             except Exception as ex:
                 arrayid_fail = "Could not convert array id [%s] from data:\n%s" % (
                     str(ex), job_status_row)
+                array_id_int_or_none = None
     
         if arrayid_fail:
             app.logger.critical(arrayid_fail)
             return (None, None)
     
-        return (job_id_int, array_id_int)
+        return (job_id_int, array_id_int_or_none)
 
-    def psb_load_jobids_from_psb_monitor_results(self) -> bool:
-        # It is very convenient to load the jobs idfs from the .json
-        # file emitted from psb_monitor.  If we have that....
-        _launched_jobs = []
-        app.logger.info("Attempting load_jobids_from_psb_monitor_results %s_%s" % (
-            self.case_id,
-            self.case_uuid))
+#    def deprecated_psb_load_jobids_from_psb_monitor_results(self) -> bool:
+#        # It is very convenient to load the jobs idfs from the .json
+#        # file emitted from psb_monitor.  If we have that....
+#        _launched_jobs = []
+#        app.logger.info("Attempting load_jobids_from_psb_monitor_results %s_%s" % (
+#            self.case_id,
+#            self.case_uuid))
+#
+#        _psb_monitor_results_dict = self.psb_monitor_results_dict.copy()
+#        for gene_refseq_mutation in _psb_monitor_results_dict:
+#            # app.logger.info("NOW DOING %s" % gene_refseq_mutation)
+#            # for unique_key in _psb_monitor_results_dict[gene_refseq_mutation]:
+#            #     app.logger.info("1 %s %s %s" % (threading.get_ident(), unique_key, _psb_monitor_results_dict[gene_refseq_mutation] is None))
+#            # for unique_key in _psb_monitor_results_dict[gene_refseq_mutation]:
+#            #     app.logger.info("2 %s %s %s" % (threading.get_ident(), unique_key, _psb_monitor_results_dict[gene_refseq_mutation] is None))
+#            if _psb_monitor_results_dict[gene_refseq_mutation] is None:
+#                continue
+#            for unique_key in _psb_monitor_results_dict[gene_refseq_mutation]:
+#                # app.logger.info("3 %s %s %s" % (threading.get_ident(), unique_key, _psb_monitor_results_dict[gene_refseq_mutation] is None))
+#                job_row=_psb_monitor_results_dict[gene_refseq_mutation][unique_key]
+#
+#                job_id_int, array_id_int_or_none = self._parse_job_id_array_id_from_row(job_row)
+#
+#                # If the job_id_int is not set, then this job was never properly launched - so we can't do more with it
+#                if (job_id_int is None): 
+#                    continue
+#
+#                _launched_jobs.append(
+#                    [ unique_key,
+#                      job_id_int,
+#                      array_id_int_or_none ])
+#
+#        self.launched_jobs = _launched_jobs
+#
+#        app.logger.info("From psb_monitor.py %d job/array ids have been loaded" % len(self.launched_jobs))
 
-        _psb_monitor_results_dict = self.psb_monitor_results_dict.copy()
-        for gene_refseq_mutation in _psb_monitor_results_dict:
-            # app.logger.info("NOW DOING %s" % gene_refseq_mutation)
-            # for unique_key in _psb_monitor_results_dict[gene_refseq_mutation]:
-            #     app.logger.info("1 %s %s %s" % (threading.get_ident(), unique_key, _psb_monitor_results_dict[gene_refseq_mutation] is None))
-            # for unique_key in _psb_monitor_results_dict[gene_refseq_mutation]:
-            #     app.logger.info("2 %s %s %s" % (threading.get_ident(), unique_key, _psb_monitor_results_dict[gene_refseq_mutation] is None))
-            if _psb_monitor_results_dict[gene_refseq_mutation] is None:
-                continue
-            for unique_key in _psb_monitor_results_dict[gene_refseq_mutation]:
-                # app.logger.info("3 %s %s %s" % (threading.get_ident(), unique_key, _psb_monitor_results_dict[gene_refseq_mutation] is None))
-                job_row=_psb_monitor_results_dict[gene_refseq_mutation][unique_key]
 
-                job_id_int, array_id_int = self._parse_job_id_array_id_from_row(job_row)
-
-                if (job_id_int is None) or (array_id_int is None):
-                    continue
-
-                _launched_jobs.append(
-                    [ unique_key,
-                      job_id_int,
-                      array_id_int ])
-
-        self.launched_jobs = _launched_jobs
-
-        app.logger.info("From psb_monitor.py %d job/array ids have been loaded" % len(self.launched_jobs))
-
-
-    def psb_load_jobids_from_workstatus_file(self):
+    def psb_load_jobids_from_workstatus_files(self):
         # Called as part of psb_launch, this code harvests the job IDs from the workstatus files, and 
         # builds an in-memory database of ids which are monitored and reported to websites via restapi calls
-        # This is rather a "legacy" function since psb_monitor gathers a nice JSON that we can use to
-        # get all this after psb_monitor with one file read
 
         _launched_jobs = []
 
-        app.logger.info("Attempting legacy load_jobids_from_workstatus files %s_%s" % (
+        app.logger.info("Attempting load_jobids_from_workstatus files %s_%s", 
             self.case_id,
-            self.case_uuid))
+            self.case_uuid)
 
         df_all_mutations = self.vustruct_csv_df.fillna('NA')
 
         # each of our gene entries in teh vustruct file will have its own jobIDs and array IDs to harvest
+        _file_count = 0
         for index,row in df_all_mutations.iterrows():
             if 'RefSeqNotFound_UsingGeneOnly' in row['refseq']:
                 row['refseq'] = 'NA'
-            mutation_dir = os.path.join(self.working_directory,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
+            mutation_dir = os.path.join(self.case_directory,"%s_%s_%s"%(row['gene'],row['refseq'],row['mutation']))
             if not os.path.exists(mutation_dir):  # python 3 has exist_ok parameter... 
                 logging.critical("Skipping missing mutation directory %s which should have been created by psb_launch.py",
                    mutation_dir)
@@ -916,25 +1088,26 @@ class CaseManager:
                     reader = csv.DictReader(f,delimiter='\t')
                     for csv_row in reader:
                         workstatus_rows.append(csv_row)
+                    _file_count += 1
             except FileNotFoundError as ex:
                 workstatus_rows = [] # pd.DataFrame() # The empty dataframe will not be iterated below
 
             # Iterate through workstatus: Figure out slurm array indices
             for job_status_row in workstatus_rows:
-                (job_id_int, array_id_int) = self._parse_job_id_array_id_from_row(job_status_row)
+                (job_id_int, array_id_int_or_none) = self._parse_job_id_array_id_from_row(job_status_row)
 
-                if job_id_int is None or array_id_int is None:
+                if job_id_int is None or array_id_int_or_none is None:
                     continue
                  
                 _launched_jobs.append(
                     [ job_status_row['uniquekey'], 
                       job_id_int,
-                      array_id_int ])
+                      array_id_int_or_none ])
 
 
         self.launched_jobs = _launched_jobs
 
-        app.logger.info("From workstatus files %d job/array ids have been loaded" % len(self.launched_jobs))
+        app.logger.info("%s From %d workstatus files %d job/array ids have been loaded", threading.get_ident(),_file_count, len(self.launched_jobs))
 
         # app.logger.info("WOW - what did we get for the actual job ids????")
         # app.logger.info("The dataframe of job IDs and array IDs is\n%s" % str(self.launched_jobs)) # .to_string())
@@ -945,14 +1118,14 @@ class CaseManager:
         # $ singularity exec (psb_launch.py --nolaunch)
         # Then run the generated ./launch_...case.py script
 
-        # psb_launch_command = "export UDN=/dors/capra_lab/users/mothcw/VUStruct/; singularity exec --bind /dors/capra_lab $UDN/development.simg psb_launch.py --nolaunch"
+        # psb_launch_command = "export udn_root_directory=/dors/capra_lab/users/mothcw/VUStruct/; singularity exec --bind /dors/capra_lab $udn_root_directory/development.simg psb_launch.py --nolaunch"
         psb_launch_command = ['psb_launch.py', '--nolaunch']
 
-        app.logger.info("%s Running: %s from directory:\n%s", threading.get_ident(), psb_launch_command, self.working_directory)
+        app.logger.info("%s Running: %s from directory:\n%s", threading.get_ident(), psb_launch_command, self.case_directory)
 
         psb_launch_return = \
             subprocess.run(psb_launch_command, shell=False, encoding='UTF-8',
-                       cwd = self.working_directory,
+                       cwd = self.case_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         app.logger.debug("%s %s finshed with exit code %s", threading.get_ident(), psb_launch_command, psb_launch_return.returncode)
@@ -978,7 +1151,7 @@ class CaseManager:
             app.logger.info("Running: %s" % generated_launch_command)
             all_jobs_slurm_launch_return = \
                 subprocess.run(generated_launch_command, shell=False, encoding='UTF-8',
-                       cwd = self.working_directory,
+                       cwd = self.case_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             app.logger.debug("%s finshed with exit code %s", \
                  generated_launch_command, \
@@ -997,19 +1170,19 @@ class CaseManager:
 
         return self.last_module_returncode
 
-    def load_psb_monitor_json(self):
-        psb_monitor_json_filename = os.path.join(self.working_directory, 
-                           self.external_user_prefix + "_psb_monitor.json")
-        try:
-            with open(psb_monitor_json_filename, 'r+t') as json_f:
-                # Break into 2 steps in case of exception
-                _temp_psb_monitor_results_dict = json.load(json_f)
-                self.psb_monitor_results_dict = _temp_psb_monitor_results_dict
-                return self.psb_monitor_results_dict
-        except Exception as ex:
-            # This is bad  - but not enough to crash out entirely
-            app.logger.critical("Can't read %s after psb_monitor.py" % psb_monitor_json_filename)
-            return {}
+    # def load_psb_monitor_json(self):
+    #     psb_monitor_json_filename = os.path.join(self.case_directory, 
+    #                        self.external_user_prefix + "_psb_monitor.json")
+    #     try:
+    #         with open(psb_monitor_json_filename, 'r+t') as json_f:
+    #             # Break into 2 steps in case of exception
+    #             _temp_psb_monitor_results_dict = json.load(json_f)
+    #             self.psb_monitor_results_dict = _temp_psb_monitor_results_dict
+    #             return self.psb_monitor_results_dict
+    #     except Exception as ex:
+    #         # This is bad  - but not enough to crash out entirely
+    #         app.logger.critical("Can't read %s after psb_monitor.py" % psb_monitor_json_filename)
+    #         return {}
 
 
     def psb_monitor(self) -> int:
@@ -1019,19 +1192,34 @@ class CaseManager:
         status replies
         """
 
-        psb_monitor_command_line = "psb_monitor.py"
-        app.logger.info("psb_monitor: %s", psb_monitor_command_line)
+        psb_monitor_command_line = ["psb_monitor.py"]
+        # Extend the command_line if we have a datafraeme of active jobs
+        if len(self.case_squeue_df):
+            _tmp_squeue_df_filename = None 
+            with tempfile.NamedTemporaryFile(
+                mode='w+t',
+                suffix=".tmp",
+                delete=False,  # FIX ME LATER
+                ) as f:
+                    self.case_squeue_df.to_csv(f,sep='\t')
+                    psb_monitor_command_line += ['--squeue_df_filename',f.name]
+        app.logger.info("%s: %s", threading.get_ident(), ' '.join(psb_monitor_command_line))
 
         self.last_psb_monitor_start = datetime.now().isoformat()
         launch_psb_monitor_return = \
             subprocess.run(psb_monitor_command_line, shell=False,
-                       cwd=self.working_directory,
+                       cwd=self.case_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        app.logger.info("psb_monitor finished with %d", launch_psb_monitor_return.returncode)
-        self.last_psb_monitor_end = datetime.now().isoformat()
 
-        if 0 == launch_psb_monitor_return.returncode:
-            self.load_psb_monitor_json()
+        if launch_psb_monitor_return.returncode != 0:
+            app.logger.error("%s psb_monitor finished with %d: %s", threading.get_ident(), launch_psb_monitor_return.returncode, launch_psb_monitor_return.stderr)
+        else:
+            app.logger.info("%s psb_monitor exited successfully", threading.get_ident())
+            self.last_psb_monitor_end = datetime.now().isoformat()
+
+            # 2024 Dec 19 we no lonegr load anything from psb_monitor as we gather the squeue_df ourselves here now
+            # if 0 == launch_psb_monitor_return.returncode:
+            #     self.load_psb_monitor_json()
 
         return launch_psb_monitor_return.returncode
 
@@ -1041,16 +1229,22 @@ class CaseManager:
             self.report_sleep_seconds = 60 * VUStructFlask_config['report_interval_initial_minutes']
         time.sleep(self.report_sleep_seconds) # Wait a few minutes before trying again 
 
+    def sleep_after_final_report_before_email(self):
+        # vustruct_webupdate.py is configured to refresh every 15 seconds
+        # So, if we wait 2 minutes to tell the user to look, we're good
+        time.sleep(2 * 60) # Wait a few minutes before trying again 
+
     def increase_report_sleep_seconds(self):
         self.report_sleep_seconds = min(
             self.report_sleep_seconds * VUStructFlask_config['report_interval_stretch_factor'],
             VUStructFlask_config['report_interval_max_minutes'] * 60.0)
 
     @property
-    def psb_rep_refresh_interval_seconds(self):
-        return 5*60 # Need to think about this - annoying when it refreshes...
+    def psb_rep_refresh_interval_seconds(self): 
+        # Let's try 15 minutes
+        return 15*60 # Need to think about this - annoying when it refreshes...
 
-    def psb_rep(self, last_flag:bool=False, seconds_remaining:int=4*24*3600, refresh_interval_seconds=30) -> int:
+    def psb_rep(self, last_flag:bool=False, seconds_remaining:int=4*24*3600, refresh_interval_seconds=30, user_message = '') -> int:
         # Once we ask for a regenerated website it is critically important that that process complete.
         # In the event that the called psb_rep.py program fails, then we must create a web page with that information
 
@@ -1060,20 +1254,23 @@ class CaseManager:
         # And we want the external_user filename prefixes to be removed as well.
         psb_rep_command_line = ['psb_rep.py','--tar_only', '--strip_uuid', self.case_uuid, '--web_case_id', self.case_id]
         if not last_flag:
-            psb_rep_command_line.append('--embed_refresh')
-            psb_rep_command_line.extend(['--refresh_interval_seconds', "%d" % refresh_interval_seconds])
-            if seconds_remaining > 0:
-                psb_rep_command_line.extend(['--seconds_remaining','%d' % seconds_remaining])
+            if refresh_interval_seconds > 0:
+                psb_rep_command_line.append('--embed_refresh')
+                psb_rep_command_line.extend(['--refresh_interval_seconds', "%d" % refresh_interval_seconds])
+                if seconds_remaining > 0:
+                    psb_rep_command_line.extend(['--seconds_remaining','%d' % seconds_remaining])
+        if user_message:
+            psb_rep_command_line.extend(['--user_message', user_message])
 
         app.logger.info("%s psb_rep: Starting %s in directory:\n%s", 
                         threading.get_ident(),
                         ' '.join(psb_rep_command_line),
-                        self.working_directory)
+                        self.case_directory)
 
         self.last_psb_rep_start = datetime.now().isoformat()
         launch_psb_rep_return = \
             subprocess.run(psb_rep_command_line, shell=False,
-                       cwd = self.working_directory,
+                       cwd = self.case_directory,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         app.logger.info("%s psb_rep: Returned %d",
                         threading.get_ident(),
@@ -1083,6 +1280,7 @@ class CaseManager:
         if launch_psb_rep_return.returncode != 0:
             # We now create a fail html page
             # This should be incredibly rare - a massive problem if psb_rep.py cannot deliver a webpage
+            app.logger.info("%s Due to failure of psb_rep.py, a failure website will be created", threading.get_ident())
 
             self.create_failure_website(body_html=\
 f"""<H1>VUStruct failure while running the report generator</H1>
@@ -1090,17 +1288,31 @@ f"""<H1>VUStruct failure while running the report generator</H1>
 <A href=psb_rep.log>VUStruct Detailed Report Failure Log</A>""",
         				website_filelist = ['index.html', 'psb_rep.log'])
 
-            app.logger.warn("psb_rep failure %d log is %s", launch_psb_rep_return.returncode, os.path.join(os.getcwd(),"psb_rep.log"))
+            app.logger.warn("psb_rep failure %d log is %s", launch_psb_rep_return.returncode, os.path.join(self.case_directory,"psb_rep.log"))
         self.last_psb_rep_end = datetime.now().isoformat()
 
         GlobalActiveCases.add_website_refresh_needed(self.case_uuid)
+
         return launch_psb_rep_return.returncode
+
+    def email_case_complete_message(self):
+        send_smtp_email(
+            subject = f"VUStruct case {self.case_id}: All calculations have finished",
+            body=f"Thank you for using VUStruct.  Your final results may be viewed at\nhttps://staging.meilerlab.org/vustruct/{self.case_uuid}/{self.case_id}/",
+            sender=VUStructFlask_config['smtp_sender'],
+            recipients=[self.email])
 
 def monitor_report_loop(flask_case: CaseManager, relaunch:bool = False):
     """
-    Primarily for development and testing, this allows a total relaunch, or start from monitor only
-    of a web run.  Avoids needing to endlessly start new cases.
+    This core function optionally relaunches a case
+    and then repeatedly runs psb_monitor.py and psb_rep.py until the overall
+    timer expires, OR there are not component jobs queued for the case in the slurm environment
+       - after initial preprocess and plan as the last call from launch_flask_case_thread()
+       - on restart of this flask application, as part of reload_from_save_file
     """
+
+    app.logger.info("%s: monitor_report_loop() started for %s",
+            threading.get_ident(), flask_case.case_uuid)
 
     if relaunch:
         # Now we need to do launch (create the .slurm files as first step)
@@ -1117,8 +1329,8 @@ def monitor_report_loop(flask_case: CaseManager, relaunch:bool = False):
     psb_monitor_retcd = flask_case.psb_monitor()
 
     if psb_monitor_retcd != 0 :
-        app.logger.error("psb_monitor.py for %s failed with %s", 
-            flask_case.case_uuid, psb_monitor_retcd)
+        app.logger.error("%s psb_monitor.py for %s failed with %s", 
+            threading.get_ident(), flask_case.case_uuid, psb_monitor_retcd)
 
 
     # Error or not with psb_launch ...
@@ -1130,29 +1342,66 @@ def monitor_report_loop(flask_case: CaseManager, relaunch:bool = False):
     # as the cluster churns away.  This is a separate functio to support
     # entry into _just_ this function (restart report creation)
     flask_case.timeout_time = datetime.now() + timedelta(days=float(VUStructFlask_config['case_timeout_days']))
+    flask_case.minimum_time = datetime.now() + timedelta(hours=float(VUStructFlask_config['case_minimum_hours']))
 
     last_psb_rep = False
 
     last_psb_retcd  = 0
 
+    # We loop updating the report until either 
+    # time_remaining has elapsed
+    # _OR_ (we've reached minimum_update_minutes and no more squeue results are there)
+  
+    flask_case.psb_load_jobids_from_workstatus_files()
     while not last_psb_rep:
-        if flask_case.last_module_returncode == 0:
-            if flask_case.psb_monitor_results_dict:
-                flask_case.psb_load_jobids_from_psb_monitor_results()
+        # if flask_case.last_module_returncode == 0:
+        #     if flask_case.psb_monitor_results_dict:
+        #         flask_case.psb_load_jobids_from_psb_monitor_results()
+        #     else:
+        #         flask_case.psb_load_jobids_from_workstatus_file()
+
+        _user_message = ""
+
+        # Once we reach the minimum time, THEN we can note that the entre case is over
+        minimum_time_reached = (flask_case.minimum_time - datetime.now()).total_seconds() < 0.0
+
+        # If there are no more of the case's jobs running on the cluster and
+        # we've waited long enough to detect jobs in an squeue call, then we can end this case
+        active_cases_from_squeue = len(flask_case.case_squeue_df)
+        if active_cases_from_squeue == 0:
+            if minimum_time_reached or flask_case.squeue_once_reported_jobs:
+                last_psb_rep = True
+                _user_message = "All cluster launched jobs have ended.  Review monitor outputs for details"
             else:
-                flask_case.psb_load_jobids_from_workstatus_file()
+                _user_message = "Launched jobs are not yet visibile to the squeue manager"
+        else:    
+           _user_message = "%3d case jobs are still active on the cluster" % active_cases_from_squeue
 
-        time_remaining = (flask_case.timeout_time - datetime.now()).total_seconds()
-        if time_remaining <= 0:
-            # Time's up - this is the last report run
+        app.logger.info("%s %s", threading.get_ident(), _user_message)
+
+        # We now need to determinate if ANY of the job ids for this are still
+        # pending or so forth on the cluster.  This cannot be trusted until after 3 loops through this
+        # for launched_job in flask_case.launched_jobs:
+        #     unique_key = launched_job[0]
+        #     job_id =     launched_job[1]
+        #     array_id_int_or_none =   launched_job[2]
+
+
+        if last_psb_rep:
             time_remaining = 0
-            last_psb_rep = True
+        else:
+            time_remaining = (flask_case.timeout_time - datetime.now()).total_seconds()
+            if time_remaining <= 0:
+                # Time's up - this is the last report run
+                time_remaining = 0
+                last_psb_rep = True
 
+        # It's always needed to run psb_monitor before attempting a psb_rep.py
         psb_monitor_retcd = flask_case.psb_monitor()
 
         if psb_monitor_retcd != 0 :
-            app.logger.error("psb_monitor.py for %s failed with %s", 
-                flask_case.case_uuid, psb_monitor_retcd)
+            app.logger.error("%s psb_monitor.py for %s failed with %s", 
+                threading.get_ident(), flask_case.case_uuid, psb_monitor_retcd)
 
         # We will build a new report if psb_monitor was successful OR
         # if this is the very last psb_rep run
@@ -1160,19 +1409,27 @@ def monitor_report_loop(flask_case: CaseManager, relaunch:bool = False):
             psb_rep_retcd = flask_case.psb_rep(
                 last_flag=last_psb_rep,
                 seconds_remaining=time_remaining,
-                refresh_interval_seconds=flask_case.psb_rep_refresh_interval_seconds)
+                user_message = _user_message,
+                refresh_interval_seconds=(0 if last_psb_rep else flask_case.psb_rep_refresh_interval_seconds))
   
             if psb_rep_retcd == 0:
                 GlobalActiveCases.add_website_refresh_needed(flask_case.case_uuid)
+                if last_psb_rep: # This causes final break out of the loop
+                    GlobalActiveCases.mark_final_website_update(flask_case.case_uuid) 
+                    if flask_case.email: # Notify user all calculations have finished
+                        flask_case.sleep_after_final_report_before_email()
+                        flask_case.email_case_complete_message()
             else:
-                app.logger.error("psb_rep for %s failed with %s", 
-                    flask_case.case_uuid, psb_rep_retcd)
+                app.logger.error("%s psb_rep for %s failed with %s", 
+                    threading.get_ident(), flask_case.case_uuid, psb_rep_retcd)
 
             # This delay loop here is important to avoid hammering the report generator
             flask_case.sleep_after_report()
             flask_case.increase_report_sleep_seconds()
 
-    return last_psb_retcd
+    app.logger.info("%s: monitor_report_loop() ending for %s",
+            threading.get_ident(), flask_case.case_uuid)
+    return last_psb_retcd # exit monitor_report_loop, which will shortly be followed by end of the calling thread
 
 def squeue_flask_thread() -> None:
     """
@@ -1192,7 +1449,7 @@ def scancel_flask_case_thread(flask_case: CaseManager) -> subprocess.CompletedPr
     for launched_job in flask_case.launched_jobs:
         unique_key = launched_job[0]
         job_id =     launched_job[1]
-        array_id =   launched_job[2]
+        array_id_int_or_none =   launched_job[2]
         if job_id not in job_id_set:
             scancel_cmdline.append(str(job_id))
             job_id_set.add(job_id)
@@ -1221,9 +1478,9 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
 
     if initial_launch:
         try:
-            os.makedirs(flask_case.working_directory, exist_ok=True)
+            os.makedirs(flask_case.case_directory, exist_ok=True)
         except Exception as e:
-            app.logger.exception(f"Exception during os.makedirs({flask_case.working_directory}): {e}")
+            app.logger.exception(f"Exception during os.makedirs({flask_case.case_directory}): {e}")
             raise e
         flask_case.save_as_json()
 
@@ -1239,7 +1496,7 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
             flask_case.last_module_launched = 'plan'
             _fetch_error_msg = flask_case.fetch_input_file('_vustruct.csv')
             if not _fetch_error_msg:
-                flask_case.last_module_returncode = 1
+                flask_case.last_module_returncode = 0
         else:
             # If we need to preprocess (parse) an input to create a vustruct.csv file
             # Jump on that first and set last_module_launched to 'preprocess'
@@ -1370,9 +1627,9 @@ def launch_flask_case_thread(flask_case: CaseManager, initial_launch: bool = Tru
 
 # def launch_flask_case(uuid_str: str):
 #     psb_plan_command = \
-#         ("export UDN=/dors/capra_lab/users/mothcw/VUStruct/; " +
-#          "mkdir -p cd $UDN/fakecase_%s; " % uuid_str) + \
-#         "singularity exec --bind /dors/capra_lab/ $UDN/development.simg psb_plan.py"
+#         ("export udn_root_directory=/dors/capra_lab/users/mothcw/VUStruct/; " +
+#          "mkdir -p cd $udn_root_directory/fakecase_%s; " % uuid_str) + \
+#         "singularity exec --bind /dors/capra_lab/ $udn_root_directory/development.simg psb_plan.py"
 #     print("UUID = %s" % uuid_str )
 #     print("running: %s" % psb_plan_command)
 #     psb_plan_run_return = \
@@ -1387,6 +1644,9 @@ def require_authn(func):
     """
     @wraps(func)
     def protected_endpoint(*args, **kwargs):
+        # 2025-March-20 The new traefik connection is stripping headers
+        # We have no choice but to ignore the headers
+        return func(*args, **kwargs)
         # print("%s" % request.headers)
         # We only accept posts from localhost OR via the special Trafik gateway setup by Eric Appelt
         if request.headers.get('X-Forwarded-Host', '') == 'api.vgi01.accre.vanderbilt.edu':
@@ -1413,8 +1673,19 @@ def require_authn(func):
 #
 # Try something ULTRA cheezy to make this work
 
+squeue_refresh_thread = None
 if os.environ.get("WERKZEUG_RUN_MAIN"):
+    send_smtp_email(subject = "VUStruct_flask.py restarting: Email check",
+        body="This message shows that vustruct_flask.py is restarting and that email is working",
+        sender=VUStructFlask_config['smtp_account'],
+        recipients=[VUStructFlask_config['webmaster_email']])
+
     GlobalActiveCases.reload_from_save_file()
+
+    global_squeue_df_refresh()    
+
+    squeue_refresh_thread = threading.Thread(target=global_squeue_df_refresh_thread)
+    squeue_refresh_thread.start()
 
 # Simply getting back a response can tell caller
 # That we are running
@@ -1499,6 +1770,7 @@ def launch_vustruct():
         case_uuid=request.json['case_uuid'])
     flask_case.data_format = request.json['data_format']
 
+
     known_data_formats = [
         'Demonstration VUStruct CSV',
         'VUStruct CSV',
@@ -1525,6 +1797,8 @@ def launch_vustruct():
         flask_case.vustruct_csv = request.json['vustruct_csv']
     if 'email' in request.json:
         flask_case.email = request.json['email']
+        # REMOVE THIS LINE BELOW!!  It is only for testing without waiting
+        # flask_case.email_case_complete_message()
 
 
     # This so far has been very quick.  Now run the background thread to run the entire pipeline
@@ -1613,7 +1887,7 @@ def cases_needing_website_refresh():
     all the cases where psb_rep.py has generated a new report, and thus need to be 
     copied into the filesystem of the webserver
 
-    The return value is a list of dictionaries with case_id/case_uuid/working_directory
+    The return value is a list of dictionaries with case_id/case_uuid/case_directory
     """
 
     return jsonify(GlobalActiveCases.cases_needing_website_refresh(clear=True))
@@ -1706,6 +1980,13 @@ def squeue_monitor():
     """
 
     app.logger.info("squeue_monitor request json = %s", request.json)
+    # return {
+    #    'gene_refseq_mutation1': {'unique_id': 'unique_id1', 'job': {
+    #       'job_key': 'job_key1',
+    #       'start_time': 'starttime1',
+    #       'job_state': 'job_state1',
+    #       'jobinfo': 'job_info1',
+    #       'jobinfo': 'ExitCode'}}}
 
     _flask_case = GlobalActiveCases.get_flask_case_or_none(request.json['case_uuid'])
     _sm_return = {}
@@ -1723,46 +2004,60 @@ def squeue_monitor():
             'flask_error': "Case somehow lacks a vustruct.csv file.  Cannot continue"}
         return _sm_return
 
-    # For each variant row in the vustruct file
-    for index, row in _flask_case.vustruct_csv_df.iterrows():
-        # Now load all the job information for the variant, as returned by
-        # psb_monitor
-        gene_refseq_mutant = "%s_%s_%s" % (row['gene'], row['refseq'], row['mutation'])
-        gfm_jobs_info = _flask_case.psb_monitor_results_dict.get(gene_refseq_mutant, None)
-        if gfm_jobs_info:
-            _sm_return[gene_refseq_mutant]  = {}
-            for unique_id, psb_monitor_single_job_info in gfm_jobs_info.items():
-                job_id_int = int(psb_monitor_single_job_info['jobid'])
-                array_id_int = psb_monitor_single_job_info['arrayid']
-                if array_id_int is not None and len(array_id_int):
-                    job_key = "%s_%s" % (job_id_int, int(float(array_id_int)))
-                else:
-                    job_key = str(job_id_int)
+    _temp_all_jobs = {}
+    for job_key, squeue_row in _flask_case.case_squeue_df.iterrows():
+        _temp_all_jobs[job_key]={
+             'job_key': job_key,
+             'start_time': str(squeue_row['start_time'])[5:16],
+             'end_time': str(squeue_row['end_time'])[5:16],
+             'job_state': squeue_row['job_state'],
+             'jobinfo': 'populate later',
+             'ExitCode': 'populate later'}
+            
 
-                try:
-                    # Combine what psb_monitor.py returned about the jobs
-                    # last time we ran it
-                    # With the dynamic squeue data we got from $squeue command
-                    matching_squeue_entry = global_squeue_df.loc[[job_key]].iloc[0].to_dict()
-                    # We need to convert the timetypes to strings in the UI
-                    # We chop out year and everything after minutes with [5:16]
-                    matching_squeue_entry['start_time'] = \
-                        str(matching_squeue_entry['start_time'])[5:16]
-                    matching_squeue_entry['end_time'] = \
-                        str(matching_squeue_entry['start_time'])[5:16]
+    return {'gene_refseq_later': _temp_all_jobs}
 
-                    # For the time_limit, divide by one minute of time to get integer
-                    # Then convert to hours float by dividing by 60.0
-                    matching_squeue_entry['time_limit'] = str(float(
-                       matching_squeue_entry['time_limit']  / 
-                       np.timedelta64(1,'m'))/60.0) + 'h'
-                       
-                    _sm_return[gene_refseq_mutant][unique_id] = \
-                             psb_monitor_single_job_info | \
-                             matching_squeue_entry | \
-                             {'job_key': job_key}
-                except KeyError as ex:
-                    # So, there is no slurm information about this jobid.  That's A-OK!
-                    pass
+
+    # # For each variant row in the vustruct file
+    # for index, row in _flask_case.vustruct_csv_df.iterrows():
+    #     # Now load all the job information for the variant, as returned by
+    #     # psb_monitor
+    #     gene_refseq_mutant = "%s_%s_%s" % (row['gene'], row['refseq'], row['mutation'])
+    #     gfm_jobs_info = _flask_case.psb_monitor_results_dict.get(gene_refseq_mutant, None)
+    #     if gfm_jobs_info:
+    #         _sm_return[gene_refseq_mutant]  = {}
+    #         for unique_id, psb_monitor_single_job_info in gfm_jobs_info.items():
+    #             job_id_int = int(psb_monitor_single_job_info['jobid'])
+    #             array_id_int_or_none_ = psb_monitor_single_job_info['arrayid']
+    #             if array_id_int_or_none is not None and len(array_id_int):
+    #                 job_key = "%s_%s" % (job_id_int, int(float(array_id_int)))
+    #             else:
+    #                 job_key = str(job_id_int)
+
+    #             try:
+    #                 # Combine what psb_monitor.py returned about the jobs
+    #                 # last time we ran it
+    #                 # With the dynamic squeue data we got from $squeue command
+    #                 matching_squeue_entry = global_squeue_df.loc[[job_key]].iloc[0].to_dict()
+    #                 # We need to convert the timetypes to strings in the UI
+    #                 # We chop out year and everything after minutes with [5:16]
+    #                 matching_squeue_entry['start_time'] = \
+    #                     str(matching_squeue_entry['start_time'])[5:16]
+    #                 matching_squeue_entry['end_time'] = \
+    #                     str(matching_squeue_entry['start_time'])[5:16]
+
+    #                 # For the time_limit, divide by one minute of time to get integer
+    #                 # Then convert to hours float by dividing by 60.0
+    #                 matching_squeue_entry['time_limit'] = str(float(
+    #                    matching_squeue_entry['time_limit']  / 
+    #                    np.timedelta64(1,'m'))/60.0) + 'h'
+    #                    
+    #                 _sm_return[gene_refseq_mutant][unique_id] = \
+    #                          psb_monitor_single_job_info | \
+    #                          matching_squeue_entry | \
+    #                          {'job_key': job_key}
+    #             except KeyError as ex:
+    #                 # So, there is no slurm information about this jobid.  That's A-OK!
+    #                 pass
                 
     return _sm_return
