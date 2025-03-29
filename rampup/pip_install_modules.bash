@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Failure of bash script should cause it to halt
+set -e
+
 # The PSB Pipeline requires a number of add-on modules to the 
 # Anaconda base install
 

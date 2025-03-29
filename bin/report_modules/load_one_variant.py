@@ -392,9 +392,11 @@ class CalculationResultsLoader:
         musite_deep_neighborhood_filename = os.path.join(workplan_df_row['outdir'], "PTM_neighborhood.csv")
         musite_deep_neighborhood_df = None
         try:
-            musite_deep_neighborhood_df = pd.read_csv(musite_deep_neighborhood_filename, '\t', index_col=0)
+            musite_deep_neighborhood_df = pd.read_csv(musite_deep_neighborhood_filename, sep='\t', index_col=0)
         except FileNotFoundError:
             return None, "MusiteDeep neighborhood file not found: %s" % musite_deep_neighborhood_filename
+
+        LOGGER.info("%d rows loaded from %s", len(musite_deep_neighborhood_df), musite_deep_neighborhood_filename)
 
         return musite_deep_neighborhood_df, None
  
@@ -402,7 +404,7 @@ class CalculationResultsLoader:
         scannet_prediction_filename = os.path.join(workplan_df_row['outdir'], "ScanNet_PPI_prediction.csv")
         scannet_prediction_df = None
         try:
-            scannet_prediction_df = pd.read_csv(scannet_prediction_filename, '\t', index_col=0)
+            scannet_prediction_df = pd.read_csv(scannet_prediction_filename, sep='\t', index_col=0)
         except FileNotFoundError:
             return None, "ScanNet neighborhood file not found: %s" % scannet_prediction_filename
 
@@ -425,6 +427,7 @@ class CalculationResultsLoader:
         structure_report_df_indexed = self.structure_report_df.set_index(['method', 'structure_id', 'chain_id', 'mers'],
                                                                          drop=False)
         workstatus_df_indexed = self.workstatus_df.set_index(['uniquekey'], drop=False)
+
         for workplan_uniquekey, workplan_row in self.workplan_df.set_index(['uniquekey'], drop=False).iterrows():
             try:
                 workstatus_row = workstatus_df_indexed.loc[workplan_uniquekey]
@@ -892,7 +895,7 @@ class CalculationResultsLoader:
         return os.path.join(case_root_dir, variant_directory_segment)
 
     def _load_ddG_details(self):
-        self.workstatus_df = pd.read_csv(self.workstatus_filename, '\t', keep_default_na=False, na_filter=False,
+        self.workstatus_df = pd.read_csv(self.workstatus_filename, sep='\t', keep_default_na=False, na_filter=False,
                                          dtype=str)
         msg = "%d rows read from work status file %s" % (len(self.workstatus_df), self.workstatus_filename)
         if len(self.workstatus_df) < 1:

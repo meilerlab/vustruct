@@ -58,6 +58,7 @@ required_items = ['output_rootdir', 'collaboration']
 
 config, config_dict = psb_config.read_config_files(args, required_items)
 
+
 udn_root_directory = os.path.join(config_dict['output_rootdir'], config_dict['collaboration'])
 collaboration_dir = os.path.join(udn_root_directory, args.project)
 
@@ -603,7 +604,14 @@ if csv_rows:
                 uniprot_id = uniprot_id_list[0]
 
                 uniprot_transcript = PDBMapTranscriptUniprot(uniprot_id)
-                ensembl_transcript = PDBMapTranscriptEnsembl(ensembl_transcript_id)
+
+                # if we have a singularity container for the perlAPI configured, then use that one
+                if config_dict['singularity_ensembl_perlapi']:
+                    ensembl_transcript = PDBMapTranscriptEnsembl(ensembl_transcript_id,
+                           config_dict['singularity_ensembl_perlapi'])
+                else:
+                    ensembl_transcript = PDBMapTranscriptEnsembl(ensembl_transcript_id)
+                 
                 if not PDBMapComplex.uniprot_and_ensembl_close_enough(uniprot_transcript, ensembl_transcript):
                     LOGGER.info("Skipping integration of Ensembl transcript %s as sequence does not match uniprot",
                                 ensembl_transcript_id)

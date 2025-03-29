@@ -19,6 +19,10 @@
    This is a tangled piece of code because it is usually run with a --nolaunch option
    and a launch_casename.py is generated for running outside a container
 
+   On exit from the program, each mutation directory has an updated ...workstatus.csv file
+   which contains array_id numbers (when applicable).  job_id numbers are also updated
+   if --nolaunch is omitted and sbatch is called.
+
    For help
         psb_plan.py --help
 """
@@ -254,6 +258,8 @@ psb_permissions.makedirs(collaboration_dir)
 class JobsLauncher:
     """
     Create HPC-ready .slurm or .bsub files for a dataframe of jobs, for one mutation
+    Then create the workstatus.csv dataframe to reflect new (or forthcoming) launch
+    of all the jobs for the mutation
     """
 
     def __init__(self,
@@ -300,7 +306,12 @@ class JobsLauncher:
         # Might collide with launched program though - so perhaps rethink a bit....
         self._status_dir_list = []
 
-        # Dictionares to match each launched job unique key to it';s job id and array id
+        # Dictionares to match each launched job unique key to it's job id and array id
+        # These dictionaries are merged back into the created workstatus dataframe.
+        # Restated, in the end, we will have loaded the ....workplan.csv file for each 
+        # mutation, extended it with new columns, and written it as the dynamic ...workstatus.csv
+        # file that is updated with each run of psb_monitor.py
+        # See function JobsLauncher._df_updated_workstatus(self) -> pd.DataFrame:
         self._jobids = {}
         self._arrayids = {}
         self._jobinfo = {}
@@ -442,7 +453,7 @@ class JobsLauncher:
                 self._jobinfo[row['uniquekey']] = prior_success['jobinfo']
                 self._jobprogress[row['uniquekey']] = prior_success['jobprogress']
                 self._jobids[row['uniquekey']] = prior_success['jobid']
-                self._outputfiles[row['uniquekey']] = prior_success['outputfiles']
+                self._outputfiles[row['uniquekey']] = prior_success['outputfile']
                 self._arrayids[row['uniquekey']] = prior_success['arrayid'] if ('arrayid' in prior_success) else 0
                 self._exitcodes[row['uniquekey']] = prior_success['ExitCode']
 
@@ -472,6 +483,8 @@ class JobsLauncher:
         # variations in Docker/Singlularity/LSF demand we explicitly restate the PATH here.
         # If NOT in a container, then init the PATH to be whatever it is outside the container.
 
+        """ 2025 March 3- clean up PATH for publication
+
         if CONTAINER_TYPE:
             path_statement = "PATH=%s" % ':'.join([
                 "/opt/conda/bin",
@@ -488,6 +501,7 @@ class JobsLauncher:
             LOGGER.info("Setting PATH to match launch-time %s environment", __file__)
             LOGGER.info(path_statement)
             slurm_f.write(path_statement)
+        """
 
         if 'ensembl_registry' in config_dict:
             ensembl_registry = config_dict['ensembl_registry']
@@ -781,10 +795,18 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
         which will be written back to disk by the mainline called
         @return: dataframe containing the workplan, extended with workstatus information from process launches.
         """
+
+        # If --nolaunch was used, then then self._jobids will be an empty dictionary
         df_updated_workstatus = self._df_workplan_jobs.merge(pd.DataFrame(
             list(self._jobids.items()),
             columns=['uniquekey', 'jobid']),
             on='uniquekey', how='left')
+
+        # The slurm/LSF array IDs are known before the job number arrives.
+        # In cases where the .slurm/LSF file has no array breakdown, then 
+        # there will be no matching self._arrayids[uniquekey] and as result
+        # the df_updated_workstatus will retain  a nan as the array id
+ 
         df_updated_workstatus = df_updated_workstatus.merge(
             pd.DataFrame(list(self._arrayids.items()), columns=['uniquekey', 'arrayid']),
             on='uniquekey', how='left')
@@ -911,6 +933,15 @@ echo "LSB_JOBINDEX="$LSB_JOBINDEX
 
 
 def launch_one_mutation(workplan_filename: str) -> Tuple[pd.DataFrame, str, List[str]]:
+    """
+    Given a ....workplan.csv file, "launch" all the jobs for that single variant.
+
+    A case will typically have multiple variants, for which this function
+    is called in turn.
+
+    The code does some checks to try and ensure we are not launching already launched
+    work that is progressing... see comments below
+    """
     # Load the schedule of jobs that was created by psb_plan.py
     df_workplan_jobs = pd.read_csv(workplan_filename, sep='\t', keep_default_na=False, na_filter=False)
 
@@ -978,8 +1009,9 @@ def launch_one_mutation(workplan_filename: str) -> Tuple[pd.DataFrame, str, List
     df_updated_workstatus, launch_filenames = jobs_launcher.doit()
 
     # Now create a new workstatus file
-    print("Recording %d jobids in %s" % (len(df_updated_workstatus), workstatus_filename))
-
+    # If we are in the typical --nolaunch mode, then the updates here are the array_Ids.
+    # If we are running on the command line without --nolaunch, then we pick up job_ids too
+    LOGGER.info("Recording %d jobids in %s" , len(df_updated_workstatus), workstatus_filename)
     df_updated_workstatus.to_csv(workstatus_filename, sep='\t')
 
     # DO NOT FORGET TO TEAR DOWN THE EXTRA LOGGER

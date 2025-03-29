@@ -25,26 +25,67 @@
 	<script type="text/javascript" src="html/javascript/tablesorter/js/jquery.tablesorter.js"></script>
 
 	<!-- Tablesorter: optional -->
-	<script type="text/javascript" src="html/javascript/tablesorter/js/extras/jquery.tablesorter.pager.min.js"></script>
+	<!-- <script type="text/javascript" src="html/javascript/tablesorter/js/extras/jquery.tablesorter.pager.min.js"></script> -->
 
  <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
 
 
-    <!-- right and down chevrons for open and close icons in tablesorter -->
+    <!-- right(red) and down(black) chevrons for open and close icons in tablesorter -->
     <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
-    <symbol style="color: black; vertical-align:top; display: block;" width="1em" height="1em" fill="currentColor" stroke="#000000" class="bi bi-chevron-right" id="bi-chevron-right" viewBox="0 0 16 16">
+    <symbol style="color: black; vertical-align:top; display: block;" width="1em" height="1em" fill="currentColor" stroke="red" class="bi bi-chevron-right" id="bi-chevron-right" viewBox="0 0 16 16">
       <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
     </symbol>
-    <symbol style="color: black; vertical-align: top; display: block;"  width="1em" height="1em" fill="currentColor" stroke="#000000" class="bi bi-chevron-down" id="bi-chevron-down" viewBox="0 0 16 16">
+    <symbol style="color: black; vertical-align: top; display: block;"  width="1em" height="1em" fill="currentColor" stroke="black" class="bi bi-chevron-down" id="bi-chevron-down" viewBox="0 0 16 16">
       <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
     </symbol>
     </svg>
 
 
     <link rel="stylesheet" href="html/css/psbstyles.css" />
-
     <link rel="stylesheet" href="html/css/typography.css" />
-      <link rel="stylesheet" href="../html/css/typography.css" />
+
+<!-- tooltip taken from https://www.w3schools.com/css/css_tooltip.asp -->
+<style>
+.tooltip {
+  position: relative;
+  /* display: inline-block; */
+  /* border-bottom: 1px dotted black; */
+  color: "red";
+}
+
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: black;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px 0;
+  margin-top : -70px; /* Position the tooltip */
+  position: absolute;
+  z-index: 1;
+}
+
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+  opacity: 1;
+}
+</style>
+
+
+
+
+<script type="text/javascript">
+        // In current javascript, syntax below does what we need
+   $(function() {
+                                $(".tablesorter").tablesorter({
+                                        // sortReset: 'true',
+                                        theme: 'blue'
+                                });
+        });
+</script>
+
+
                 <style media="print" type="text/css">
                 h4{text-align:center;margin:0;padding:0.1in;}
                 h5{text-align:center;margin:0;padding:0.1in;}
@@ -62,8 +103,8 @@
 		$('.tablesorter-childRow').hide().css("background-color","Azure");
 
 		// Show the chevron for opened rows.
-        $('tr:not(.tablesorter-childRow) td svg.bi-chevron-right').show()
-        $('tr:not(.tablesorter-childRow) td svg.bi-chevron-down').hide()
+        $('tr:not(.tablesorter-childRow) td span.bi-chevron-right').show()
+        $('tr:not(.tablesorter-childRow) td span.bi-chevron-down').hide()
         $('.appearWithTranscriptsOnly').hide()
 
 
@@ -82,8 +123,8 @@
 		  // use "nextUntil" to toggle multiple child rows
 		  // toggle table cells instead of the row
 		  $(this).closest('tr').nextUntil('tr:not(.tablesorter-childRow)').toggle();
-          $(this).closest('tr').find("svg.bi-chevron-right").toggle();
-          $(this).closest('tr').find("svg.bi-chevron-down").toggle();
+          $(this).closest('tr').find("span.bi-chevron-right").toggle();
+          $(this).closest('tr').find("span.bi-chevron-down").toggle();
 
           // Hide or show the child rows under the chevron containing gene-level row
           // var childrows_toggled = $(this).closest('tr').nextUntil('tr.tablesorter-hasChildRow').find('td, th').css('line-height','normal').css("visibility","visible"); // toggleClass("collapsed");
@@ -168,6 +209,9 @@ window.onload = showEndTime;
         {% endif %}
 {% endif %}
 
+{% if user_message %}
+	   <p>{{ user_message }}</p>
+{% endif %}
 {% set failure=None %}
 
 <table cellspacng="1" class="tablesorter" style="width:75%;margin-left:5%">
@@ -265,6 +309,7 @@ window.onload = showEndTime;
         {% endif %} {# endif module_failure_info #}
 
 {% if not module_failure_info %}
+{% if refreshFlag %}
  <button id="loadSqueueBtn">Refresh Cluster Jobs Information (slurm squeue)</button>
     <script>
         document.addEventListener("DOMContentLoaded", () => {
@@ -272,10 +317,13 @@ window.onload = showEndTime;
             const squeueTableBody = document.querySelector('#squeue-table tbody');
             fetchURL = new URL("vustruct/slurm_status", "https://staging.meilerlab.org/")
             fetchURL.searchParams.append('case_uuid',  "{{case_uuid}}");
-https://vucommodores.com/this-magic-moment/
             // loadSqueueBtn.innerHTML = fetchURL 
 
             loadSqueueBtn.addEventListener('click', () => {
+                // Clear any error message to the user
+                squeueErrorDiv = document.getElementById('squeue_error_div')
+                squeueErrorDiv.style.display = 'none'
+
                 fetch(fetchURL)
                     .then(response => response.json() )
                     .then(json_data  => {
@@ -287,7 +335,6 @@ https://vucommodores.com/this-magic-moment/
                         // console.log("startup 3", gene_refseq_mutation, jobs);
                             for (const [unique_id, job] of Object.entries(json_data[gene_refseq_mutation])) {
                             const row = document.createElement('tr');
-://vucommodores.com/this-magic-moment/
                             row.innerHTML = `
                                 <td>${unique_id}</td>
                                 <td>${job.job_key}</td>
@@ -301,10 +348,13 @@ https://vucommodores.com/this-magic-moment/
                     }})
                     .catch(error => {
                         console.error('Error fetching data:', error);
+                        squeueErrorDiv.textContent = "Error fetching data: " + error
+                        squeueErrorDiv.style.display = 'block'
                     });
             });
         });
     </script>
+    <div style="color:red;display:none" id="squeue_error_div">Replace with error text at runtime</div>
     <table id="squeue-table" class="table-sorter">
         <thead>
             <tr>
@@ -320,7 +370,8 @@ https://vucommodores.com/this-magic-moment/
             <!-- Table rows will be added here -->
         </tbody>
     </table>
-   {% endif %} {# endif not module_failure_info #}
+{% endif %} {# endif refreshFlag #}
+{% endif %} {# endif not module_failure_info #}
 
 
 
@@ -341,6 +392,7 @@ https://vucommodores.com/this-magic-moment/
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th class="sorter-false" />
 					<th class="sorter-false">Alpha</th>
 					<th class="sorter-false">ScanNet</th>
 					<th class="sorter-false">MusiteDeep</th>
@@ -371,6 +423,7 @@ https://vucommodores.com/this-magic-moment/
 					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
+					<th>COSMIS</th>
 					<th>Missense</th>
 					<th>PPI</th>
 					<th>PTM</th>
@@ -387,14 +440,24 @@ https://vucommodores.com/this-magic-moment/
 				{% for genome_header in genome_headers %}
 				<tr class="tablesorter-hasChildRow">
                     <td class="toggle">
-                        <svg height="1em" width="1em" class="bi-chevron-right toggle">
+                        <span class="tooltip bi-chevron-right">
+                        <span class="tooltiptext">Click to open impacted transcripts</span> 
+                        <svg height="1em" width="1em">
                             <use xlink:href="#bi-chevron-right"></use>
                         </svg>
-                        <svg height="1em" width="1em" class="bi-chevron-down toggle">
+                            <a href="#"> {{ genome_header.variant_isoform_summaries[0]['#'] }}</a>
+                        </span>
+
+                        <span hidden class="bi-chevron-down toggle">
+                        <svg height="1em" width="1em">
                           <use xlink:href="#bi-chevron-down"></use>
                         </svg>
-                            <a href="#" class="toggle"> {{ genome_header.variant_isoform_summaries[0]['#'] }}</a>
+                            <a href="#"> {{ genome_header.variant_isoform_summaries[0]['#'] }}</a>
+                        </span>
                     </td>
+
+
+
 					<td><A href="https://www.ncbi.nlm.nih.gov/gene/{{ genome_header['gene_id'] }}">{{ genome_header['Gene'] }}</A></td>
 					<td><A href="http://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={{ genome_header['Chrom']}}:{{ genome_header['Pos'] -1 }}">{{ genome_header['Chrom'] }}</A></td>
 					<td><A href="http://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={{ genome_header['Chrom']}}:{{ genome_header['Pos'] -1 }}" > {{ genome_header['Pos'] }}</A></td>
@@ -452,6 +515,12 @@ https://vucommodores.com/this-magic-moment/
 					<td>
 						{% if genome_header['ddG Cartesian Max'] is not none %}
 						    {{ genome_header['ddG Cartesian Max'].round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if genome_header['cosmis_score'] is not none %}
+						    {{ genome_header['cosmis_score'] }}
 						{%endif %}
 					</td>
 
@@ -558,6 +627,12 @@ https://vucommodores.com/this-magic-moment/
 					</td>
 
 					<td>
+						{% if isoform_summary['cosmis_score'] is not none %}
+						    {{ isoform_summary['cosmis_score']|round(1) }}
+						{%endif %}
+					</td>
+
+					<td>
 						{% if isoform_summary['alphamissense_score'] is not none %}
 						    {{ isoform_summary['alphamissense_score'] }}
 						{%endif %}
@@ -608,6 +683,7 @@ https://vucommodores.com/this-magic-moment/
 					<th colspan="2" class="sorter-false">PP {{ disease2_variant_short_description }}</th>
 					<th colspan="2" class="sorter-false">ddg Monomer</th>
 					<th colspan="2" class="sorter-false">ddg Cartesian</th>
+					<th class="sorter-false" />
 					<th class="sorter-false">Alpha</th>
                                         <!--
 					<th colspan="2" class="sorter-false">Gene Interactions</th>
@@ -636,6 +712,7 @@ https://vucommodores.com/this-magic-moment/
 					<th>Max</th>
 					<th>Min</th>
 					<th>Max</th>
+					<th>COSMIS</th>
 					<th>Missense</th>
                                         <!--
 					<th class="sorter-false">Generic</th>
@@ -706,6 +783,12 @@ https://vucommodores.com/this-magic-moment/
 					<td>
 						{% if isoform_summary['ddG Cartesian Max'] is not none %}
 						    {{ isoform_summary['ddG Cartesian Max']|round(2) }}
+						{%endif %}
+					</td>
+
+					<td>
+						{% if isoform_summary['cosmis_score'] is not none %}
+						    {{ isoform_summary['cosmis_score']| round(1) }}
 						{%endif %}
 					</td>
 

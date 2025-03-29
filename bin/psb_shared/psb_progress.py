@@ -70,6 +70,10 @@ class PsbStatusManager(object):
         self._progress_filename = os.path.join(self._status_dir, "progress")
         self._info_filename = os.path.join(self._status_dir, "info")
         self._os_interface = os_interface
+        try:
+            self._os_interface.makedirs(self._status_dir)
+        except:
+            pass
 
     def clear_status_dir(self) -> None:
         if not os.path.exists(self._status_dir):

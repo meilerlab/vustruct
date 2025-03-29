@@ -4,6 +4,7 @@ class DDG_monomer manages all aspects of Rosetta ddg_monomer calculations
 inside the directory heirarchy supplied by a ddg_repo object
 """
 import os
+import sys
 import pprint
 import pandas as pd
 from io import StringIO
@@ -23,15 +24,25 @@ class DDG_monomer(DDG_base):
             self._ddg_repo.structure_id, self._ddg_repo.chain_id, self._mutationtext)
         return filename_prefix + ".mut"
 
-    def _verify_applications_available(self):
-        for application in [
-            self._minimize_application_filename,
-            self._per_residues_application_filename,
-            self._ddg_monomer_application_filename]:
-            # self._score_jd2_application_filename]:
-            application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
-            assert os.path.exists(application_fullpath), (
-                    "%s is a required application for ddg_monomer, but not found" % application_fullpath)
+    @property
+    def container_prefix(self):
+        return ['singularity', 'exec', 
+                '--bind', '/dors/capra_lab',
+                '/dors/capra_lab/users/mothcw/psbadmin/containers/singularity/rosetta3.7/Rosetta3.7_ddGMonomer.sif']
+
+    def _verify_applications_available(self) -> None:
+        if self.container_prefix: # Then jus tmake sure the container is out there
+            assert os.path.exists(self.container_prefix[-1]), (
+                    "Container image %s is required for ddg_monomer, but not found" % self.container_prefix[-1])
+        else: # We're running directly out of file system, apparently 
+            for application in [
+                self._minimize_application_filename,
+                self._per_residues_application_filename,
+                self._ddg_monomer_application_filename]:
+                # self._score_jd2_application_filename]:
+                application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
+                assert os.path.exists(application_fullpath), (
+                        "%s is a required application for ddg_monomer, but not found" % application_fullpath)
 
     def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
@@ -50,9 +61,10 @@ class DDG_monomer(DDG_base):
 
         #        self._root = root_path
         # Set the binary filenames in one place and make sure we have them before we start
-        self._minimize_application_filename = 'minimize_with_cst.default.linuxgccrelease'
-        self._per_residues_application_filename = 'per_residue_energies.default.linuxgccrelease'
-        self._ddg_monomer_application_filename = 'ddg_monomer.default.linuxgccrelease'
+        _bin_suffix = '.static.linuxgccrelease'
+        self._minimize_application_filename = 'minimize_with_cst' + _bin_suffix
+        self._per_residues_application_filename = 'per_residue_energies' + _bin_suffix
+        self._ddg_monomer_application_filename = 'ddg_monomer' + _bin_suffix
         # self._score_jd2_application_filename =   'score_jd2.linuxgccrelease'
 
         self._application_timers = ['minimize', 'rescore', 'ddg_monomer']
@@ -199,7 +211,11 @@ class DDG_monomer(DDG_base):
                         structure_list_fp.write(self._ddg_repo.cleaned_structure_filename)
 
                     # WAS  minimize_with_cst.default.linuxgccrelease
-                    minimize_with_cst_command = [
+                    if self.container_prefix:
+                        minimize_with_cst_command = [self._minimize_application_filename]
+                    else:             
+                        minimize_with_cst_command = [os.path.join(self._ddg_repo.rosetta_bin_dir, self._minimize_application_filename)]
+                    minimize_with_cst_command.extend([
                         # Commented out parameters are in current ddG_monomer documentation
                         # but incompatible with current rosetta version.  Chris Moth
                         # discussed with Rocco - and we are staying with our old parameters
@@ -208,7 +224,6 @@ class DDG_monomer(DDG_base):
                         # OLD command = minimize_with_cst.default.linuxgccrelease -in:file:fullatom -fa_max_dis 9.0 -ddg:harmonic_ca_tether 0.5 -ddg::constraint_weight 1.0 -ddg::out_pdb_prefix minimized -ddg::sc_min_only false -score:weights talaris2014 -in:file:l %s -overwrite -ignore_zero_occupancy false % (templistfile)
                         #
 
-                        os.path.join(self._ddg_repo.rosetta_bin_dir, self._minimize_application_filename),
                         '-in:file:l {0}'.format(structure_list_filename),
                         '-in:file:fullatom',
                         '-ignore_unrecognized_res',
@@ -225,9 +240,10 @@ class DDG_monomer(DDG_base):
                         # '-score:patch {0}'.format(os.path.join(self._ddg_repo.rosetta_database_dir,
                         #                                        "scoring", "weights", "score12.wts_patch"))
                         # '> mincst.log'
-                    ]
+                    ])
 
                     return_code, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                        self.container_prefix,
                         minimize_with_cst_command,
                         additional_files_to_archive=[minimized_pdb_filename])
 
@@ -339,21 +355,26 @@ class DDG_monomer(DDG_base):
                 returncode = previous_exit_code
                 runtime = 0.0
             else:
-                # Then re-run the minimization in a subdirectory of the variant current directory
+                # Then re-run the rescre in a subdirectory of the variant current directory
                 # If all goes well, this directory will be moved to remove the minimize_directory
                 tmp_directory = self._ddg_repo.mkdtemp(prefix='tmp_per_residues', dir='.')
                 os.chdir(tmp_directory)
 
-                # Then re-run the minimization in a subdirectory of the variant current directory
-                rescore_command = [
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._per_residues_application_filename),
+                # Then run the rescore in a subdirectory of the variant current directory
+                if self.container_prefix:
+                    rescore_command = [self._per_residues_application_filename]
+                else:             
+                    rescore_command = [os.path.join(self._ddg_repo.rosetta_bin_dir, self._per_residues_application_filename)]
+
+                rescore_command.extend([
                     '-s ' + minimized_pdb_relpath,
                     '-score:weights talaris2014',
                     '-out:file:silent %s' % min_residues_filename
-                ]
+                ])
 
                 # stdout, stderr, runtime
                 returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
+                    self.container_prefix,
                     rescore_command,
                     additional_files_to_archive=[min_residues_filename])
 
@@ -550,9 +571,17 @@ class DDG_monomer(DDG_base):
                 # Run actual ddg_monomer application
 
                 # stdout, stderr, runtime =
-                returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit([
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_monomer_application_filename),
-                    "@" + ddg_options_filename],
+                # Then run the ddg_monomer in a subdirectory of the variant current directory
+                if self.container_prefix:
+                    ddg_monomer_command = [self._ddg_monomer_application_filename]
+                else:             
+                    ddg_monomer_command = [os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_monomer_application_filename)]
+
+                ddg_monomer_command.extend(["@" + ddg_options_filename])
+
+                returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
+                    self.container_prefix,
+                    ddg_monomer_command,
                     additional_files_to_archive=[ddg_predictions_filename])
 
                 ######################################################3
@@ -588,7 +617,7 @@ class DDG_monomer(DDG_base):
 
                 ddg_predictions_df = pd.read_csv(
                     ddg_predictions_filename,
-                    delim_whitespace=True)
+                    sep="\s+") # whitespace delimiter
 
                 # Ultimate target is final_results file with everything we "want"
                 final_results_df = pd.DataFrame(
@@ -624,15 +653,16 @@ class DDG_monomer(DDG_base):
 
                         mutation_ddg[original_mutation] = float(row['total'])
 
-                        final_results_df = final_results_df.append({
+                        next_results_row = pd.DataFrame([{
                             "File": self._ddg_repo.structure_id,
                             "Chain": self._ddg_repo.chain_id,
                             "Residue": str(original_residue[1]) + original_residue_insertion_code,
                             "WT_Res_Score": mutation_scores[original_residue],
                             "Mutation": original_mutation,
                             "ddG": mutation_ddg[original_mutation],
-                            "Protocol": protocol
-                        }, ignore_index=True)
+                            "Protocol": protocol}])
+                        final_results_df = pd.concat([final_results_df,next_results_row],
+                            ignore_index=True)
 
                 else:
                     self._ddg_repo.psb_status_manager.sys_exit_failure(
@@ -710,7 +740,11 @@ class DDG_monomer(DDG_base):
         final_results_fullpath = os.path.join(self._ddg_repo.variant_dir,self.final_results_filename())
 
         if previous_exit_int == 0 and os.path.exists(final_results_fullpath):
-            final_results_df = pd.read_csv(final_results_fullpath, sep='\t', dtype={'ddG': float, 'WT_Res_Score': float})
+            try:
+                final_results_df = pd.read_csv(final_results_fullpath, sep="\s+", dtype={'ddG': float, 'WT_Res_Score': float})
+            except pd.errors.EmptyDataError:
+                sys.exit("EmptyDataError reading %s - halting" % final_results_fullpath)
+                
             assert len(final_results_df) == 1,"Format error: single row of data not found in %s - halting"%final_results_fullpath
             final_results_df['RefAA'] = final_results_df['Mutation'].str[0]
             final_results_df['AltAA'] = final_results_df['Mutation'].str[-1]

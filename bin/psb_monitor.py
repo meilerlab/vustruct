@@ -47,18 +47,16 @@ from logging import handlers
 
 from vustruct import VUStruct
 
-sh = logging.StreamHandler()
 LOGGER = logging.getLogger()
-LOGGER.addHandler(sh)
 
 # Now that we've added streamHandler, basicConfig will not add another handler (important!)
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
 log_formatter = logging.Formatter(log_format_string,date_format_string)
 
-LOGGER.setLevel(logging.DEBUG)
-sh.setLevel(logging.WARNING)
-sh.setFormatter(log_formatter)
+# LOGGER.setLevel(logging.DEBUG)
+# sh.setLevel(logging.WARNING)
+# sh.setFormatter(log_formatter)
 
 import pandas as pd
 import numpy as np
@@ -77,6 +75,9 @@ cmdline_parser = argparse.ArgumentParser(description=__doc__,formatter_class=arg
 from psb_shared import psb_config
 
 cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
+cmdline_parser.add_argument("--squeue_df_filename",metavar='FILE',type=str,
+                                 help="An optional tab-delimited csv of a dataframe consisting of job_keys, statuses etc",
+                                 nargs='?')
 cmdline_parser.add_argument("projectORworkstatus",type=str,
                                  help="Project ID (ex. UDN123456) or single workstatus.csv output file from psb_launch.py (or previous psb_monitor.py)  Example: ......$UDN/UDN123456/GeneName_NM_12345.1_S123A_workstatus.csv",
                                  default = os.path.basename(os.getcwd()),nargs='?')
@@ -86,8 +87,10 @@ vustruct = VUStruct('monitor', args.projectORworkstatus, __file__)
 vustruct.stamp_start_time()
 vustruct.initialize_file_and_stderr_logging(args.debug)
 
+
 LOGGER = logging.getLogger()
 
+    
 # Prior to getting going, we save the vustruct filename
 # and then _if_ we die with an error, at least there is a record
 # and psb_rep.py should be able to create a web page to that effect
@@ -103,6 +106,20 @@ oneMutationOnly = ('.' in args.projectORworkstatus and os.path.isfile(args.proje
 required_config_items = ['output_rootdir','collaboration']
 
 config,config_dict = psb_config.read_config_files(args,required_config_items)
+
+if not vustruct.plan_succeeded:
+    # It make no sense to attempt to monitor a case where 
+    # planning has not been peformed
+    err_str = "vustruct plan module was not yet run.  monitor cannot continue"
+    LOGGER.critical(err_str)
+    sys.exit(err_str)
+
+if not vustruct.launch_succeeded:
+    # It make no sense to attempt to monitor a case where 
+    # planning has not been peformed
+    err_str = "vustruct was not yet launched.  monitor cannot continue"
+    LOGGER.critical(err_str)
+    sys.exit(err_str)
 
 # print "Command Line Arguments"
 LOGGER.info("Command Line Arguments:\n%s"%pprint.pformat(vars(args)))
@@ -120,11 +137,16 @@ if not os.path.exists(collaboration_dir):  # python 3 has exist_ok parameter...
     sys.exit(1)
 
 _latest_squeue_df = pd.DataFrame(columns=['job_key']).set_index('job_key')
-# Try to get slurm squeue run
-if 'cluster_type' in config_dict and config_dict['cluster_type'].lower() == 'slurm':
+if args.squeue_df_filename: # Then likely the vustruct_flask monitor has created a file
+    _latest_squeue_df = pd.read_csv(args.squeue_df_filename,sep='\t',index_col='job_key')
+# Alternately, if we are running "at command line" then we can run squeue ourselves
+elif 'cluster_type' in config_dict and config_dict['cluster_type'].lower() == 'slurm':
     import slurm
-    parse_return = slurm.slurm_squeue(config_dict['cluster_user_id'])
-    _latest_squeue_df = slurm.flatten_squeue_stdout_to_df(parse_return.stdout).set_index('job_key')
+    (_squeue_returncode, _squeue_stdout_json, _squeue_stderr_str) = slurm.slurm_squeue(config_dict['cluster_user_id'])
+    if _squeue_returncode == 0: # If slurm ran OK
+        _latest_squeue_df = slurm.flatten_squeue_stdout_to_df(_squeue_stdout_json).set_index('job_key')
+    else:
+        LOGGER("psb_monitor.py unable to run squeue to harvest active job information from cluster")
 
 
 # collaboration_log_dir = os.path.join(collaboration_dir,"log")
@@ -228,6 +250,7 @@ def monitor_one_mutation(workstatus_filename: str, variant_header_str: str) -> d
             ddg_repo = DDG_repo(config_dict['ddg_config'],
                     calculation_flavor=repo_calculation_flavor)
 
+
             if workstatus_row['method'] == 'swiss':
                 ddg_repo.set_swiss(workstatus_row['pdbid'],workstatus_row['chain'])
             elif workstatus_row['method'] == 'modbase':
@@ -239,19 +262,24 @@ def monitor_one_mutation(workstatus_filename: str, variant_header_str: str) -> d
             else:
                 ddg_repo.set_pdb(workstatus_row['pdbid'].lower(),workstatus_row['chain'])
 
-            ddg_repo.set_variant(workstatus_row['pdbmut'])
+            variant_calculation_directory = ddg_repo.set_variant(workstatus_row['pdbmut'])
 
-            ddg_monomer_or_cartesian = \
-                DDG_monomer(ddg_repo,workstatus_row['pdbmut']) if repo_calculation_flavor == 'ddG_monomer' else \
-                DDG_cartesian(ddg_repo,workstatus_row['pdbmut'])
+            if os.path.exists(variant_calculation_directory):
+                ddg_monomer_or_cartesian = \
+                    DDG_monomer(ddg_repo,workstatus_row['pdbmut']) if repo_calculation_flavor == 'ddG_monomer' else \
+                    DDG_cartesian(ddg_repo,workstatus_row['pdbmut'])
+
+
                 
-            LOGGER.setLevel(_save_log_level)
+                LOGGER.setLevel(_save_log_level)
 
-            # Ask ddg_monomer to return information about the job
-            # The ddG jobs are under the watch of the repository, not us so much
-            # It will return dictionary with ExitCode, jobprogress, jobinfo
-            interesting_info.update(ddg_monomer_or_cartesian.jobstatus())
-            LOGGER.info("Status of DDG job:\n%s"%str(interesting_info))
+                # Ask ddg_monomer to return information about the job
+                # The ddG jobs are under the watch of the repository, not us so much
+                # It will return dictionary with ExitCode, jobprogress, jobinfo
+                interesting_info.update(ddg_monomer_or_cartesian.jobstatus())
+                LOGGER.info("Status of DDG job:\n%s"%str(interesting_info))
+            else:
+                LOGGER.info("Calculation directory %s not yet created.  Calculation likely not started" % variant_calculation_directory)
         else: # non DDG jobs
             # We dig down to the status directory outputs
             # The most reliable source of Exit=0 is the arrival of a completed file in the status directory
@@ -467,9 +495,10 @@ else:
         LOGGER.warning("No casewide work (no %s) to monitor", workstatus_filename)
     # print("-" * 80)
 
-    json_filename = os.path.join(collaboration_dir,"%s_psb_monitor.json"%args.projectORworkstatus) # The argument is an entire project UDN124356
-    with open(json_filename,'w') as json_f:
-        json.dump(all_mutations_json_for_vustruct_flask, json_f, indent=4)
+    # vustruct_flask no longer uses this information from psb_monitor.py 2024/Dec19
+    # json_filename = os.path.join(collaboration_dir,"%s_psb_monitor.json"%args.projectORworkstatus) # The argument is an entire project UDN124356
+    # with open(json_filename,'w') as json_f:
+    #     json.dump(all_mutations_json_for_vustruct_flask, json_f, indent=4)
 
 # To get here, we have a happy ending - update the .json record
 vustruct.exit_code = 0

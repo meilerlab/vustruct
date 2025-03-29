@@ -46,6 +46,26 @@ from psb_shared import psb_config
 import pandas as pd
 from vustruct import VUStruct
 
+# When a variant has a non-missense, but high impact consequence,
+# We want to make sure that arrives in the vustruct.csv file
+# See https://useast.ensembl.org/info/genome/variation/prediction/predicted_data.html
+HIGH_IMPACT_VEP_CONSEQUENCES = [
+    'transcript_ablation',
+    'splice_acceptor_variant',
+    'splice_donor_variant',
+    'stop_gained',
+    'frameshift_variant',
+    'stop_lost',
+    'start_lost',
+    'transcript_amplification',
+    'feature_elongation',
+    'feature_truncation',
+    # These next 3 are actually "moderate" per VEP documentation - but stil interesting to us
+    'inframe_insertion',
+    'inframe_deletion',
+    'protein_altering_variant'
+    ]
+
 cmdline_parser = psb_config.create_default_argument_parser(__doc__,os.path.dirname(os.path.dirname(__file__)))
 cmdline_parser.add_argument("vcffile",type=str,metavar="FILE",help="filename in vcf format",default=os.path.basename(os.getcwd())+".vcf",nargs='?')
 cmdline_parser.add_argument("--liftover",action='store_true',help="Pre-convert VCF file to GRCh38 from GRCh37 - hardcoded for capra lab")
@@ -213,12 +233,16 @@ if args.liftover:
 
 vcf_reader =  pdbmap_vep.vcf_reader_from_file_supplemented_with_vep_outputs(vustruct.input_filename,coding_only = False)
 
-raw_vustruct_df = pd.DataFrame(columns=['gene','chrom','pos','change','transcript','unp','refseq','mutation'])
+raw_vustruct_df = pd.DataFrame(columns=['gene','chrom','pos','change','effect','transcript','unp','refseq','mutation'])
 
 vep_consequences_df = pd.DataFrame(columns=['chrom','pos','ref','alt','consequence','transcript','unp','mutation','gene','BIOTYPE','SIFT','PolyPhen','refseq'])
 
 for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
     for CSQ in vcf_record.CSQ:
+        # It is unusual to proceed without a uniprot ID
+        # But we only have one if we can cross-reference
+        # The VEP-returned ENST transcript ID to a Swiss
+        # curated uniprot identifier
         ensembl_transcript_id_from_vep = None
         if 'Feature' in CSQ and CSQ['Feature']:
             ensembl_transcript_id_from_vep = CSQ['Feature']
@@ -253,7 +277,9 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
             refseq = "NA"
 
         # Let's presume vep has emitted a missense variant, although it many cases it will not have
-        add_to_vustruct = True
+        # This is not great coding - but it works for now
+        vustruct_effect = 'missense'
+        vustruct_change = '' # Fill in later with AA change or other
 
         vep_results_row_dict = {
              'gene': CSQ['SYMBOL'],
@@ -271,44 +297,78 @@ for vcf_record in pdbmap_vep.yield_completed_vcf_records(vcf_reader):
              'refseq': refseq
              }
 
-        if add_to_vustruct and not unp:
+        # It's handy to have a consistent look, in case we fail to integrate
+        # the variant
+        fail_message_prefix = "%s %s %s %s" % (
+                vcf_record.CHROM, 
+                vcf_record.POS, 
+                vcf_record.REF, 
+                vcf_record.ALT[0].sequence)
+
+        # This here is not quite right - because _IF_ the consequence is not missense
+        # And we just want to record the Gene, THEN we need to NOT have this logic
+        if vustruct_effect and not unp:
             vep_results_row_dict['consequence'] = 'Skipped: Unable to cross-references %s to Uniprot ID. %s' % (
                 CSQ['Feature'],
                 CSQ['Consequence']
                 )
-            LOGGER.warning("%s %s %s %s: Excluding VEP-predicted %s %s.  No cross-reference from %s to Uniprot ID"% (
-                vcf_record.CHROM, 
-                vcf_record.POS, 
-                vcf_record.REF, 
-                vcf_record.ALT[0].sequence, 
+            LOGGER.warning("%s: Excluding VEP-predicted %s %s.  No cross-reference from %s to Uniprot ID"% (
+                fail_message_prefix,
                 CSQ['Feature'],
                 variant_aa,
                 CSQ['Consequence']
                 ))
             LOGGER.warning("%s", vep_results_row_dict['consequence'])
-            add_to_vustruct = False
+            vustruct_effect = None
+
+        # We primarily retaining missense variants.  CAREFUL - as the VEP will return
+        # strings that contain more info than just 'missense_variant'   For example:
+        #   missense_variant;splice_region_variant or NMD_transcript_variant
+        # and those are still
+        # interesting variants
+        if vustruct_effect and ('Consequence' not in CSQ):
+            LOGGER.warning("%s: Excluding %s VEP-record which lacks Consequence"%(fail_message_prefix))
+            vustruct_effect = None
+         
+        if vustruct_effect and 'missense_variant' in CSQ['Consequence']:
+            vustruct_change = vcf_record.REF + '/' + vcf_record.ALT[0].sequence
+            vustruct_effect = 'missense'
+        else:
+            # We will still include a non-missense variant if it is a HIGH severity consequence
+            # because we want VUStruct to run the Digenic predictors on this gene
+            high_impact_consequence = next((consequence for consequence in HIGH_IMPACT_VEP_CONSEQUENCES if consequence in CSQ['Consequence']), False)
+            if high_impact_consequence:
+                vustruct_effect = high_impact_consequence
+                vustruct_change = vustruct_effect
+            else:
+                LOGGER.warning("%s: Excluding %s VEP-predicted non-missense/low-impact %s %s"%(
+                   fail_message_prefix,
+                   unp,CSQ['Consequence'], variant_aa))
+
+                vep_results_row_dict['consequence'] = 'Skipped: %s' % CSQ['Consequence']
+                vustruct_effect = False
 
 
-        if add_to_vustruct and 'Consequence' in CSQ and CSQ['Consequence'] != 'missense_variant':
-            LOGGER.warning("%s %s %s %s: Excluding %s VEP-predicted %s %s"%(vcf_record.CHROM, vcf_record.POS, vcf_record.REF, vcf_record.ALT[0].sequence, unp,CSQ['Consequence'], variant_aa))
-            vep_results_row_dict['consequence'] = 'Skipped: %s' % CSQ['Consequence']
-            add_to_vustruct = False
+        if vustruct_effect and CSQ['Ref_AminoAcid'] == CSQ['Alt_AminoAcid']:
+            LOGGER.warning("%s: Excluding %s VEP-predicted synonymous variant %s"%(
+                fail_message_prefix,unp,variant_aa))
 
-
-        if add_to_vustruct and CSQ['Ref_AminoAcid'] == CSQ['Alt_AminoAcid']:
-            LOGGER.warning("Excluding %s VEP-predicted synonymous variant %s"%(unp,variant_aa))
             vep_results_row_dict['consequence'] = "Skipping synonymous"
-            add_to_vustruct = False
+            vustruct_effect = False
 
-        # We store all consequences from vep here, even if we skip a missense row
+        # We store all consequences from vep here, even if we skip over a row
+        # as we build up the vustruct.csv file.  We often arrive here with vustruct_effect = False
+        # so this is A-OK
         vep_consequences_df = pd.concat([vep_consequences_df,pd.DataFrame.from_dict([vep_results_row_dict])],ignore_index=True)
 
-        if add_to_vustruct:
+        # If this variant is destined for the VUSTruct pipeline.....
+        if vustruct_effect:
             next_vustruct_df_row = pd.DataFrame.from_dict(
                 [{'gene': CSQ['SYMBOL'],
                  'chrom': vcf_record.CHROM,
                  'pos': vcf_record.POS,
                  'change': vcf_record.REF + '/' + vcf_record.ALT[0].sequence,
+                 'effect': vustruct_effect,
                  'transcript': PDBMapProtein.versioned_ensembl_transcript(ensembl_transcript_id_from_vep),
                  'unp': unp,
                  'refseq': refseq,

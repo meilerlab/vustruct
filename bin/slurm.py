@@ -13,7 +13,10 @@
 Several slurm_* functions to ease interactions between the VUStruct pipeline
 and a SLURM cluster.
 
-This code 
+This code is shared by the psb_launch.py and psb_monitor.py
+respective job launchers and job monitors
+
+It is also used by the ddG mass-launch routines
 
 """
 
@@ -267,32 +270,66 @@ class SlurmJob:
         return self.finished
 
 
-def slurm_squeue(user: str, timeout_seconds=120) -> subprocess.CompletedProcess:
+def slurm_squeue(user: str, timeout_seconds=120) -> tuple[int, str, str]:
     """
     Run the squeue command for the given cluster user account.
-    Returns raw stdout in json format, and one job per every array id
+    Returns  the process return code (non zero is error) and stdout and stderr
+    In the event of a timeout, then return 1,'',error message
 
     squeue cmdline options are explained at https://slurm.schedmd.com/squeue.html
+
     """
 
+    # Note again that --array currently "does nothing" when --json is used
+    # See the flatten_to_df code where I handle this problem
     squeue_cmd = "squeue --array --json --user %s" % user
     LOGGER.info("Running: %s" % squeue_cmd)
 
-    parse_return = \
-        subprocess.run(squeue_cmd, shell=True, encoding='UTF-8', timeout=timeout_seconds,
+    try:
+        parse_return = \
+            subprocess.run(squeue_cmd, shell=True, encoding='UTF-8', timeout=timeout_seconds,
                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    LOGGER.debug("%s finshed with exit code %d", squeue_cmd, parse_return.returncode)
-    return parse_return
+        if parse_return.returncode == 0:
+            LOGGER.debug(f"{squeue_cmd} finshed successfully")
+        else:
+            LOGGER.error(f"{squeue_cmd} finshed with exit code {parse_return.returncode}: {parse_return.stderr}")
 
-def flatten_squeue_stdout_to_df(squeue_stdout_json: str) -> pd.DataFrame:
-    # I will format "job_key" to be job_id, and then if there is an array id, add underscore and the array id
+        return (parse_return.returncode, parse_return.stdout, parse_return.stderr)
+    except subprocess.TimeoutExpired as ex:
+        LOGGER.error(f"{squeue_cmd} timeout with exception {std(ex)}")
+        return (
+            1,  # Return 1 (nonzero) to show the process failed
+            "", # No stdout in this case
+            str(ex) # Return the timeout exception message
+            )
+
+    unexpected_error_string = f"{squeue_cmd} failure.  Should not arrive here in slurm_squeue()"
+    return(1,unexpected_error_string,unexpected_error_string)
+
+
+def flatten_squeue_stdout_to_df(squeue_stdout_json: str,expand_pending_array_tasks=True) -> pd.DataFrame:
+    """Process jaon returned from squeue --json so that we have a flat dataframe of information
+       indexed/indexable on job_key
+
+       "job_key" is formatted to contain job_id always, concatenated with underscore and 
+        array id IF there is an array Id (if the job part of a slurm array
+
+       The idea is that the caller, armed with a "name" can match up a running application
+       to these rows of data.
+
+       A weird aspect of the squeue --json command is that, for pending ARRAY jobs, it returns only
+       a single job entry for all of them, and relies on array_task_string to enumerate the still-pending
+       array members.  Setting "expand_pending_array_tasks" causes _this_ code to work around that slurm
+       but which I reported here: https://support.schedmd.com/show_bug.cgi?id=21686
+       """
 
     squeue_df_schema = {
         'job_key': str,   # The catenation of array_job_id (orjob_id) UNDERSCORE array_task_id if available
         'job_id': int,    # This is the _specific_ JOB ID to cancel - and must NOT be used in job_key
         'name': str,
-        'array_job_id': float,  # This is the BASE job # in case of an array launch
-        'array_task_id': float, # This is returned as np NAN for non-arrays else a float 0.0, 1.0 etc for array jobs
+        'array_job_id': pd.Int64Dtype(),  # This is the BASE job NNNNNNN# in case of an array launch
+        'array_task_id': pd.Int64Dtype(), # This is returned as np NAN for non-arrays else a float 0.0, 1.0 etc for array jobs
+        'array_task_string': str, # Returned in format 0-N in cases of an array job, and is used by this code for "PENDING" jobs
         'job_state': str,
         'start_time': float,
         'end_time': float,
@@ -309,8 +346,10 @@ def flatten_squeue_stdout_to_df(squeue_stdout_json: str) -> pd.DataFrame:
         LOGGER.critical("Unable to decode squeue --json stdout as json: %s" % squeue_stdout_json[:40])
         return df
 
-    if 'jobs' not in squeue_dict or len(squeue_dict['jobs']) == 0:
-        LOGGER.critical("Np 'jobs' key seen in squeue --json return: %s" % squeue_stdout_json[:40])
+    # if 'jobs' not in squeue_dict or len(squeue_dict['jobs']) == 0:
+    # It is entirely reasonable for squeue to return jobs as [], and we fall through for consistency in that case running
+    if 'jobs' not in squeue_dict:
+        LOGGER.critical("No 'jobs' key seen in squeue --json return: %s" % squeue_stdout_json[:40])
         return df
 
     job_keys = []
@@ -318,57 +357,93 @@ def flatten_squeue_stdout_to_df(squeue_stdout_json: str) -> pd.DataFrame:
     names = []
     array_job_ids = []
     array_task_ids = []
+    array_task_strings = []
     job_states = []
     start_times = []
     end_times = []
     time_limits = []
 
     for job_dict in squeue_dict['jobs']:
-        job_ids.append(job_dict.get('job_id',0))
-        names.append(job_dict.get('name',''))
 
         # array_job_id and array_task_id are found in these triple-dictionaries
         # and you have to make sure the value is 'set' and is of expected form
+        # HOWEVER, array_job_id is ALWAYS set.  And it can be set to 0 and _that_ means
+        # that we do not yet have an array_job_id
 
+        _array_job_id = pd.NA
         if ('array_job_id' in job_dict and 
             'set' in job_dict['array_job_id'] and  job_dict['array_job_id']['set'] and
-            'number' in job_dict['array_job_id']):
-            array_job_ids.append(job_dict['array_job_id']['number'])
-        else:
-            array_job_ids.append(np.nan)
+            'number' in job_dict['array_job_id'] and
+             0 != int(job_dict['array_job_id']['number'])):
+            _array_job_id = int(job_dict['array_job_id']['number'])
 
+        _job_state = ''
+        if 'job_state' in job_dict and len(job_dict['job_state']) > 0:
+            _job_state = job_dict['job_state'][0]
+
+        _array_task_string = job_dict.get('array_task_string','')
         # If this one is NOT set (set element is false in source json) then it was NOT
-        # part of a job array
-        if ('array_task_id' in job_dict and 
-            'set' in job_dict['array_task_id'] and  job_dict['array_task_id']['set'] and
-            'number' in job_dict['array_task_id']):
-            array_task_ids.append(job_dict['array_task_id']['number'])
-            job_keys.append(str(job_dict['array_job_id']['number']) + '_' + str(job_dict['array_task_id']['number']))
-        else:
-            array_task_ids.append(np.nan)
-            # Just save the job id without underscore - as not array references in slurm
+        # part of a job array.  We won't have an array_task_id UNLESS we have an _array_job_id
+        _copies = 1
+        if (pd.isna(_array_job_id)):
             job_keys.append(str(job_dict['job_id'])) 
+            array_task_ids.append(pd.NA)
+        else:
+            # We have an array - but if pending and we want to break it open manually... do that
+            if (expand_pending_array_tasks and 
+                _job_state == "PENDING" and 
+                len(_array_task_string) > 0):
+                # Deal with format of the array_task_string typically 0_10 but also 4_9 or so
+                _split_first_last = _array_task_string.split('-')
+                if len(_split_first_last) == 2:
+                    _first_pending_array_task = int(_split_first_last[0])
+                    _last_pending_array_task = int(_split_first_last[1])
+                else: # Not sure what else to do ?? Maybe only one pending left to launch????
+
+                    _first_pending_array_task = int(_split_first_last[0])
+                    _last_pending_array_task = int(_split_first_last[0])
+                _copies = _last_pending_array_task + 1 - _first_pending_array_task
+                for array_task_id in range(_first_pending_array_task,_last_pending_array_task+1):
+                    array_task_ids.append(array_task_id)
+                    job_keys.append(str(_array_job_id) + '_' + str(array_task_id))
+            # Else we seem to have a singular array entry that is running - so just add the one
+            elif ('array_task_id' in job_dict and 
+                'set' in job_dict['array_task_id'] and  job_dict['array_task_id']['set'] and
+                'number' in job_dict['array_task_id']):
+                 array_task_ids.append(job_dict['array_task_id']['number'])
+                 job_keys.append(str(job_dict['array_job_id']['number']) + '_' + str(job_dict['array_task_id']['number']))
+            else:
+                array_task_ids.append(pd.NA)
+                # Just save the job id without underscore - as not array references in slurm
+                job_keys.append(str(job_dict['job_id'])) 
+
+        job_ids.extend(_copies * [job_dict.get('job_id',0)])
+        names.extend(_copies * [job_dict.get('name','')])
+
+        array_job_ids.extend(_copies * [_array_job_id])
+
+        array_task_strings.extend(_copies * [job_dict['array_task_string']])
 
         if 'start_time' in job_dict and 'number' in job_dict['start_time']:
-            start_times.append(job_dict['start_time']['number'])
+            start_times.extend(_copies * [job_dict['start_time']['number']])
         else:
-            start_times.append('')
+            start_times.extend(_copies * [''])
 
         if 'end_time' in job_dict and 'number' in job_dict['end_time']:
-            end_times.append(job_dict['end_time']['number'])
+            end_times.extend(_copies * [job_dict['end_time']['number']])
         else:
-            end_times.append('')
+            end_times.extend(_copies * [''])
 
         # Careful - time_limit given in minutes
         if 'time_limit' in job_dict and 'number' in job_dict['time_limit']:
-            time_limits.append(job_dict['time_limit']['number'])
+            time_limits.extend(_copies * [job_dict['time_limit']['number']])
         else:
-            time_limits.append('')
+            time_limits.extend(_copies * [''])
 
         if 'job_state' in job_dict and len(job_dict['job_state']) > 0:
-            job_states.append(job_dict['job_state'][0])
+            job_states.extend(_copies * [job_dict['job_state'][0]])
         else:
-            job_states.append('')
+            job_states.extend(_copies * [''])
 
     # Now populate teh columns of the final dataframe with all this good gathered stuff above, for every job
     df = pd.DataFrame({
@@ -377,7 +452,8 @@ def flatten_squeue_stdout_to_df(squeue_stdout_json: str) -> pd.DataFrame:
         'name': names,
         'array_job_id': array_job_ids,
         'array_task_id': array_task_ids,
-        'job_state': pd.Series(job_states).astype(str),
+        'array_task_string': array_task_strings,
+        'job_state': pd.Series(job_states,dtype='str').astype(str),
         'start_time': pd.to_datetime(start_times,unit='s'),
         'end_time': pd.to_datetime(end_times,unit='s'),
         'time_limit': pd.to_timedelta(time_limits,unit='m')},

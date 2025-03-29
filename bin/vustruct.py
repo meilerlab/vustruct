@@ -13,6 +13,8 @@
 # pipeline command line components:
 # 'preprocess', 'plan', 'launch', 'report'
 #
+# As "side effect" of insantiating this class, an error exit for unhandled exceptions is created
+#
 # Each psb_*.py command line program "reports in" to class VUStruct
 # as progress is made.  VUStruct stores records of the invocation
 # of each vustruct main program, the location of generated  log files,
@@ -25,18 +27,18 @@
 # The individual pipeline programs tracked by class VUStruct are:
 #
 # 0) Optional Genomic Coordinates preprocessing:
-#         parse_udn_report.py, parse_wustl.py, or vcf2missense.py
-# 1) psb_plan.py
-# 2) psb_launch.py
-# 3) psb_monitor.py
-# 3) psb_report.py
+#         parse_udn_report.py, parse_wustl.py, or vcf2vustruct.py
+# 1) psb_plan.py      Structure analysis and job planning
+# 2) psb_launch.py    Launch planned jobs on the cluster
+# 3) psb_monitor.py   (checks vustruct.launch_successful)
+# 4) psb_report.py    Generate user-facing webpage report
 #
 # In addition to various member functions which can answer the status of the case
 # and early progress results...
 # The final 'output' of this class is a dictionary that can be fed to
 # a jinja2 template as part of website creation, to display the various
 # logs and so forth from the run of all the modules.
-#
+# 
 # class VUStruct is independent of class VUS_flask_case_manager (vustruct_flask.py)
 # VUStruct instances evolve on disk in the same way, whether applications are 
 # run at the command line or via the website (vustruct_flask.py)
@@ -82,7 +84,7 @@ class VUStruct:
         # from the command line
         self._empty_vustruct_dict = {
             command_line_module: {
-                'executable': '',
+                'executable': '',  # Empty string until a module is _attempted_
                 'start_time': '',
                 'end_time': '',
                 'log_filename': '',
@@ -114,7 +116,7 @@ class VUStruct:
 
     @staticmethod
     def handle_unhandled_exception_and_exit(exc_type, exc_value, exc_traceback):
-        logging.getLogger().error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+        logging.getLogger().error("Uncaught exception %s %s"  % ( exc_type.__name__, exc_value),  exc_info=(exc_type, exc_value, exc_traceback))
         sys.exit(1)
 
     @property
@@ -235,7 +237,6 @@ class VUStruct:
         # for report generation
         jinja2_dict = copy.deepcopy(self._vustruct_dict)
         return jinja2_dict
-        
 
     def stamp_start_time(self):
         self._vustruct_dict[self._module]['start_time'] = datetime.now().isoformat()
@@ -257,7 +258,8 @@ class VUStruct:
         return self._vustruct_dict[self._module]['exit_code']
 
     @exit_code.setter
-    def exit_code(self, value):
+    def exit_code(self, value: int):
+        assert type(value) == int
         self._vustruct_dict[self._module]['exit_code'] = value
 
     @property
@@ -301,12 +303,21 @@ class VUStruct:
 
     @property 
     def preprocess_failed(self) -> bool:
-        # If the preorocessor was invoked, but it failed
-        # then we need to return that message to the report generator
-        # caller who can 
+        """
+        Return True if one of the preprocessors
+        was run, and exited non-zero, indicating failure
+        """
         return (self.preprocess_attempted and 
-               self.preprocess['exit_code'] and 
-               self.preprocess['exit_code'] != '0')
+               self.preprocess['exit_code'] != 0)
+
+    @property 
+    def preprocess_succeeded(self) -> bool:
+        """
+        Return True if one of the preprocessors
+        was run, and exited zero, indicating success
+        """
+        return (self.preprocess_attempted and 
+                self.preprocess['exit_code'] == 0)
 
     @property 
     def preprocess_failure_info(self) -> list[str]:
@@ -318,13 +329,22 @@ class VUStruct:
 
     @property 
     def plan_failed(self) -> bool:
-        # If the preorocessor was invoked, but it failed
-        # then we need to return that message to the report generator
-        # caller who can 
+        """
+        Return True if vustruct_plan.py 
+        was run, but exited non-zero, indicating failure
+        """
         return (self.plan_attempted and 
-               self.plan['exit_code'] and 
-               self.plan['exit_code'] != '0')
+               self.plan['exit_code'] != 0)
 
+
+    @property 
+    def plan_succeeded(self) -> bool:
+        """
+        Return True if plan
+        was run, and exited zero, indicating success
+        """
+        return (self.plan_attempted and 
+                self.plan['exit_code'] == 0)
 
     @property
     def plan_failure_info(self) -> list[str]:
@@ -340,13 +360,21 @@ class VUStruct:
 
     @property 
     def launch_failed(self) -> bool:
-        # If the preorocessor was invoked, but it failed
-        # then we need to return that message to the report generator
-        # caller who can 
+        """
+        Return True if vustruct_launch.py 
+        was run, but exited non-zero, indicating failure
+        """
         return (self.launch_attempted and 
-               self.launch['exit_code'] and 
-               self.launch['exit_code'] != '0')
+               self.launch['exit_code'] != 0)
 
+    @property 
+    def launch_succeeded(self) -> bool:
+        """
+        Return True if plan
+        was run, and exited zero, indicating success
+        """
+        return (self.launch_attempted and 
+                self.launch['exit_code'] == 0)
 
     @property
     def launch(self):
@@ -355,7 +383,6 @@ class VUStruct:
     @property
     def monitor(self):
         return self._vustruct_dict['monitor']
-
 
     @property
     def executable_file(self):

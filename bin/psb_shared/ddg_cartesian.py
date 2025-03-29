@@ -39,12 +39,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 class DDG_cartesian(DDG_base):
+    @property
+    def container_prefix(self):
+        return ['singularity', 'exec', 
+                '--bind', '/dors/capra_lab',
+                '/dors/capra_lab/users/mothcw/psbadmin/containers/singularity/rosetta3.13/Rosetta3.13_ddGCartesian.sif']
+
     def _verify_applications_available(self):
-        for application in [self._relax_application_filename, self._ddg_cartesian_application_filename]:
-            # self._score_jd2_application_filename]:
-            application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
-            assert os.path.exists(application_fullpath), (
-                "%s is a required application for ddg_cartesian, but not found" % application_fullpath)
+        if self.container_prefix: # Then jus tmake sure the container is out there
+            assert os.path.exists(self.container_prefix[-1]), (
+                    "Container image %s is required for ddg_monomer, but not found" % self.container_prefix[-1])
+        else: # We're running directly out of file system, apparently 
+            for application in [self._relax_application_filename, self._ddg_cartesian_application_filename]:
+                # self._score_jd2_application_filename]:
+                application_fullpath = os.path.join(self._ddg_repo.rosetta_bin_dir, application)
+                assert os.path.exists(application_fullpath), (
+                    "%s is a required application for ddg_cartesian, but not found" % application_fullpath)
 
     def __init__(self, ddg_repo: DDG_repo, mutations: Union[str, List[str]]):
         """
@@ -61,8 +71,8 @@ class DDG_cartesian(DDG_base):
         # Set the binary filenames in one place and make sure we have them before we start
 
         # self._relax_application_filename = 'relax.default.linuxgccrelease'
-        self._relax_application_filename = 'rosetta_scripts.default.linuxgccrelease'
-        self._ddg_cartesian_application_filename = 'cartesian_ddg.default.linuxgccrelease'
+        self._relax_application_filename = 'rosetta_scripts.static.linuxgccrelease'
+        self._ddg_cartesian_application_filename = 'cartesian_ddg.static.linuxgccrelease'
         # self._ddg_cartesian_application_filename = 'rosetta_scripts.default.linuxgccrelease'
 
         self._to_pdb = []
@@ -72,13 +82,14 @@ class DDG_cartesian(DDG_base):
         self._mutation_resids, self._rosetta_mutations, self._rosetta_residue_number_to_residue_xref = \
             self.mutations_to_rosetta_poses()
 
-        if not self._rosetta_mutations:
-            self._ddg_repo.psb_status_manager.sys_exit_failure(
-                "No rosetta numbered mutations found to match your request of %s" % self._mutations)
+        # Don't crash here because if the calc is not started, there wont be this part
+        # if not self._rosetta_mutations:
+        #     self._ddg_repo.psb_status_manager.sys_exit_failure(
+        #         "No rosetta numbered mutations found to match your request of %s" % self._mutations)
 
-        if len(self._rosetta_mutations) != 1:
-            self._ddg_repo.psb_status_manager.sys_exit_failure(
-                "Only 1 mutation can be specified in __init__ parameter mutations.  You supplied: %s" % self._mutations)
+        # if len(self._rosetta_mutations) != 1:
+        #     self._ddg_repo.psb_status_manager.sys_exit_failure(
+        #         "Only 1 mutation can be specified in __init__ parameter mutations.  You supplied: %s" % self._mutations)
 
         # Dump a LOT of stuff.
         LOGGER.debug("ddg_cartesian.__init__ completed after setting:\n%s" % pprint.pformat(self.__dict__))
@@ -372,8 +383,11 @@ endrepeat"""
                 # ]
 
                 # Try the new approach using Mover as described in 2020 paper
-                relax_command = [
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._relax_application_filename),
+                if self.container_prefix:
+                    relax_command = [self._relax_application_filename]
+                else:
+                    relax_command = os.path.join(self._ddg_repo.rosetta_bin_dir, self._relax_application_filename),
+                relax_command.extend([
                     "-in:file:s %s" % format(self._ddg_repo.cleaned_structure_filename),
                     # Not sure about this one: "-in:file:native %s"%format(self._ddg_repo.cleaned_structure_filename),
                     "-in:file:fullatom",
@@ -386,9 +400,11 @@ endrepeat"""
                     "-nstruct 20",
                     "-fa_max_dis 9",
                     "-relax:cartesian true",
-                    "-multiple_processes_writing_to_one_directory"]
+                    "-multiple_processes_writing_to_one_directory"
+                    ])
 
                 return_code, stdout, stderr, runtime = self._run_command_line_terminate_on_nonzero_exit(
+                    self.container_prefix,
                     relax_command)
                 # additional_files_to_archive=[minimized_pdb_filename])
 
@@ -504,8 +520,11 @@ endrepeat"""
                 # "/dors/capra_lab/users/mothcw/ddg_cartesian/FrenzReconstruction/pdbs/%s_%s.pdb"%(
                 #    self._ddg_repo.structure_id.upper(),self._ddg_repo.chain_id)
                 # LOGGER.warning("DO NOT CHECK THIS ABOVE IN OVERRIDE OF STRUCT TO %s",min_scoring_relaxed_pdb)
-                ddg_cartesian_command = [
-                    os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename),
+                if self.container_prefix:
+                    ddg_cartesian_command = [self._ddg_cartesian_application_filename]
+                else:             
+                    ddg_cartesian_command = [os.path.join(self._ddg_repo.rosetta_bin_dir, self._ddg_cartesian_application_filename)]
+                ddg_cartesian_command.extend([
                     "-database %s" % self._ddg_repo.rosetta_database_dir,
                     "-s %s" % min_scoring_relaxed_pdb,  # The lowest scoring pdb produced by relax
                     "-ddg::iterations 3",
@@ -527,10 +546,11 @@ endrepeat"""
                     "-ddg:legacy false"
                     # "-ddg:cartesian",
                     # "-detect_disulf false",
-                ]
+                ])
 
                 # stdout, stderr, runtime
                 returncode, _, _, _ = self._run_command_line_terminate_on_nonzero_exit(
+                    self.container_prefix,
                     ddg_cartesian_command,
                     additional_files_to_archive=["Need to list there here"])
 

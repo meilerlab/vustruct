@@ -2,11 +2,13 @@
 #
 # vustruct_webdate
 #
-# A second flask program which
-# - runs local alongside the wordpress server and
+# A companion flask program to vustruct_flask which
+# - runs local on/alongside the wordpress server and
 # - implements RESTAPI calls which:
 #   1. record case identifiers which are in process
 #   2. rebuild local websites in file system from emerging vustruct .tar.gz files
+#      This involves a "tar xvf" from the created report source file, and a
+#      move of the unpacked website to a final resting place which is CASE_URL_BASE/case_uuid/case_id
 #
 # For now, set the CASE...BASE directories in the lines below
 from __future__ import annotations
@@ -14,7 +16,10 @@ from __future__ import annotations
 import uuid
 import threading
 
+# The final destination base URL that the user navigates to
 CASE_URL_BASE="https://staging.meilerlab.org/vustruct"
+
+# The filesystem location that corresponds to CASE_URL_BASE
 CASE_FILESYSTEM_BASE="/var/www/staging.meilerlab.org/vustruct"
 VUSTRUCT_FLASK="https://api.vgi01.accre.vanderbilt.edu"
 
@@ -111,10 +116,9 @@ app.logger.info("Created Flask app")
 assert app.logger.getEffectiveLevel() == logging.DEBUG
 
 
-# UDN="/dors/capra_lab/users/mothcw/VUStruct/"
 UDN = os.getenv("UDN")
 if not UDN:
-    errormsg = "UDN environment variable must be defined before launch of %s" % UDN
+    errormsg = "UDN environment variable (parent to the run cases) must be defined before launch of %s" % UDN
     sys.exit(errormsg)
 
 
@@ -314,7 +318,11 @@ document.body.style.cursor = 'wait';
     app.logger.info("/create_placeholder_webpage: returning %s", create_placeholder_webpage_return)
     return create_placeholder_webpage_return
 
-def xfer_to_web_thread(case_needing_refresh) -> subprocess.CompletedProcess:
+def xfer_to_web_thread(case_needing_refresh: dict) -> subprocess.CompletedProcess:
+    """
+    When the companion vustruct_flask restapi tells us that one of its monitored cases has a refreshed website, then
+    we (vustruct_webupdate here) must update the user-facing website in a two step process
+    """
     app.logger.info("Updating website for case: %s  case_uuid: %s", case_needing_refresh['case_id'], case_needing_refresh['case_uuid'])
 
     # app.logger.info("Copying to live web: %s", case_needing_refresh)
@@ -324,7 +332,7 @@ def xfer_to_web_thread(case_needing_refresh) -> subprocess.CompletedProcess:
         case_needing_refresh['case_id'],
         case_needing_refresh['case_uuid'])
     tar_filename = os.path.join(
-                   case_needing_refresh['working_directory'],
+                   case_needing_refresh['case_directory'],
                    "%s.tar.gz" % internal_case_name)
 
     # open file
@@ -364,7 +372,8 @@ def xfer_to_web_thread(case_needing_refresh) -> subprocess.CompletedProcess:
 def refresh_case_websites():
     # Go fetch the cases that our vustruct_flask application is managing, and which have just
     # run psb_rep.py
-    # app.logger.info("In refresh_case_websites()")
+    app.logger.info("In refresh_case_websites()")
+ 
     cases_needing_refresh = requests.get(
         os.path.join(VUSTRUCT_FLASK,'cases_needing_website_refresh'),
         headers={'Authorization': 'vustruct_password'}
