@@ -40,10 +40,6 @@ from typing import Dict
 from psb_shared import psb_config
 from psb_shared.psb_progress import PsbStatusManager
 
-from lib import PDBMapTranscriptUniprot
-from lib import PDBMapAlphaFold
-
-
 #=============================================================================#
 ## Function Definitions ##
 try:

@@ -155,6 +155,8 @@ with open(fasta_fullpath,'w') as fasta_f:
 singularity_command_list = [
     'singularity',
     'exec',
+    '--bind',
+    '/dors/capra_lab',
     '/dors/capra_lab/users/mothcw/VUStruct/musitedeep.simg',
     '/bin/bash']
 
@@ -322,18 +324,18 @@ for af_near_res_id in af_sorted_near_ptm_residues:
     ptm_dict_for_near_residue = ptm_predictions_dict[af_near_res_id[1]+model_seq_start-1]
     for ptm_type in ptm_dict_for_near_residue:
         ptm_neighborhood_row = {
-            'unp': args.unp,
-            'Native Residue': trans_mut_pos,
-            'PTM Residue': model_seq_start+af_near_res_id[1]-1,
-            'PTM Type': ptm_type,
-            'PTM Probability': ptm_dict_for_near_residue[ptm_type]
+            'unp': [args.unp],
+            'Native Residue': [trans_mut_pos],
+            'PTM Residue': [model_seq_start+af_near_res_id[1]-1],
+            'PTM Type': [ptm_type],
+            'PTM Probability': [ptm_dict_for_near_residue[ptm_type]]
             }
-    ptm_neighborhood_df = ptm_neighborhood_df.append(ptm_neighborhood_row, ignore_index=True)
+        ptm_neighborhood_df = pd.concat([ptm_neighborhood_df, pd.DataFrame(ptm_neighborhood_row)], ignore_index=True)
     LOGGER.info("Nearby res AF%s: %s" % (af_near_res_id, ptm_predictions_dict[af_near_res_id[1]+model_seq_start-1]))
 
 print("Compare to ALL AF predictions")
 for all_res in af_ptm_predicted_residues:
-    LOGGER.info("%s: %s" % (all_res.id, ptm_predictions_dict[1+all_res.id[1]-model_seq_start]))
+    LOGGER.info("transcript %s = AF %s: %s" % (all_res.id, model_seq_start-1 + all_res.id[1], ptm_predictions_dict[model_seq_start-1 + all_res.id[1]]))
 
 
 ptm_neighborhood_filename = os.path.join(args.outdir,"PTM_neighborhood.csv")

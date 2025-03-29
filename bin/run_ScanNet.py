@@ -222,7 +222,7 @@ else: # We're running musite deep as usual
     container_stdin_list = [
        'PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
        'cd /ScanNet',
-       'export PYTHONPATH=/ScanNet/$PYTHONPATH',
+       'export PYTHONPATH=/ScanNet:$PYTHONPATH',
        'python3 /dors/capra_lab/users/mothcw/psbadmin/external_apps/ScanNet/predict_bindingsites.py %s --noMSA --predictions_folder %s --mode interface' % (
                   alphafold_local_pdb,
                   args.outdir)
