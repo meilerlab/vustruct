@@ -192,7 +192,11 @@ LOGGER.debug('PATH=%s', os.getenv('PATH'))
 LOGGER.debug('PERL5LIB=%s', os.getenv('PERL5LIB'))
 
 from Bio.Align import substitution_matrices
-from Bio.PDB.PDBExceptions import PDBIOException
+try: # FIX VEP HACK LATER (see issue #107)
+    from Bio.PDB.PDBExceptions import PDBIOException
+except Exception:
+    pass
+
 # Use BLOMSUM90 (90% is quite high similarity and most appropriate for us)
 blosum90_raw = substitution_matrices.load("BLOSUM90")
 blosum90 = {}
@@ -1899,7 +1903,14 @@ if __name__ == "__main__":
                 prior_variant_count = len(_variant_set._variants)
 
                 # See if we can get some variants from the source Gnomad vcf files
-                pdbmap_gnomad = PDBMapGnomad(config_dict)
+                # FIX VEP HACK later - see #107
+                gnomad_vep_config_dict = config_dict
+                if os.path.exists("/ensembl"): # Then we are in a container - and we have to hack the dictionary
+                    gnomad_vep_config_dict = config_dict.copy() # Shallow copy is fine!
+                    gnomad_vep_config_dict['vep']='/ensembl/ensembl-vep/vep'
+                    gnomad_vep_config_dict['vep_db_version']='105'
+             
+                pdbmap_gnomad = PDBMapGnomad(gnomad_vep_config_dict)
                 for enst_transcript in ensembl_transcripts:
                     vep_echo_filename = os.path.join(args.outdir, "%s_vep_results.vcf" % enst_transcript.id)
                     LOGGER.info(
