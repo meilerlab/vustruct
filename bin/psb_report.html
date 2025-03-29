@@ -190,6 +190,41 @@ img {
 }
 </style>
 
+<script type="text/javascript" id="js">
+	$(document).ready(function() {
+	// call the tablesorter plugin
+		// $("table").tablesorter();
+
+		// hide child rows
+		$('.tablesorter-childRow').hide().css("background-color","Azure");
+
+		// Show the chevron for opened rows.
+        $('tr:not(.tablesorter-childRow) td svg.bi-chevron-right').show()
+        $('tr:not(.tablesorter-childRow) td svg.bi-chevron-down').hide()
+
+
+
+	  $(".tablesorter")
+		.tablesorter({
+		  theme : 'blue',
+		  // this is the default setting
+		  // cssChildRow: "tablesorter-childRow"
+		})
+
+	  $('.tablesorter').delegate('.toggle', 'click' ,function() {
+
+		  // use "nextUntil" to toggle multiple child rows
+		  // toggle table cells instead of the row
+		  $(this).closest('tr').nextUntil('tr:not(.tablesorter-childRow)').toggle();
+          $(this).closest('tr').find("svg.bi-chevron-right").toggle();
+          $(this).closest('tr').find("svg.bi-chevron-down").toggle();
+
+          return false;
+	  });
+});
+</script>
+
+
 </head>
 
 
@@ -739,8 +774,7 @@ img {
                         </svg>
                     </td>
 
-        <td>{{ structure_calculation_log.method }}</td>
-        <td>{{ structure_calculation_log.structure_id }}</td>
+        <td>{{ structure_calculation_log.method }} {{ structure_calculation_log.structure_id }}</td>
         <td>{{ structure_calculation_log.mers }} </td> 
         <td>{{ structure_calculation_log.chain_id }}</td>
         <td />
