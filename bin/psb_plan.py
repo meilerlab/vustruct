@@ -317,7 +317,7 @@ LOGGER.debug("Loading done")
 # if (not io):
 #  io = PDBMapIO(config_dict['dbhost'],config_dict['dbuser'],config_dict['dbpass'],config_dict['dbname']) # ,slabel=args.slabel)
 
-def repr_subset(ci_df_excerpt):
+def repr_subset(ci_df_excerpt: pd.DataFrame) -> pd.DataFrame:
     """Discard models and pdbs that duplicate sequence coverage
        and prioritize pdbs over models.  Note, the way this is called, this is
        not really happening."""
@@ -347,7 +347,7 @@ def repr_subset(ci_df_excerpt):
         #     (not cov or len(set(s_cov).intersection(cov))/float(len(s_cov))<0.1)):
         if True:
             # deprecated nr_cov = nr_cov.append(row)
-            nr_cov = pd.concat([nr_cov,pd.DataFrame([row])],ignore_index=True)
+            nr_cov = pd.concat([nr_cov,pd.DataFrame([row]).astype(tdf.dtypes.to_dict())],ignore_index=True)
             # Add the sequence range to the cumulative coverage
             cov |= set(s_cov)
             template_set |= {template_pdb}
@@ -433,7 +433,6 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
     if flavor in ["MusiteDeep", "ScanNet"] and job['pdbid'] == 'N/A':
-        # import pdb; pdb.set_trace()
         job['uniquekey'] = "%s_%s_%s_%s" % (
             job['gene'], job['refseq'], job['unp'], flavor)
         job['outdir'] = os.path.join(params['mutation_dir'],flavor)
@@ -732,7 +731,7 @@ def plan_one_mutation(index: int,
             self.trans_mut_pos = None  # The 1..len(transcript) transcript position of the mutation site of interest
             self.trans_first_aligned = None  # The 1..len(transcript) transcript position of the first aligned amino acid
             self.trans_last_aligned = None  # The 1..len(transcript) transcript position of the last aligned amino acid
-            self.ddg_quality = None  # Set to true if ddg quality checks are passed on this chain
+            self.ddg_quality = False  # Set to true if ddg quality checks are passed on this chain
 
         def __str__(self):
             return str(vars(self))
@@ -776,6 +775,14 @@ def plan_one_mutation(index: int,
                     self.analyzable = 'No'
 
                 resid = alignment.seq_to_resid.get(self.trans_mut_pos, None)
+                residue_3d = None
+                if resid:
+                    residue_3d = structure[0][self.chain_id][resid]
+                    if residue_3d.get_resname() == 'UNK': # 7ktr.pdb has all these UNK residues.  
+                        # If the experimentalist does not know what the residue is, we should not 
+                        # trust it!We should skip structures that are not 
+                        LOGGER.warning("UNKnown residue 'UNK' is at chain %s:%s.  Skipping", self.chain_id,resid)
+                        resid = None   # Fall through, in this rare case, to resid not being there at all
 
                 if resid:
                     self.continuous_to_left = 0
@@ -785,7 +792,6 @@ def plan_one_mutation(index: int,
                     # It is wonderful to have a resolved resdiue in the 
                     # deposited structure.  BUT, rosetta will still have trouble
                     # if the side chain is missing
-                    residue_3d = structure[0][self.chain_id][resid]
                     if self.method.find('SOLUTION SCATTERING') > -1:
                        self.analyzable = 'No'
                     chain_aa_letter = seq1(residue_3d.get_resname().lower())
