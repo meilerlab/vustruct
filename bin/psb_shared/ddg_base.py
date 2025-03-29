@@ -129,7 +129,7 @@ class DDG_base(object):
         return mutation_resids,rosetta_mutations,rosetta_residue_number_to_residue_xref
 
     @staticmethod
-    def evaluate_swiss(swiss_modelid, swiss_remark3_metrics):
+    def evaluate_swiss(swiss_modelid: str, swiss_remark3_metrics: str) -> bool:
         """Swiss models are assumed to be of reasonable fundamental quality.
            We just  check for sequence id >= 40 and move on
 
@@ -292,7 +292,8 @@ class DDG_base(object):
             LOGGER.info("Previous successful run found\n.  NOT re-running:\n%s" % (
                 binary_program_basename))
         else:
-            LOGGER.warning("Previous run did not exit with code 0\n.  Re-running:\n%s" % (
+            LOGGER.warning("Previous run did not exit with code 0 in %s\n.  Re-running:\n%s" % (
+                exitcd_filename,
                 binary_program_basename))
 
         return (previous_exit_int,
@@ -300,7 +301,8 @@ class DDG_base(object):
                 previous_stderr)  # runtime 0 may or may not be quite right
 
     def _run_command_line_terminate_on_nonzero_exit(self,
-                                                    command_line_list: List[str],
+                                                   container_prefix_list: List[str], 
+                                                   command_line_list: List[str],
                                                    additional_files_to_archive: List[str] = [],
                                                    force_rerun=False) -> Tuple[int, str, str, float]:
         """
@@ -332,7 +334,7 @@ class DDG_base(object):
         # split back apart...
         # We may get bitten at some point because some of our arguments are actually 2 arguments
         # separated by a space.  For now...
-        submitted_command_line_list = []
+        submitted_command_line_list = container_prefix_list # Usually apptainer with a bind statement, or just []
         for arg_with_spaces in command_line_list:
             submitted_command_line_list.extend(arg_with_spaces.split(' '))
 
@@ -443,6 +445,24 @@ class DDG_base(object):
                 previous_exit = exitcd_record.read()
                 if previous_exit:
                     previous_exit = previous_exit.split()[0]
+
+        # Terrible hack start
+        if previous_exit == None: # We shuld look for a previous static or default exit code
+            exitcd_filename_try2 = None
+            default_pos = exitcd_filename.find('.default.linuxgccrelease.exit')
+            if default_pos != -1:
+                exitcd_filename_try2 = exitcd_filename[0:default_pos] + '.static.linuxgccrelease.exit'
+            else:
+                static_pos = exitcd_filename.find('.static.linuxgccrelease.exit')
+                if static_pos != -1:
+                    exitcd_filename_try2 = exitcd_filename[0:static_pos] + '.default.linuxgccrelease.exit'
+            if exitcd_filename_try2:
+                if os.path.isfile(exitcd_filename_try2):
+                    with open(exitcd_filename_try2, 'r') as exitcd_record:
+                        previous_exit = exitcd_record.read()
+                        if previous_exit:
+                            previous_exit = previous_exit.split()[0]
+
 
         previous_exit_int = 1
         if previous_exit:
