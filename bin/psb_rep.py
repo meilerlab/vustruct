@@ -45,6 +45,15 @@ from jinja2 import Environment, FileSystemLoader
 from io import StringIO
 import json
 
+import traceback
+
+def global_psb_rep_exception_handler(exc_type, exc_value, exc_traceback):
+    """If there is a major problem dring psb_rep report generation, we need to log that exception as the web page"""
+    logging.getLogger().info("Fail of psb_rep.py.  Exception: %s: %s", exc_type.__name__, exc_value)
+    traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+
+sys.excepthook = global_psb_rep_exception_handler
+
 # openpyxl supports creation of a case summary of summary
 # worksheet
 import openpyxl
@@ -125,6 +134,8 @@ cmdline_parser.add_argument("--refresh_interval_seconds", nargs='?', type=int, m
                             help="Set the interval in which the page should reload itself", default=0)
 cmdline_parser.add_argument("--seconds_remaining", nargs='?', type=int, metavar='int', 
                             help="Add text to let user know how much longer report re-generation will continue", default=0)
+cmdline_parser.add_argument("--user_message", type=str, nargs='?',
+                            help="Include a message to the user in the landing page, such as 'report generation complete'")
 cmdline_parser.add_argument("--tar_only",
                             help="Do NOT create a .zip output of the website, just .tar", action="store_true")
 cmdline_parser.add_argument("--strip_uuid", type=str, nargs='?',
@@ -411,9 +422,9 @@ case_summary_worksheet.title = args.web_case_id if args.web_case_id else args.pr
 case_summary_worksheet.name = "Summary"
 case_summary_headers = [
 "Gene","Uniprot ID","Variant", "ddG", "PathProx 3D hotspot vs Clinvar", "PathProx 3D hotspot vs COSMIC",
-"ScanNet PPI", "Alpha Missense", "Musite PTM", "Predicted Digenic Interactions","Worth pursuing?","side notes"]
+"COSMIS", "ScanNet PPI", "Alpha Missense", "Musite PTM", "Predicted Digenic Interactions","Worth pursuing?","side notes"]
 case_summary_worksheet.append(case_summary_headers)
-case_summary_worksheet_widths = [10,8,10,15,15,10,10,10,10,10,10,8]
+case_summary_worksheet_widths = [10,8,10,15,15,10,10,10,10,10,10,10,8]
 
 ddG_cartesian_worksheet = case_workbook.create_sheet("ddG Cartesian")
 ddG_monomer_worksheet = case_workbook.create_sheet("ddG Monomer")
@@ -512,6 +523,24 @@ class variant_isoform_helper:
     We can encapsulate all of this better in future, with a new variant_isoform_summary class...
 
     """
+    @staticmethod
+    def min_max_cosmis(variant_isoform_summaries: list[dict]) -> tuple[float, float]:
+        min_cosmis_score = min(
+            [variant_isoform_summary['cosmis_score'] for variant_isoform_summary in
+             variant_isoform_summaries \
+             if 'cosmis_score' in variant_isoform_summary and variant_isoform_summary[
+                 'cosmis_score'] is not None],
+            default=None)
+
+        max_cosmis_score = max(
+            [variant_isoform_summary['cosmis_score'] for variant_isoform_summary in
+             variant_isoform_summaries \
+             if 'cosmis_score' in variant_isoform_summary and variant_isoform_summary[
+                 'cosmis_score'] is not None],
+            default=None)
+
+        return min_cosmis_score, max_cosmis_score
+
     @staticmethod
     def min_max_alphamissense(variant_isoform_summaries: list[dict]) -> tuple[float, float]:
         min_alphamissense_score = min(
@@ -635,7 +664,12 @@ def write_case_website_tar_zip(case_summary_filename):
         website_tar_filename = "%s.tar.gz" % args.projectORstructure
         tar_transformer = ''
         if args.strip_uuid:
-            # We are replaceing the very complex uuid-embedded heirarchy filenames with user-friendly casename
+            # Without some post processing, Some filenames stored in the website will contain the full uuid, where we only want the
+            # caseID in the file name
+            # We "want" this in the end:
+            #    external_user_EMAILTEST_18f99df6-6880-44b0-86c6-da5c606e8c18/EMAILTEST.html
+            # but the original component filename must be transformed from this:
+            #    external_user_EMAILTEST_18f99df6-6880-44b0-86c6-da5c606e8c18/external_user_EMAILTEST_18f99df6-6880-44b0-86c6-da5c606e8c1.html
             case_id = args.web_case_id
             uuid = args.strip_uuid
             search_string = f"/external_user_{case_id}_{args.strip_uuid}"
@@ -970,6 +1004,11 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                          'disease2_pp Max'] is not None],
                     default=None)
 
+                _min_cosmis_score, _max_cosmis_score = \
+                    variant_isoform_helper.min_max_cosmis(variant_isoform_summaries)
+                genome_header['cosmis_score'] = \
+                    _format_min_max(_min_cosmis_score, _max_cosmis_score, 1)
+
                 _min_alphamissense_score, _max_alphamissense_score = \
                     variant_isoform_helper.min_max_alphamissense(variant_isoform_summaries)
 
@@ -1214,6 +1253,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                            'genome_headers': genome_headers,
                            'early_or_fail_message': early_or_fail_message,
                            'refreshFlag': args.embed_refresh,
+                           'user_message': args.user_message,
                            'refresh_interval_seconds': args.refresh_interval_seconds,
                            'seconds_remaining': args.seconds_remaining,
                            'vus': vustruct,
@@ -1287,6 +1327,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 _format_min_max(vis['ddG Cartesian Min'],vis['ddG Cartesian Max']),
                 _format_min_max(vis['disease1_pp Min'],vis['disease1_pp Max']),
                 _format_min_max(vis['disease2_pp Min'],vis['disease2_pp Max']),
+                vis['cosmis_score'],
                 _format_min_max(_min_ScanNetPPI,_max_ScanNetPPI,0,True),
                 vis['alphamissense_score'],
                 _format_min_max(_min_MusiteDeepPTM,_max_MusiteDeepPTM,0,True)]
@@ -1355,6 +1396,7 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
                 _format_min_max(gh['ddG Cartesian Min'],gh['ddG Cartesian Max']),
                 _format_min_max(gh['disease1_pp Min'],gh['disease1_pp Max']),
                 _format_min_max(gh['disease2_pp Min'],gh['disease2_pp Max']),
+                gh['cosmis_score'],
                 gh['ScanNetPPI'],
                 _format_min_max(_min_alphamissense_score, _max_alphamissense_score),
                 gh['MusiteDeepPTM']]
