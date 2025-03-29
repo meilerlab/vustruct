@@ -243,9 +243,11 @@ def report_one_variant_one_isoform(project: str,
                            workstatus_row_dict['gene'],
                            workstatus_row_dict['refseq'],
                            workstatus_row_dict['mutation'])
+
+                    
                     slurm_output_file = os.path.join(
                         './slurm',
-                        workstatus_row_dict['flavor'],
+                        "PathProx" if "PP" in workstatus_row_dict['flavor'] else workstatus_row_dict['flavor'],
                         'stdout',
                         '%s_%d' % (
                            gene_refseq_mutation,
@@ -256,6 +258,7 @@ def report_one_variant_one_isoform(project: str,
                         slurm_output_file += '_%s' % int(float(workstatus_row_dict['arrayid']))
                     slurm_output_file += '.out'
                     workstatus_row_dict['outputfile'] = slurm_output_file
+                    # LOGGER.info("LOG FILE APPENDING: getcwd:%s\ngene_refseq_mutation: %s\nslurm_output_file: %s", os.getcwd(), gene_refseq_mutation,slurm_output_file)
                     website_filelist.append(os.path.join(".",gene_refseq_mutation,slurm_output_file))
 
                     structure['workstatuses'].append(workstatus_row_dict)
@@ -373,6 +376,7 @@ def report_one_variant_one_isoform(project: str,
     variant_isoform_summary['Error'] = ''  # < This is False for truth but looks fine on the report
     variant_isoform_summary['ddG Monomer Max'] = variant_isoform_summary['ddG Monomer Min'] = None
     variant_isoform_summary['ddG Cartesian Max'] = variant_isoform_summary['ddG Cartesian Min'] = None
+    variant_isoform_summary['cosmis_score'] = None
     variant_isoform_summary['disease1_pp Min'] = variant_isoform_summary['disease1_pp Max'] = None
     variant_isoform_summary['disease2_pp Min'] = variant_isoform_summary['disease2_pp Max'] = None
     variant_isoform_summary['MusiteiDeepPTM'] = None
@@ -432,6 +436,10 @@ def report_one_variant_one_isoform(project: str,
 
     if alphamissense_score: 
         variant_isoform_summary['alphamissense_score'] = alphamissense_score 
+
+    # Elements in the dict could be: 'cosmis': -1.6599, 'cosmis_pvalue': 0.05709, 'cossyn': -0.8192, 'str_source': 'SWISS-MODEL'
+    if cosmis_dict and uniprot_id in cosmis_dict and 'cosmis' in cosmis_dict[uniprot_id]:
+        variant_isoform_summary['cosmis_score'] = float(cosmis_dict[uniprot_id]['cosmis'])
 
     return variant_isoform_summary, variant_isoform_details, website_filelist
 
