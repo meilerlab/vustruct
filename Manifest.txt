@@ -328,12 +328,3 @@ SQL server.
 
 The ultimate test is perhaps whether you can "parse_udn_report.py" to get a pipeline run going.  Watch for vep launch errors, or empty missense output files
 
-
-7) Loading the SQL database
-
-7a) The Pipeline uses the Ensembl PERL API, which access both large cache files (--cache in vep) and a SQL database that you must download, and prepare with a variety of mysqlimport commands.
-
-In theory, you _can_ redirect youf ENSEMBL_REGISTRY file to ensembl's internet-open SQL servers.  In practice, these are excrutiatingly slow.
-
-Full instructions are here:
-
