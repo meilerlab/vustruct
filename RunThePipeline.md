@@ -1,5 +1,7 @@
-# PSB Pipeline V2.2,  2019-02-25 update
-### Use this documentation after README.md and performing setups in the Manifest.txt file
+# VUStruct Pipeline V3.0,  2025-04-01 update
+### CAUTION: This end user documentation is only for the command line back-end interface at Vanderbilt's ACCRE cluster
+
+The functions described here are all automated and managed through the [VUSTruct](https://www.meilerlab.org/VUStruct) front end.
 
 ## Quick Rampup
 ### Prep, Parse, Plan, Launch, Monitor, Report  
