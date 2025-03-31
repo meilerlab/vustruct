@@ -18,3 +18,5 @@ This repository is maintained by
 
 
 See [Manifest.txt](./Manifest.txt) for tips on creating a dynamic development environment pre-containerization
+
+Singularity container images are [available for download](https://www.meilerlab.org/VUStruct/containers)
