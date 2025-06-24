@@ -24,6 +24,15 @@ Launch the inference module of PeSTo by supplying commad line settings as descri
 in the help
 """
 
+from enum import Enum
+
+class ResidueInteractionType(Enum):
+    PROTEIN = 0
+    DNA_RNA = 1
+    ION     = 2
+    LIGAND  = 3
+    LIPID   = 4
+
 import os
 import sys
 import logging
@@ -202,6 +211,9 @@ LOGGER.debug("Dataset len = %d", len(dataset))
 
 # run model on all subunits
 with pt.no_grad():
+    max_interaction_type = max([interaction_type.value for interaction_type in ResidueInteractionType])
+    min_interaction_type = min([interaction_type.value for interaction_type in ResidueInteractionType])
+    assert min_interaction_type == 0
     for subunits, filepath in tqdm(dataset):
         # concatenate all chains together
         structure = concatenate_chains(subunits)
@@ -221,7 +233,9 @@ with pt.no_grad():
         z = model(X.to(args.pytorch_device), ids_topk.to(args.pytorch_device), q.to(args.pytorch_device), M.float().to(args.pytorch_device))
 
         # for all predictions
-        for i in range(z.shape[1]):
+        n_interaction_types = z.shape[1]
+        assert n_interaction_types == max_interaction_type + 1
+        for i in range(n_interaction_types):
             # prediction
             p = pt.sigmoid(z[:,i])
 
