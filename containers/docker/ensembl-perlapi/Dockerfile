@@ -39,7 +39,7 @@ RUN echo 'Building perl5 LIB' && \
      git clone https://github.com/Ensembl/ensembl-git-tools.git && \
      PATH=$PWD/ensembl-git-tools/bin:$PATH && \
      git ensembl --clone api && \
-     git ensembl --checkout --branch release/111 api && \
+     git ensembl --checkout --branch release/113 api && \
      wget https://github.com/bioperl/bioperl-live/archive/release-1-6-924.zip && \
      unzip release-1-6-924.zip && \
      rm release-1-6-924.zip && \
