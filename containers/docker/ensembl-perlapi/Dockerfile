@@ -3,6 +3,11 @@ FROM rockylinux:9
 # ENSEMBL has created a container for VEP, but strangely, not for the general PERL API
 # I have create this one from non-container install instructions at
 #  https://useast.ensembl.org/info/docs/api/api_installation.html
+#
+# On completition of the container build, the ensembl PERL code
+# is located at /opt/ensembl_perlapi of the container and
+# the four short VUStruct pipeline perl scripts are at
+# /opt/vustruct_perl
 
 ENV PATH="/opt/vustruct_perl:/opt/ensembl_perlapi/src:$PATH"
 ENV PERL5LIB=/opt/ensembl_perlapi/bioperl-1.6.924
@@ -35,7 +40,7 @@ RUN echo 'Building perl5 LIB' && \
      cpanm Try && \
      dnf -y install git && \
      mkdir /opt/ensembl_perlapi && \
-     cd /opt/vustruct_perl && \
+     cd /opt/ensembl_perlapi && \
      git clone https://github.com/Ensembl/ensembl-git-tools.git && \
      PATH=$PWD/ensembl-git-tools/bin:$PATH && \
      git ensembl --clone api && \
