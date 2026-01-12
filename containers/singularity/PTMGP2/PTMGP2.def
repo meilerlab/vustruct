@@ -1,6 +1,6 @@
-# 2025-06-20 Build a singularity container to run PeSTo
+# 2025-06-20 Build a singularity container to run PTMGP2
 #
-# The first layer is simply a conda starting point
+# The first layer is a  python 3.11 starting point that
 # which we obtain from dockerhub:
 Bootstrap:docker
 From: python:3.11.3
