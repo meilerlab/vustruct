@@ -593,7 +593,7 @@ if csv_rows:
             for CSQ in vcf_record.CSQ:
                 # Later _maybe_ we add inframe_deletion, inframe_insertion
                 # Note hard coding of effect below to missense, as well
-                if not 'missense' in CSQ['Consequence'].lower():
+                if (not CSQ['Consequence']) or (not 'missense' in CSQ['Consequence'].lower()):
                     continue
                 ensembl_transcript_id = CSQ['Feature']
                 uniprot_id_list = PDBMapProtein.enst2unp(ensembl_transcript_id)
