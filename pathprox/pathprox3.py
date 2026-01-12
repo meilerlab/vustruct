@@ -164,6 +164,9 @@ import inspect  # Update status with stack trace info if we crash
 
 # Warnings
 import warnings
+### DO NOT CHECK IN 2025 Sept kludge
+#  np.warnings = warnings
+### DO NOT CHECK IN 2025 Sept kludge
 
 # Removed October -> because built-in zscore chokes on sigma=0 from scipy.stats.mstats import zscore
 
@@ -1618,6 +1621,7 @@ if __name__ == "__main__":
                              "swiss_summary",
                              "rate4site_dir",
                              "cosmis_dir",
+                             "singularity_ensembl_perlapi",
                              "vep", "vep_cache_dir", "vep_assembly", "vep_db_version"]
 
     config, config_dict = psb_config.read_config_files(args, required_config_items)
@@ -1989,7 +1993,7 @@ if __name__ == "__main__":
     variants_DataFrame = pd.DataFrame()
 
     for (dcode, variant_set) in [(0, neutral_variant_sets), (1, pathogenic_variant_sets), (-1, candidate_variant_sets),
-                                 (np.NaN, quantitative_variant_weights)]:
+                                 (np.nan, quantitative_variant_weights)]:
         for transcript_id in variant_set:  # Careful, transcript_id could be None
             df = pd.DataFrame()
             if not transcript_id:
@@ -2000,7 +2004,7 @@ if __name__ == "__main__":
                 _complex_chain_count = len(list(complex.structure[0].get_chains()))
                 # df['chain'] _must_ come from a chain-override in the user input unless this is a single chain structure
                 if _complex_chain_count == 1 and len(df) and (
-                        df.iloc[0]['chain'] == None or df.iloc[0]['chain'] == np.NaN):
+                        df.iloc[0]['chain'] == None or df.iloc[0]['chain'] == np.nan):
                     df['chain'] = list(complex.structure[0].get_chains())[0].id
             else:  # Gather _all_ the chains associated with the transcript ID and map variants to all fo them
                 if transcript_id not in complex.transcript_to_chains:
@@ -2023,7 +2027,7 @@ if __name__ == "__main__":
                             break
             df['dcode'] = dcode
             # The quantitative weights are not right - and must be fixed
-            df['qt'] = np.NaN
+            df['qt'] = np.nan
 
             variants_DataFrame = pd.concat([variants_DataFrame, df], ignore_index=True)
 
