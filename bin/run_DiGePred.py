@@ -22,18 +22,9 @@ import plotly.io as pio
 import plotly.graph_objects as go
 import re
 
-#=============================================================================#
-## Function Definitions ##
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except KeyError:
-    capra_group = os.getegid()
-
 ch = logging.StreamHandler()
 LOGGER = logging.getLogger()
 LOGGER.addHandler(ch)
-
-
 
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
@@ -140,8 +131,8 @@ three_aa_to_one_aa = {'ALA': 'A',
                       }
 
 
-out_root_folder = '/dors/meilerlab/data/mukhes1/digepred/results'
-dependencies_location = '/dors/meilerlab/data/mukhes1/digepred/data'
+out_root_folder = '/nobackup/vgi/mothcw/data/mukhes1/digepred/results'
+dependencies_location = '/nobackup/vgi/mothcw/data/mukhes1/digepred/data'
 current_folder = os.getcwd()
 out_dir = ''
 
@@ -1938,6 +1929,7 @@ def make_json(df):
 
             if row in gene_to_mean_TPM_by_tissue_dict:
                 tpmsa = np.asarray(gene_to_mean_TPM_by_tissue_dict[row])
+                tpmsb = []
                 if np.sum(tpmsa) > 0:
                     tpmsa = tpmsa / np.sum(tpmsa)
                     if col in gene_to_mean_TPM_by_tissue_dict:
