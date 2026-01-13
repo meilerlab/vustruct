@@ -173,7 +173,7 @@ if not os.path.exists(args.config):
     LOGGER.critical("Global config file not found: " + args.config)
     sys.exit(1)
 
-required_config_items = ['output_rootdir', 'collaboration', 'ddg_config', 'rate4site_dir', 'cosmis_dir']
+required_config_items = ['output_rootdir', 'collaboration', 'ddg_config', 'rate4site_dir', 'cosmis_dir', 'chgrp_to']
 
 config, config_dict = psb_config.read_config_files(args, required_config_items)
 config_dict_shroud_password = {x: config_dict[x] for x in required_config_items}
@@ -266,21 +266,21 @@ def copy_html_css_javascript():
 
     # Now give read access to everyone, read-write to group, execute on directories
     try:
-        capra_group = grp.getgrnam('capra_lab').gr_gid
+        group_id = grp.getgrnam(config_dict['chgrp_to']).gr_gid
     except KeyError:
-        capra_group = os.getegid()
+        group_id = os.getegid()
 
     os.chmod(dest, 0o775)
-    os.chown(dest, -1, capra_group)
+    os.chown(dest, -1, group_id)
 
     for root, dirs, files in os.walk(dest):
         for dir in dirs:
             os.chmod(os.path.join(root, dir), 0o775)
-            os.chown(os.path.join(root, dir), -1, capra_group)
+            os.chown(os.path.join(root, dir), -1, group_id)
         for file in files:
             fname = os.path.join(root, file)
             os.chmod(fname, 0o664)
-            os.chown(os.path.join(fname), -1, capra_group)
+            os.chown(os.path.join(fname), -1, group_id)
 
 
 # Return a dictionary of "generic Interactions" that can flow into the summary report
