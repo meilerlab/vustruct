@@ -1,0 +1,55 @@
+# 2025-06-20 Build a singularity container to run PTMGP2
+#
+# The first layer is a  python 3.11 starting point that
+# which we obtain from dockerhub:
+Bootstrap:docker
+From: python:3.11.3
+
+%post
+    # apt update
+    # apt install cuda-toolkit
+    apt install vim
+    cd /opt
+
+    # Clone the repository
+    git clone https://github.com/pallucs/PTMGPT2.git
+
+    cd PTMGPT2
+
+    pip install numpy==1.26.4
+    pip install --upgrade pip
+    pip install transformers==4.29.2
+    # evaluate seems to need numpy < 2.x  We'll see!:w
+
+    pip install evaluate
+    pip install scikit-learn==1.2.2
+    # pip install torch==2.0.1
+    pip install torch==2.0.0+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+    pip install torchvision==0.15.0+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+
+%runscript
+    # exec /opt/conda/envs/$(head -n 1 environment.yml | cut -f 2 -d ' ')/bin/"$@"
+    date
+
+%environment
+    export CONTAINER_TYPE=Singularity
+    export PATH=/opt/PTMGP2:$PATH
+    export PYTHONPATH=/opt/PTMGP2:$PYTHONPATH
+
+%labels
+    MyLabel PeSTo
+    Author chris.moth@vanderbilt.edu
+    Version 1.0
+    CreationScripts https://github.com/meilerlab/vustruct/tree/master/containers
+
+# Container information/details returned by singularity run-help Rosetta3.7.sif
+%help
+  Singularity container to implement the PeSTo protein-interaction identification
+  algoritm 
+     https://www.nature.com/articles/s41467-023-37701-8
+
+     Krapp, L.F., Abriata, L.A., Cortés Rodriguez, F. et al. 
+     PeSTo: parameter-free geometric deep learning for accurate prediction of protein binding interfaces. 
+     Nat Commun 14, 2175 (2023). 
+
+   https://github.com/LBM-EPFL/PeSTo/tree/main

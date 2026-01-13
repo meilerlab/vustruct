@@ -27,8 +27,9 @@ class DDG_monomer(DDG_base):
     @property
     def container_prefix(self):
         return ['singularity', 'exec', 
-                '--bind', '/dors/capra_lab',
-                '/dors/capra_lab/users/mothcw/psbadmin/containers/singularity/rosetta3.7/Rosetta3.7_ddGMonomer.sif']
+                '--bind', '/home/resv146',
+                '--bind', os.path.dirname(os.path.dirname(os.path.dirname(os.getcwd()))),
+                '/home/resv146/containers/Rosetta3.7_ddGMonomer.sif']
 
     def _verify_applications_available(self) -> None:
         if self.container_prefix: # Then jus tmake sure the container is out there

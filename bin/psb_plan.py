@@ -332,6 +332,7 @@ def repr_subset(ci_df_excerpt: pd.DataFrame) -> pd.DataFrame:
     # Create the empty dataframe of minimally overlapping (quasi) structures
     # with the same column names and column types as the input
     nr_cov = pd.DataFrame(columns=tdf.columns).astype(tdf.dtypes.to_dict())
+    # import pdb; pdb.set_trace()
     cov = set([])
     template_set = set([])
     for _, row in tdf.iterrows():
@@ -433,6 +434,7 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
     if flavor in ["MusiteDeep", "ScanNet"] and job['pdbid'] == 'N/A':
+        # import pdb; pdb.set_trace()
         job['uniquekey'] = "%s_%s_%s_%s" % (
             job['gene'], job['refseq'], job['unp'], flavor)
         job['outdir'] = os.path.join(params['mutation_dir'],flavor)
@@ -454,6 +456,24 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     # too much detail LOGGER.debug(pprint.pformat(job))
     return pd.Series(job)
 
+def structure_designation_string(ci_row: dict, multimer: bool):
+    structure_designation = ''
+    if ci_row['label'] == 'usermodel':
+        # Pathprox will append args.label to include lots of other things, including the chain
+        structure_designation = "--usermodel=%s --label=%s " % (
+        ci_row['struct_filename'], ci_row['structure_id'])  # ,params['chain'])
+    if ci_row['label'] == 'alphafold':
+        structure_designation = "--alphafold=%s " % ci_row[
+            'structure_id']  # <- Pathprox will make label from this and --chain
+    elif ci_row['label'] == 'swiss':
+        structure_designation = "--swiss=%s " % ci_row[
+            'structure_id']  # <- Pathprox will make label from this and --chain
+    elif ci_row['label'] == 'modbase':
+        structure_designation = "--modbase=%s " % ci_row[
+            'structure_id']  # <- Pathprox will make label from this and --chain
+    else:
+        structure_designation = "--%s=%s " % ("biounit" if multimer else "pdb", ci_row['structure_id'].lower())
+    return structure_designation
 
 # Jobs for PathProx analyses
 def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> pd.DataFrame:
@@ -491,26 +511,10 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             params['diseaseArgument'] = pathprox_arguments[disease_1or2]
             params['neutralArgument'] = pathprox_arguments['neutral']
             pathprox_flavor = "PP_%s_%s" % ("complex" if multimer else "monomer", disease_variant_sql_label)
-            structure_designation = ''
-            if ci_row['label'] == 'usermodel':
-                # Pathprox will append args.label to include lots of other things, including the chain
-                structure_designation = "--usermodel=%s --label=%s " % (
-                ci_row['struct_filename'], ci_row['structure_id'])  # ,params['chain'])
-            if ci_row['label'] == 'alphafold':
-                structure_designation = "--alphafold=%s " % ci_row[
-                    'structure_id']  # <- Pathprox will make label from this and --chain
-            elif ci_row['label'] == 'swiss':
-                structure_designation = "--swiss=%s " % ci_row[
-                    'structure_id']  # <- Pathprox will make label from this and --chain
-            elif ci_row['label'] == 'modbase':
-                structure_designation = "--modbase=%s " % ci_row[
-                    'structure_id']  # <- Pathprox will make label from this and --chain
-            else:
-                structure_designation = "--%s=%s " % ("biounit" if multimer else "pdb", params['structure_id'].lower())
             pathprox_job_series = makejob(pathprox_flavor, "pathprox3.py", params,
                         ("-c %(config)s -u %(userconfig)s --variants='%(chain)s:%(transcript_variant)s' " +
                          "--chain%(chain)sunp='%(unp)s' " +
-                         structure_designation +
+                         structure_designation_string(ci_row, multimer) +
                          ("--chain='%s' " % ci_row['chain_id'] if not multimer else "") +
                          "%(diseaseArgument)s %(neutralArgument)s --radius=D " +
                          ## deprecated -> "--sqlcache=%(sqlcache)s " +
@@ -521,6 +525,8 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
             pathprox_jobs_to_run_df = pd.concat([pathprox_jobs_to_run_df,pd.DataFrame([pathprox_job_series])], ignore_index=True)
 
     return pathprox_jobs_to_run_df
+
+
 
 
 # 2021-09-28 Remove SequenceAnnotation calculations
@@ -535,11 +541,56 @@ def makejob_MusiteDeep(params: Dict[str, str]):
                    ("--config %(config)s --userconfig %(userconfig)s " +
                     "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
 
+def makejob_PeSTo(params: Dict[str, str], ci_row: Dict[str, str]):
+    options_string = (
+        "--config %(config)s --userconfig %(userconfig)s " +
+        "--chain%(chain)sunp='%(unp)s' " +
+        structure_designation_string(ci_row, False) + 
+         "--unp %(unp)s " + 
+         "--transcript_variant %(transcript_variant)s" # +
+         # Should not need a pdb_mutation as pdb is renumbered "--pdb_mutation %(pdb_mutation)s"
+        ) % params
+    return makejob("PeSTo","run_pesto.py", params, options_string)
+
+# Jobs for PeSTo 
+def makejobs_PesTo_df(params: Dict, mutation: str, ci_df: pd.DataFrame , multimer: bool = True) -> pd.DataFrame:
+    """
+    Select, for now, all monomeric structures for PeSTo processing
+    Maybe we do multimers later
+    """
+    pesto_jobs_to_run_df = pd.DataFrame()
+    _params = params
+    for index, ci_row in ci_df.iterrows():  # For each chain_info record...
+        if ci_row['mut_pdb_res'] and ci_row['mers'] == 'monomer':
+            _params = params.copy()  # Dont affect the dictionary passed in  Shallow copy fine
+            _params['method'] = ci_row['method']
+            _params['structure_id'] = ci_row['structure_id']
+            _params['struct_filename'] = ci_row['struct_filename'] if ci_row['struct_filename'] else ci_row[
+                'structure_id']
+            _params['chain'] = "%s" % ci_row[
+                'chain_id']  # Quote it in case the IDentifier is a space, as in many models
+            _params['mers'] = ci_row['mers']
+            _params['label'] = ci_row['label']
+            # Only launchain_id the udn_structure (ddG) script if there is mutation coverage
+            _params['pdb_mutation'] = (
+                    mutation[0] +
+                    str(int(ci_row['mut_pdb_res'])) +
+                    str(ci_row['mut_pdb_icode']).strip() +
+                    mutation[-1])
+            LOGGER.info("PeSTo calculations will be run at %s of %s" % (
+            _params['pdb_mutation'], _params['struct_filename']))
+            # deprecated: df_all_jobs = df_all_jobs.append(makejob_ddg_monomer(_params, ), ignore_index=True)
+            # deprecated: df_all_jobs = df_all_jobs.append(makejob_ddg_cartesian(_params, ), ignore_index=True)
+            pesto_jobs_to_run_df = pd.concat([pesto_jobs_to_run_df, pd.DataFrame([makejob_PeSTo(_params,ci_row, )])], ignore_index=True)
+
+    return pesto_jobs_to_run_df
+
+
 
 def makejob_ScanNet(params: Dict[str, str]):
     return makejob("ScanNet","run_ScanNet.py", params,
-                   ("--config %(config)s --userconfig %(userconfig)s " +
-                    "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
+               ("--config %(config)s --userconfig %(userconfig)s " +
+                "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
 
 
 def _makejob_either_ddg(ddgmonomer_or_cartesian, ddg_run_command, params):
@@ -553,9 +604,9 @@ def _makejob_either_ddg(ddgmonomer_or_cartesian, ddg_run_command, params):
     assert '%' not in structure_id_argument
 
     return makejob(ddgmonomer_or_cartesian, ddg_run_command, params,  # command
-                   ("--config %(config)s --userconfig %(userconfig)s " +
-                    "--%(label)s " + structure_id_argument + ' ' +
-                    "--chain %(chain)s --variant %(pdb_mutation)s") % params)  # options
+               ("--config %(config)s --userconfig %(userconfig)s " +
+                "--%(label)s " + structure_id_argument + ' ' +
+                "--chain %(chain)s --variant %(pdb_mutation)s") % params)  # options
 
 
 def makejob_ddg_monomer(params):
@@ -715,7 +766,7 @@ def plan_one_mutation(index: int,
             self.chain_id = None  # The .cif chain letter A/B/C.... possibly #s and lower letters for large cryoEM
             self.biounit = None  # Boolean to record whether a biounit file is available
             self.method = None  # X-RAY...  CRYO-EM, etc
-            self.resolution = np.NaN  # Resolution in Angtroms, method-specific.  Also resolution of model templates, if available
+            self.resolution = np.nan  # Resolution in Angtroms, method-specific.  Also resolution of model templates, if available
             self.deposition_date = None  # YYYY-MM-DD format
             self.biounit_chains = None  # count of chains in the biounit
             self.nresidues = None  # Number of residues in the biounit or structure
@@ -1277,16 +1328,6 @@ def plan_one_mutation(index: int,
         ci.chain_id = next(alphafold_structure[0].get_chains()).get_id()
         assert ci.chain_id not in [' ', '']
 
-        ci.alphafold_global_TMscore,local_confidence_scores = alphafold.pLDDTs(alphafold_mmCIF_dict)
-
-        ci.alphafold_residue_pLDDT = local_confidence_scores[trans_mut_pos - model_seq_start]
-        LOGGER.info("Alphafold Global Confidence: %0.2f, Local Confidence at %s/%s%d: %0.2f",
-                    ci.alphafold_global_TMscore,
-                    alphafold_mmCIF_dict['_entity_poly_seq.mon_id'][trans_mut_pos - model_seq_start],
-                    transcript.aa_seq[trans_mut_pos-1],
-                    trans_mut_pos,
-                    ci.alphafold_residue_pLDDT)
-
         ci.ddg_quality = True  # LATER DDG_base.evaluate_alphafold(StringIO(alphafold_structure_buffer),ci.struct_filename)
         if ci.ddg_quality:
             LOGGER.info("DDG monomer and DDG Cartesian will be attempted for alphafold model %s" % ci.structure_id)
@@ -1306,6 +1347,17 @@ def plan_one_mutation(index: int,
             LOGGER.critical("Alphafold Model %s fails to align to transcript - skipping.  Error:\n%s",
                             ci.structure_id, errormsg)
             return None
+
+        ci.alphafold_global_TMscore,local_confidence_scores = alphafold.pLDDTs(alphafold_mmCIF_dict)
+
+        ci.alphafold_residue_pLDDT = local_confidence_scores[trans_mut_pos - model_seq_start]
+        LOGGER.info("Alphafold Global Confidence: %0.2f, Local Confidence at %s/%s%d: %0.2f",
+                    ci.alphafold_global_TMscore,
+                    alphafold_mmCIF_dict['_entity_poly_seq.mon_id'][trans_mut_pos - model_seq_start],
+                    transcript.aa_seq[trans_mut_pos-1],
+                    trans_mut_pos,
+                    ci.alphafold_residue_pLDDT)
+
         ci.method = 'alphafold'
         ci.set_alignment_profile(alignment, alphafold_structure)
         # The very weird thing is that for alpha fold models, the residue ID
@@ -1388,7 +1440,7 @@ def plan_one_mutation(index: int,
                 LOGGER.warning("Deposition date %s apparently not YYYY-MM-DD", raw_deposition_date)
 
         resolution_keys = []
-        ci.resolution = np.NaN  # Not applicable is correct for NMR structures
+        ci.resolution = np.nan  # Not applicable is correct for NMR structures
         if ci.method == 'X-RAY DIFFRACTION':
             resolution_keys = ['_refine.ls_d_res_high', '_reflns.d_resolution_high', '_refine_hist.d_res_high']
             ci.method = 'X-RAY'
@@ -1967,9 +2019,14 @@ def plan_one_mutation(index: int,
     # df_all_jobs = df_all_jobs.append(makejob_udn_sequence(params),ignore_index=True)
 
     # 2023 Dec - integrate Container-based run of MusiteDeep from Alican for all sequences
-    df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_MusiteDeep(params, )])], ignore_index=True)
+    # This only works for canoinical variants because an AF structure is needed
+    # And sadly the code will plow through the calculation without care and say wrong things
+    # about non-canonical transcripts
+    if unp_is_canonical:
+        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_MusiteDeep(params, )])], ignore_index=True)
 
     # 2023 Dec - run ScanNet if this uniprot ID is canonical
+    # https://github.com/jertubiana/ScanNet/blob/main/README.md
     if unp_is_canonical:
         df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ScanNet(params, )])], ignore_index=True)
 
@@ -2016,6 +2073,9 @@ def plan_one_mutation(index: int,
                     # deprecated: df_all_jobs = df_all_jobs.append(makejob_ddg_cartesian(_params, ), ignore_index=True)
                     df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ddg_monomer(_params, )])], ignore_index=True)
                     df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_ddg_cartesian(_params, )])], ignore_index=True)
+
+            df_pesto_jobs = makejobs_PesTo_df(params, mutation, ci_df)
+            df_all_jobs = pd.concat([df_all_jobs,df_pesto_jobs],ignore_index = True)
 
         # Launch sequence and spatial jobs on a minimally overlapping subset of structures
         # These are the pathprox jobs, which take a lot longer

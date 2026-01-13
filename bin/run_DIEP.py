@@ -40,18 +40,13 @@ from typing import Dict
 from psb_shared import psb_config
 from psb_shared.psb_progress import PsbStatusManager
 
-#=============================================================================#
-## Function Definitions ##
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except KeyError:
-    capra_group = os.getegid()
+# from lib import PDBMapTranscriptUniprot
+# from lib import PDBMapAlphaFold
 
+# Initiate logging
 ch = logging.StreamHandler()
 LOGGER = logging.getLogger()
 LOGGER.addHandler(ch)
-
-
 
 log_format_string = '%(asctime)s %(levelname)-4s [%(filename)16s:%(lineno)d] %(message)s'
 date_format_string = '%H:%M:%S'
@@ -88,13 +83,8 @@ if args.debug:
     ch.setLevel(logging.DEBUG)
 
 required_config_items = [
-    "pdb_dir",
-    "modbase2020_dir",
-    "modbase2020_summary",
-    "alphafold_dir",
-    "modbase2020_dir",
-    "swiss_dir",
-    "swiss_summary"]
+    "singularity_images_dir"
+    ]
 
 config, config_dict = psb_config.read_config_files(args, required_config_items)
 
@@ -138,9 +128,9 @@ for gene in gene_list_with_possible_duplicates:
 
 
 singularity_command_list = [
-    'singularity',
+    'apptainer',
     'exec',
-    '/dors/capra_lab/users/mothcw/VUStruct/DIEP.simg',
+    os.path.join(config_dict['singularity_images_dir'],'DIEP.simg'])
     '/bin/bash']
 
 LOGGER.info("Job status directory: %s" % psb_status_manager.status_dir)

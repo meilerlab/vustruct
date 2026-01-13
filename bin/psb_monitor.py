@@ -286,6 +286,8 @@ def monitor_one_mutation(workstatus_filename: str, variant_header_str: str) -> d
             progress_file_found = False
             if "PP_" in workstatus_row['flavor']:
                 statusdir = os.path.join(workstatus_row['outdir'],workstatus_row['flavor'],"status")
+            elif "PeSTo" in workstatus_row['flavor']:
+                statusdir = os.path.join(workstatus_row['outdir'],workstatus_row['flavor'],"status")
             else: # For MusiteDeep and ScanNet we don't have an additional flavor directory
                 statusdir = os.path.join(workstatus_row['outdir'],"status")
             try:

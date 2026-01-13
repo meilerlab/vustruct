@@ -1,0 +1,48 @@
+# 2025-06-20 Build a singularity container to run PeSTo
+#
+# The first layer is simply a conda starting point
+# which we obtain from dockerhub:
+Bootstrap:docker
+From: rockylinux:9
+
+%post
+    dnf -y install which
+    dnf -y install python3.9
+    dnf -y install pip
+    dnf -y install git
+
+    cd /opt
+
+    # Clone the repository
+    git clone https://github.com/LBM-EPFL/PeSTo.git
+
+    cd PeSTo
+    pip install -r requirements.txt
+
+%runscript
+    # exec /opt/conda/envs/$(head -n 1 environment.yml | cut -f 2 -d ' ')/bin/"$@"
+    date
+
+%environment
+    export CONTAINER_TYPE=Singularity
+    export PATH=/opt/pesto:$PATH
+    export PYTHONPATH=/opt/pesto:$PYTHONPATH
+
+%labels
+    MyLabel PeSTo
+    Author chris.moth@vanderbilt.edu
+    Version 1.0
+    CreationScripts https://github.com/meilerlab/vustruct/tree/master/containers
+
+# Container information/details returned by singularity run-help Rosetta3.7.sif
+%help
+  Singularity container to implement the PeSTo protein-interaction identification
+  algoritm 
+     https://www.nature.com/articles/s41467-023-37701-8
+
+     Krapp, L.F., Abriata, L.A., Cortés Rodriguez, F. et al. 
+     PeSTo: parameter-free geometric deep learning for accurate prediction of protein binding interfaces. 
+     Nat Commun 14, 2175 (2023). 
+
+
+   https://github.com/LBM-EPFL/PeSTo/tree/main
