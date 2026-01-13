@@ -42,8 +42,10 @@ class DDG_cartesian(DDG_base):
     @property
     def container_prefix(self):
         return ['singularity', 'exec', 
-                '--bind', '/dors/capra_lab',
-                '/dors/capra_lab/users/mothcw/psbadmin/containers/singularity/rosetta3.13/Rosetta3.13_ddGCartesian.sif']
+                '--bind', '/home/resv146', 
+                '--bind', os.path.dirname(os.path.dirname(os.path.dirname(os.getcwd()))),
+                '/home/resv146/containers/Rosetta3.13_ddGCartesian.sif']
+                # '/dors/capra_lab/users/mothcw/psbadmin/containers/singularity/rosetta3.13/Rosetta3.13_ddGCartesian.sif']
 
     def _verify_applications_available(self):
         if self.container_prefix: # Then jus tmake sure the container is out there
