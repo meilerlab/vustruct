@@ -51,13 +51,6 @@ from lib import PDBMapTranscriptUniprot
 from lib import PDBMapAlphaFold
 
 
-#=============================================================================#
-## Function Definitions ##
-try:
-    capra_group = grp.getgrnam('capra_lab').gr_gid
-except KeyError:
-    capra_group = os.getegid()
-
 ch = logging.StreamHandler()
 LOGGER = logging.getLogger()
 LOGGER.addHandler(ch)
@@ -156,8 +149,8 @@ singularity_command_list = [
     'singularity',
     'exec',
     '--bind',
-    '/dors/capra_lab',
-    '/dors/capra_lab/users/mothcw/VUStruct/musitedeep.simg',
+    '/home/resv146/',
+    '/home/resv146/containers/musitedeep.simg',
     '/bin/bash']
 
 
