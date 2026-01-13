@@ -99,6 +99,7 @@ class CalculationResultsLoader:
         self.ddG_cartesian_results_dict_of_dfs = {}
         self.pathprox_disease1_results_dict_of_dfs = {}
         self.pathprox_disease2_results_dict_of_dfs = {}
+        self.pesto_predictions_dict_of_dfs = {}
         self.musite_deep_neighborhood_dict = {}
         self.scannet_prediction_dict = {}
 
@@ -410,6 +411,32 @@ class CalculationResultsLoader:
 
         return scannet_prediction_df, None
  
+    def load_PeSTo_dataframe(self, workplan_df_row: pd.Series) -> (pd.Series, str):
+        pesto_predictions_filename = os.path.join(workplan_df_row['outdir'], "PeSTo", "pesto_predictions.json")
+        LOGGER.info("Attempting PeSTo predictions load from %s", pesto_predictions_filename)
+        pesto_prediction_df = None
+        try:
+            with open(pesto_predictions_filename, 'r') as file:
+                # the petodict is two layers deep - for later expansion
+                pesto_dict = json.load(file)
+                # Note that keyerrors cause format error to output through exception
+                pesto_5_predictions = pesto_dict[workplan_df_row['mutation']]
+
+                # We will next have Series with PROTEIN, LIGAND_DNA, ION etc
+                pesto_series = pd.Series(pesto_5_predictions)
+
+                # Return a one row dataframe
+                pesto_prediction_df = pd.DataFrame(pesto_series).T
+
+                LOGGER.info("5 PeSTo predictions loaded from %s", pesto_predictions_filename)
+        except FileNotFoundError:
+            return None, "PeSTo predictions file not found: %s" % pesto_predictions_filename
+        except (ValueError, KeyError):
+            return None, "PeSTo predictions data in wrong format in files %s" % pesto_predictions_filename
+
+        # import pdb; pdb.set_trace()
+        return pesto_prediction_df, None
+ 
 
     def load_dataframes(self):
         """
@@ -471,7 +498,15 @@ class CalculationResultsLoader:
                     LOGGER.critical(msg)
                     sys.exit(msg)
 
-                if workstatus_row['flavor'].endswith(self._config_pathprox_dict['disease1_variant_sql_label']):
+                if workstatus_row['flavor'] == 'PeSTo':
+                    pesto_prediction_df,msg = self.load_PeSTo_dataframe(workstatus_row)
+                    if pesto_prediction_df is None:
+                        workstatus_row['Notes'] = msg
+                    else:
+                       self.pesto_predictions_dict_of_dfs[
+                            method_pdbid_chain_mers_tuple] = pesto_prediction_df.to_dict(orient='records')
+
+                elif workstatus_row['flavor'].endswith(self._config_pathprox_dict['disease1_variant_sql_label']):
                     pathprox_disease1_results_df, msg = self.load_Pathprox_results_dataframe(
                         workstatus_row, 'disease1')
                     if pathprox_disease1_results_df is None:
