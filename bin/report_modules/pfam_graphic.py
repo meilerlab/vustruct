@@ -87,6 +87,7 @@ class PfamDomainGraphics:
 
         domain_graphics_json = buffer.getvalue().decode('latin')
 
+        import pdb; pdb.set_trace()
         if len(domain_graphics_json) > 3 and domain_graphics_json[0] == '[':
             domain_graphics_json = domain_graphics_json[1:-1]
         elif domain_graphics_json[0] == '<':
@@ -112,7 +113,8 @@ class PfamDomainGraphics:
                 # Go for the web link because this is a canonical UNP - however that _can_ fail.
                 domain_graphics_legend = "Downloaded Pfam Domain Graphic for Canonical Isoform %s" % self.unp
                 LOGGER.info("Attempting download of Domain Graphics for %s from xfam.pfam" % self.unp)
-                domain_graphics_json = self._fetch_canonical_pfam_graphic_json_from_xfam(30)
+                # domain_graphics_json = self._fetch_canonical_pfam_graphic_json_from_xfam(30)
+                domain_graphics_json = None
                 if not domain_graphics_json:
                     LOGGER.info("Download returned nothing")
                     domain_graphics_legend = "Pfam Domain Graphic for Canonical Isoform %s" % self.unp
