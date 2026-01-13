@@ -450,8 +450,58 @@ img {
     </tbody>
 </table>
 </div>  <!-- End table of all structures at top of report -->
-
-
+<!-- Present the PreSTo resuilts in a provisional table -->
+<div class="container">
+<details>
+<summary>EVALUATION: PeSTo Results Click to expand</summary>
+<table cellspacing="1" class="tablesorter">
+    <thead>
+        <tr>
+            <th>Method</th>
+            <th>Structure Id</th>
+            <th>Multimer?</th>
+            <th>Chain</th>
+            <th>PDB<br />Template</th>
+            <th>PDB<br />Resolution</th>
+            <th>Template<br>Identity</th>
+            <th>Transcript<br>Identity</th>
+            <th>PeSTo<br>Protein</th>
+            <th>PeSTo<br>DNA/RNA</th>
+            <th>PeSTo<br>ION</th>
+            <th>PeSTo<br>Ligand</th>
+            <th>PeSTo<br>Lipid</th>
+        </tr>
+    </thead>
+    <tbody>
+            {% for structure in calculation_results.structure_graphics_dicts%} {#  structure_report_df_appended.iterrows() %} #}
+    {% set structure_key = ( structure.method, 
+        structure.structure_id, 
+        structure.chain_id, 
+        structure.mers) %}
+    {% if calculation_results.pesto_predictions_dict_of_dfs[structure_key] %}
+        {% set pesto_prediction =  calculation_results.pesto_predictions_dict_of_dfs[structure_key][0] %}
+    <tr>
+        <td>{{ structure.method }}</td>
+        {# <td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A> {{ structure.mers }} </td> #}
+        <td><A href="{{structure.structure_url}}">{{ structure.structure_id }}</A> </td> 
+        <td>{{ structure.mers }} </td> 
+        <td>{{ structure.chain_id }}</td>
+        <td>{{ structure.pdb_template }}</td>
+        <td>{{ structure.resolution }}</td>
+        <td>{{ structure.template_identity }}</td>
+        <td>{{ structure.perc_identity }}</td>
+        <td>{{ calculation_results.pesto_predictions_dict_of_dfs[(structure.method, structure.structure_id, structure.chain_id, structure.mers)][0]['PROTEIN'] }}</td>
+        <td>{{ pesto_prediction['DNA_RNA'] }}</td>
+        <td>{{ pesto_prediction['ION'] }}</td>
+        <td>{{ pesto_prediction['LIGAND'] }}</td>
+        <td>{{ pesto_prediction['LIPID'] }}</td>
+    </tr>
+    {% endif %}
+            {% endfor %}
+    </tbody>
+</table>
+</details>
+</div>
 
 <!-- Out put structure graphics, and details now for Each structure. -->
 	{% for structure in calculation_results.structure_graphics_dicts %}
