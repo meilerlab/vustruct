@@ -11,7 +11,6 @@
 #                : (output from psb_launch.py)
 # =============================================================================#
 
-
 """\
 Create final html and pdf reports for completed pipeline jobs from either
 a project id (ex. UDN123456) or a single workstatus.csv file output from psb_monitor.py
@@ -200,6 +199,37 @@ try:
 except Exception as ex:
     pass
 
+# Create a composite YAML file with all downloaded versions of all datasets
+import yaml
+consolidated_download_version_yamls = {}
+for config_section in config:
+    for config_key in config[config_section]:
+        if config_key.endswith('_dir'):
+            data_provider = config_key[:-4] # Example 'clinvar' is provider for data in 'clinvar_dir'
+            # if not data_provider in consolidated_download_version_yamls:
+            assert data_provider not in consolidated_download_version_yamls
+            consolidated_download_version_yamls[data_provider] = {}
+            yaml_file = os.path.join(config[config_section][config_key],"%s.yaml" % data_provider)
+            yaml_dict = {}
+            try:
+                with open(yaml_file, 'r') as f:
+                    yaml_data = yaml.safe_load(f)
+                    if isinstance(yaml_data,dict):
+                        yaml_dict = yaml_data
+                    else:
+                        yaml_dict = {'bad_yaml_data': yaml_data}
+
+            except Exception as e:
+                yaml_dict = {'yaml_read_failure': str(e)}
+            consolidated_download_version_yamls[data_provider] = yaml_dict
+            consolidated_download_version_yamls[data_provider]['yaml_file'] = yaml_file
+
+# Consolidate all the collected version YAML into a single string.  Output at end of report generation
+# This string will be output to the supplemental files area
+CONSOLIDATED_DOWNLOADED_VERSION_YAML = yaml.dump(consolidated_download_version_yamls, default_flow_style=False)
+
+            
+# print("%s" % consolidated_download_version_yamls)
 config_pathprox_dict = dict(config.items("PathProx"))
 LOGGER.info("Pathprox config entries:\n%s" % pprint.pformat(config_pathprox_dict))
 
@@ -451,7 +481,6 @@ def ddg_xref_add(variant_row, variant_isoform_details) -> None:
 
         ddG_xref[variant_key] = {}
         for struct_tuple, ddg_value in variant_isoform_details[ddG_monomer_or_cartesian].items():
-            # import pdb; pdb.set_trace()
             _method, _structure_id, _chain, _mers = struct_tuple
 
             ddG_xref[(variant_row['gene'],
@@ -581,7 +610,6 @@ class variant_isoform_helper:
     
     @staticmethod
     def min_max_MusiteDeepPTM(variant_isoform_summaries: list[dict]) -> tuple[float, float]:
-        # import pdb; pdb.set_trace()
         _musiteDeep_probabilities = []
         for variant_isoform_summary in variant_isoform_summaries:
             if 'MusiteDeepPTM' in variant_isoform_summary:
@@ -1461,6 +1489,12 @@ where Id_Type = 'GeneID' and unp = %(unp)s"""
     LOGGER.info("Saving PTM file: %s", _ptm_neighborhood_filename)
     ptm_df.to_csv(_ptm_neighborhood_filename, index=None)
     website_filelist.append(_ptm_neighborhood_filename)
+
+    _consolidated_yaml_filename = os.path.join(REPORT_FILES_DIRECTORY,"Database_versions_%s.yaml" % args.projectORstructure)
+    LOGGER.info("Saving YAML file to document source database versions: %s", _consolidated_yaml_filename)
+    with open(_consolidated_yaml_filename, "w") as text_file:
+        text_file.write(CONSOLIDATED_DOWNLOADED_VERSION_YAML)
+    website_filelist.append(_consolidated_yaml_filename)
 
     write_case_website_tar_zip(case_summary_filename)
 
