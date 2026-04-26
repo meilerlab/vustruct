@@ -1,3 +1,6 @@
+# ! DEPRECATED ! 
+Please see the standalone repo https://github.com/meilerlab/VUStructFlask for the current web front end flask module.
+
 # Web front end to vustruct
 This directory contains two python scripts which
 implement the bulk of a web front-end to the
