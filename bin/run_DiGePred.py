@@ -131,8 +131,8 @@ three_aa_to_one_aa = {'ALA': 'A',
                       }
 
 
-out_root_folder = '/nobackup/vgi/mothcw/data/mukhes1/digepred/results'
-dependencies_location = '/nobackup/vgi/mothcw/data/mukhes1/digepred/data'
+out_root_folder = '/data/p_csb_meiler/resv146/data/mukhes1/digiepred/results'
+dependencies_location = '/data/p_csb_meiler/resv146/data/mukhes1/digepred/data'
 current_folder = os.getcwd()
 out_dir = ''
 
