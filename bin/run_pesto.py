@@ -438,4 +438,6 @@ if __name__ == "__main__":
 
     LOGGER.info("PeSTo predictions for %s written to file %s", args.transcript_variant, pesto_predictions_filename)
         
+    psb_status_manager.mark_complete()
+    sys.exit(0)
 
