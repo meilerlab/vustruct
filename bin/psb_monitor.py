@@ -284,12 +284,12 @@ def monitor_one_mutation(workstatus_filename: str, variant_header_str: str) -> d
             # We dig down to the status directory outputs
             # The most reliable source of Exit=0 is the arrival of a completed file in the status directory
             progress_file_found = False
+            # statusdir is only slightly complex to find in case of the pathprox runs where there are 2 flavors
+            statusdir = os.path.join(workstatus_row['outdir'],"status")
             if "PP_" in workstatus_row['flavor']:
                 statusdir = os.path.join(workstatus_row['outdir'],workstatus_row['flavor'],"status")
-            elif "PeSTo" in workstatus_row['flavor']:
-                statusdir = os.path.join(workstatus_row['outdir'],workstatus_row['flavor'],"status")
-            else: # For MusiteDeep and ScanNet we don't have an additional flavor directory
-                statusdir = os.path.join(workstatus_row['outdir'],"status")
+            # elif "PeSTo" in workstatus_row['flavor']:
+            #     statusdir = os.path.join(workstatus_row['outdir'],workstatus_row['flavor'],"status")
             try:
                 with open("%s/progress"%statusdir) as progressfile:
                     status_text = progressfile.read().replace('\n','')
@@ -297,6 +297,7 @@ def monitor_one_mutation(workstatus_filename: str, variant_header_str: str) -> d
                         interesting_info['jobprogress'] = status_text
                         progress_file_found = True
             except FileNotFoundError as ex:
+                LOGGER.warning("status directory not created: %s", statusdir)
                 pass
  
             info_file_found = False
