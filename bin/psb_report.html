@@ -343,6 +343,35 @@ img {
 </div>
 
 <div class="container">
+{% if calculation_results.ptmgp2_neighborhood_dict %}
+<details>
+<summary>EVALUATION: PTMGP2 PTM Predictions.  Click to Expand</summary>
+    <h3><a href="https://doi.org/10.1038/s41467-024-51071-9">PTMGP2</a> (PTMs) within 8.0A of {{ variant[:-1] }} </h3>
+    <table cellspacing="1" class="tablesorter" style="width: auto;">
+        <thead>
+        <tr style="width: auto;">
+            <th class="sorter-false">PTM Residue</th>
+            <th class="sorter-false">PTM Type</th>
+            <th class="sorter-false">Probability</th>
+        </tr>
+        </thead>
+        <tbody>
+{% for ptm_row in  calculation_results.ptmgp2_neighborhood_dict %}
+        <tr style="width: auto;">
+        <td>{{ ptm_row['PTM Residue'] }}</td>
+        <td>{{ ptm_row['PTM Type'] }}</td>
+        <td>{{ ptm_row['PTM Probability'] }}</td>
+        </tr>
+{% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <h3>No <a href="">PTMGP2</a> (PTMs) predicted within 8.0A of {{ variant[:-1] }} </h3>
+</defailts>
+{% endif %}
+</div>
+
+<div class="container">
 {% if calculation_results.musite_deep_neighborhood_dict %}
     <h3><a href="https://doi.org/10.1093/nar/gkaa275">MusiteDeep</a> (PTMs) within 8.0A of {{ variant[:-1] }} </h3>
     <table cellspacing="1" class="tablesorter" style="width: auto;">
@@ -368,6 +397,7 @@ img {
 
 {% endif %}
 </div>
+
 {% if calculation_results.scannet_prediction_dict %}
 <div class="container">
     <h3><a href="https://www.nature.com/articles/s41592-022-01490-7">ScanNet</a> Prediction of {{ variant[:-1] }} participation in a PPI </h3>
