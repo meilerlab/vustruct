@@ -101,6 +101,7 @@ class CalculationResultsLoader:
         self.pathprox_disease2_results_dict_of_dfs = {}
         self.pesto_predictions_dict_of_dfs = {}
         self.musite_deep_neighborhood_dict = {}
+        self.ptmgp2_neighborhood_dict = {}
         self.scannet_prediction_dict = {}
 
         # self.rate4site_results_dict = {}
@@ -389,7 +390,7 @@ class CalculationResultsLoader:
 
         return ddg_results_df, None
 
-    def load_MusiteDeep_neighborhood_dataframe(self, workplan_df_row: pd.Series) -> (pd.Series, str):
+    def load_MusiteDeep_or_PTMGP2_neighborhood_dataframe(self, workplan_df_row: pd.Series) -> (pd.Series, str):
         musite_deep_neighborhood_filename = os.path.join(workplan_df_row['outdir'], "PTM_neighborhood.csv")
         musite_deep_neighborhood_df = None
         try:
@@ -456,6 +457,7 @@ class CalculationResultsLoader:
         workstatus_df_indexed = self.workstatus_df.set_index(['uniquekey'], drop=False)
 
         for workplan_uniquekey, workplan_row in self.workplan_df.set_index(['uniquekey'], drop=False).iterrows():
+            LOGGER.debug("%s %s", workplan_uniquekey, str(workplan_row))
             try:
                 workstatus_row = workstatus_df_indexed.loc[workplan_uniquekey]
             except KeyError:
@@ -483,11 +485,19 @@ class CalculationResultsLoader:
                     continue # To next row in the varian's workplan
 
                 if workstatus_row['flavor'] == 'MusiteDeep':
-                    musite_deep_neighborhood_df,msg = self.load_MusiteDeep_neighborhood_dataframe(workstatus_row)
+                    musite_deep_neighborhood_df,msg = self.load_MusiteDeep_or_PTMGP2_neighborhood_dataframe(workstatus_row)
                     if musite_deep_neighborhood_df is None:
                         workstatus_row['Notes'] = msg
                     else:
                        self.musite_deep_neighborhood_dict = musite_deep_neighborhood_df.to_dict(orient='records')
+                    continue # To next row in the varian's workplan
+
+                if workstatus_row['flavor'] == 'PTMGP2':
+                    ptmgp2_neighborhood_df,msg = self.load_MusiteDeep_or_PTMGP2_neighborhood_dataframe(workstatus_row)
+                    if ptmgp2_neighborhood_df is None:
+                        workstatus_row['Notes'] = msg
+                    else:
+                       self.ptmgp2_neighborhood_dict = ptmgp2_neighborhood_df.to_dict(orient='records')
                     continue # To next row in the varian's workplan
 
                 try:
