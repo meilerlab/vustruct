@@ -130,7 +130,7 @@ for gene in gene_list_with_possible_duplicates:
 singularity_command_list = [
     'apptainer',
     'exec',
-    os.path.join(config_dict['singularity_images_dir'],'DIEP.simg'])
+    os.path.join(config_dict['singularity_images_dir'],'DIEP.simg'),
     '/bin/bash']
 
 LOGGER.info("Job status directory: %s" % psb_status_manager.status_dir)
