@@ -364,7 +364,6 @@ def flatten_squeue_stdout_to_df(squeue_stdout_json: str,expand_pending_array_tas
     time_limits = []
 
     for job_dict in squeue_dict['jobs']:
-
         # array_job_id and array_task_id are found in these triple-dictionaries
         # and you have to make sure the value is 'set' and is of expected form
         # HOWEVER, array_job_id is ALWAYS set.  And it can be set to 0 and _that_ means
@@ -384,28 +383,35 @@ def flatten_squeue_stdout_to_df(squeue_stdout_json: str,expand_pending_array_tas
         _array_task_string = job_dict.get('array_task_string','')
         # If this one is NOT set (set element is false in source json) then it was NOT
         # part of a job array.  We won't have an array_task_id UNLESS we have an _array_job_id
-        _copies = 1
+        _copies = 1  # An unfortunate variable name.  It is the number ot array jobs listed for a job_id
         if (pd.isna(_array_job_id)):
             job_keys.append(str(job_dict['job_id'])) 
             array_task_ids.append(pd.NA)
         else:
             # We have an array - but if pending and we want to break it open manually... do that
+            # HOWEVER, IF there is a , in the task string, THEN this has been some kind of manual
+            # Restart (rare) and we will not process the output in this case because it is not
+            # the entire array
             if (expand_pending_array_tasks and 
                 _job_state == "PENDING" and 
                 len(_array_task_string) > 0):
-                # Deal with format of the array_task_string typically 0_10 but also 4_9 or so
-                _split_first_last = _array_task_string.split('-')
-                if len(_split_first_last) == 2:
-                    _first_pending_array_task = int(_split_first_last[0])
-                    _last_pending_array_task = int(_split_first_last[1])
-                else: # Not sure what else to do ?? Maybe only one pending left to launch????
-
-                    _first_pending_array_task = int(_split_first_last[0])
-                    _last_pending_array_task = int(_split_first_last[0])
-                _copies = _last_pending_array_task + 1 - _first_pending_array_task
-                for array_task_id in range(_first_pending_array_task,_last_pending_array_task+1):
-                    array_task_ids.append(array_task_id)
-                    job_keys.append(str(_array_job_id) + '_' + str(array_task_id))
+                    _copies = 0 # Really more of a count of "# of array jobs for a job_id"
+                    # it is very weird to have a comma in this string - almost
+                    # certainly requires a manual sbtach command with --array including
+                    # comma.  But when we see it we need to deal with it
+                    _array_task_segments = _array_task_string.split(',')
+                    for _array_task_segment in _array_task_segments:
+                        _split_first_last = _array_task_segment.split('-')
+                        if len(_split_first_last) == 2:
+                            _first_pending_array_task = int(_split_first_last[0])
+                            _last_pending_array_task = int(_split_first_last[1])
+                        else: # Not sure what else to do ?? Maybe only one pending left to launch????
+                            _first_pending_array_task = int(_split_first_last[0])
+                            _last_pending_array_task = int(_split_first_last[0])
+                        _copies += (_last_pending_array_task + 1 - _first_pending_array_task)
+                        for array_task_id in range(_first_pending_array_task,_last_pending_array_task+1):
+                            array_task_ids.append(array_task_id)
+                            job_keys.append(str(_array_job_id) + '_' + str(array_task_id))
             # Else we seem to have a singular array entry that is running - so just add the one
             elif ('array_task_id' in job_dict and 
                 'set' in job_dict['array_task_id'] and  job_dict['array_task_id']['set'] and
