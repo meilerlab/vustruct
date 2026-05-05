@@ -1,4 +1,5 @@
-#External Applications
+# External Applications
+
 To integrate 3rd-party applications into the pipeline, it is often most straightforward to
 take the author's python scripts or Jupyter notebook files and recast them, slightly,
 for VUStruct pipeline layout and resources.
