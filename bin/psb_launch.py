@@ -149,6 +149,7 @@ if 'container_type' in config_dict:
 # file, things are relatively straightforward
 KNOWN_CALCULATION_FLAVOR_LIST = ['PathProx', 'DdgMonomer', 'DdgCartesian',
                                  'MusiteDeep', 'ScanNet', # 'SequenceAnnotation',
+                                 'PeSTo', 'PTMGP2', # Added for 2025 Paper
                                  'DiGePred', 'DIEP']
 
 # Recall that the .config files are read from locations which can be overridden on the command line
@@ -398,10 +399,10 @@ class JobsLauncher:
                 if 'Ddg' not in row['flavor']:
                     # For ScanNet and MusiteDeep, do NOT re-append the flavor
                     # Retain this behavior for our pathprox runs, however
-                    if ('ScanNet' in row['flavor']) or ('Musite' in row['flavor']):
-                        _final_outdir = row['outdir']
-                    else:  # Pathprox has the specific COSMIC/Clinvar etc flavor subdirectory
+                    if 'PP_' in row['flavor']:
                         _final_outdir = os.path.join(row['outdir'], row['flavor'])
+                    else: # For ScanNet/MusiteDeep/PeSTo/PTMGP2, don't go down another directory
+                        _final_outdir = row['outdir']
 
                     launch_string += " --outdir " + _final_outdir + " --uniquekey " + row['uniquekey']
 
@@ -547,7 +548,7 @@ fi
         @return:
         """
 
-        global CONTAINER_TYPE # HACK FOR NAR
+        global CONTAINER_TYPE # HACK FIX ASAP and run pathprox from inside master container
         with open(launch_filename, 'w') as slurm_f:
             self._write_launch_independent_comments(launch_filename, slurm_f, subdir)
 
@@ -594,7 +595,7 @@ fi
 
             for slurm_field in ['job-name', 'mail-user', 'mail-type', 'ntasks', 'time', 'mem', 'account', 'output',
                                 'reservation',
-                                'partition', 'nodelist', 'exclusive', 'export', 'array']:
+                                'partition', 'gres', 'nodelist', 'exclusive', 'export', 'array']:
                 if slurm_field in slurm_dict and slurm_dict[slurm_field]:
                     slurm_f.write("#SBATCH --%s=%s\n" % (slurm_field, slurm_dict[slurm_field]))
 
@@ -611,7 +612,7 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
 """)
 
             if "PathProx" in subdir:
-                ## TERRIBLE HACK FOR NAR
+                ## TERRIBLE HACK 
                 save_type = CONTAINER_TYPE
                 CONTAINER_TYPE="Singularity"
                 self._write_launch_independent_environment(launch_filename, slurm_f, subdir)
@@ -638,9 +639,11 @@ echo "SLURM_SUBMIT_DIR = "$SLURM_SUBMIT_DIR
             else:
                 container_exec_prefix = ''
                 if "PathProx" in subdir:
-                    ## TERRIBLE HACK FOR NAR
+                    pass
+                    ## TERRIBLE HACK  - MUST BE FIXED
                     # We're runnitng pathprox3, also hacked, outside the container we're launching
-                    container_exec_prefix = 'singularity exec /dors/capra_lab/users/mothcw/UDNtests/development.simg /dors/capra_lab/users/mothcw/psbadmin/pathprox/'
+                    # To return to container run, uncomment and correct the line below
+                    # container_exec_prefix = 'singularity exec /dors/capra_lab/users/mothcw/UDNtests/development.simg /dors/capra_lab/users/mothcw/psbadmin/pathprox/'
 
             if job_count == 1:
                 # No need to fiddle with the slurm case statement
