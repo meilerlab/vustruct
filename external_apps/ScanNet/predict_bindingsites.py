@@ -2,9 +2,8 @@
 # and that is to avoid accessing MSA_folder if use_MSA not set
 # https://github.com/jertubiana/ScanNet/issues/15
 #
-# This code below matches another file of same name under vustruct, except
-# for these comments.  The "external_apps" version should be integrated
-# into run_scannet.py in future
+# This code replaces the file of same name which was in vustruct/containers/singularity
+# run_scannet.py now references this file in vustruct/external_apps/
 
 
 import os
