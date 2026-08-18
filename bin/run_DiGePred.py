@@ -138,6 +138,7 @@ out_dir = ''
 
 def load_json_from_dependencies(subdir: str, dictionary_filename):
     _load_filename=os.path.join(dependencies_location, subdir, dictionary_filename)
+    LOGGER.info(f"load_json_from_dependencies({_load_filename})")
     returned_dict = {}
     with open(_load_filename) as json_f:
         returned_dict = json.load(json_f)
@@ -1061,8 +1062,8 @@ def get_digenic_metrics_csv(gene_pairs):
 
     dig_df = get_digepred_scores_df(sel_gp_csv_df)
 
-    print('\nDigenic metrics computed for all gene pairs\n')
-    print(dig_df)
+    LOGGER.info('\nDigenic metrics computed for all gene pairs\n')
+    LOGGER.info("%s", str(dig_df))
 
     dig_df.to_csv(full_csv_save_path, sep=',', header=True, index=False)
 
