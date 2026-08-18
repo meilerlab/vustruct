@@ -264,7 +264,6 @@ class CalculationResultsLoader:
 
     def load_Pathprox_results_dataframe(self, workplan_df_row: pd.Series, disease_1_or_2: str) -> (pd.Series, str):
         disease_variant_set_sql_label = self._config_pathprox_dict['%s_variant_sql_label' % disease_1_or_2]
-        # import pdb; pdb.set_trace()
         # variant_short_description = self._config_pathprox_dict['%s_variant_short_description'%disease_1_or_2]
 
         # Define directory prefixes
@@ -413,7 +412,10 @@ class CalculationResultsLoader:
         return scannet_prediction_df, None
  
     def load_PeSTo_dataframe(self, workplan_df_row: pd.Series) -> (pd.Series, str):
-        pesto_predictions_filename = os.path.join(workplan_df_row['outdir'], "PeSTo", "pesto_predictions.json")
+        pesto_predictions_filename = os.path.join(
+               workplan_df_row['outdir'], 
+               # NOT THIS ADDITIONAL LEVEL 2026 June 24 "PeSTo", 
+               "pesto_predictions.json")
         LOGGER.info("Attempting PeSTo predictions load from %s", pesto_predictions_filename)
         pesto_prediction_df = None
         try:
@@ -431,11 +433,14 @@ class CalculationResultsLoader:
 
                 LOGGER.info("5 PeSTo predictions loaded from %s", pesto_predictions_filename)
         except FileNotFoundError:
-            return None, "PeSTo predictions file not found: %s" % pesto_predictions_filename
+            msg = "PeSTo predictions file not found: %s" % pesto_predictions_filename
+            LOGGER.info(msg)
+            return None, msg
         except (ValueError, KeyError):
-            return None, "PeSTo predictions data in wrong format in files %s" % pesto_predictions_filename
+            msg = "PeSTo predictions data in wrong format in files %s" % pesto_predictions_filename
+            LOGGER.info(msg)
+            return None, msg
 
-        # import pdb; pdb.set_trace()
         return pesto_prediction_df, None
  
 
