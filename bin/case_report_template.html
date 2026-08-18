@@ -315,7 +315,7 @@ window.onload = showEndTime;
         document.addEventListener("DOMContentLoaded", () => {
             loadSqueueBtn = document.querySelector('#loadSqueueBtn');
             const squeueTableBody = document.querySelector('#squeue-table tbody');
-            fetchURL = new URL("vustruct/slurm_status", "https://staging.meilerlab.org/")
+            fetchURL = new URL("VUStruct/slurm_status/index.php", "https://meilerlab.org/")
             fetchURL.searchParams.append('case_uuid',  "{{case_uuid}}");
             // loadSqueueBtn.innerHTML = fetchURL 
 
@@ -327,7 +327,12 @@ window.onload = showEndTime;
                 fetch(fetchURL)
                     .then(response => response.json() )
                     .then(json_data  => {
-                        // Clear existing table rows
+		        // If Button Description is now Close...  that's a second click - so toggle off
+			if (loadSqueueBtn.textContent.indexOf('Close') != -1) {
+                            squeueTableBody.innerHTML = '';
+			    loadSqueueBtn.textContent = 'Refresh Cluster Jobs information (slurm squeue)';
+			} else {
+                        // It was blank - so now populate it Clear existing table rows
                         squeueTableBody.innerHTML = '';
 
                         // Iterate over the data and populate the table
@@ -345,7 +350,9 @@ window.onload = showEndTime;
                             `;
                             squeueTableBody.appendChild(row);
                         }
-                    }})
+                        }
+			loadSqueueBtn.textContent = 'Close Cluster Jobs Information';
+		     }})
                     .catch(error => {
                         console.error('Error fetching data:', error);
                         squeueErrorDiv.textContent = "Error fetching data: " + error

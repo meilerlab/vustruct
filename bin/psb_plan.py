@@ -433,14 +433,14 @@ def makejob(flavor, command, params, options: str, cwd=os.getcwd()) -> pd.Series
     # if "SequenceAnnotation" in flavor and job['pdbid'] == 'N/A':
     #    job['uniquekey'] = "%s_%s_%s_%s"%(job['gene'],job['refseq'],job['mutation'],job['flavor'])
     #    job['outdir'] = params['mutation_dir']
-    if flavor in ["MusiteDeep", "ScanNet"] and job['pdbid'] == 'N/A':
+    if flavor in ["MusiteDeep", "ScanNet", "PTMGP2"] and job['pdbid'] == 'N/A':
         # import pdb; pdb.set_trace()
         job['uniquekey'] = "%s_%s_%s_%s" % (
             job['gene'], job['refseq'], job['unp'], flavor)
         job['outdir'] = os.path.join(params['mutation_dir'],flavor)
     elif flavor in ["DiGePred", "DIEP"] and job['pdbid'] == 'N/A':
         job['uniquekey'] = flavor
-        job['outdir'] = params['mutation_dir']
+        job['outdir'] = os.path.join(params['mutation_dir'],flavor)
     else:  # Most output directories have pdbid and chain suffixes
         if not job['chain'].strip() or job['chain'] == "''" or job['chain'] == "' '":
             pdb_chain_segment = job['pdbid']
@@ -538,6 +538,11 @@ def makejobs_pathprox_df(params: Dict, ci_df: pd.DataFrame, multimer: bool) -> p
 
 def makejob_MusiteDeep(params: Dict[str, str]):
     return makejob("MusiteDeep","run_MusiteDeep.py", params,
+                   ("--config %(config)s --userconfig %(userconfig)s " +
+                    "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
+
+def makejob_PTMGP2(params: Dict[str, str]):
+    return makejob("PTMGP2","run_PTMGP2.py", params,
                    ("--config %(config)s --userconfig %(userconfig)s " +
                     "--unp %(unp)s --transcript_variant %(transcript_variant)s") % params)
 
@@ -2024,6 +2029,11 @@ def plan_one_mutation(index: int,
     # about non-canonical transcripts
     if unp_is_canonical:
         df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_MusiteDeep(params, )])], ignore_index=True)
+
+    # 2026 Add a new Posttranslational modification predictor 
+    # to supplement Musite Deep
+    if unp_is_canonical:
+        df_all_jobs = pd.concat([df_all_jobs,pd.DataFrame([makejob_PTMGP2(params, )])], ignore_index=True)
 
     # 2023 Dec - run ScanNet if this uniprot ID is canonical
     # https://github.com/jertubiana/ScanNet/blob/main/README.md
