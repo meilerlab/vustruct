@@ -1,4 +1,4 @@
-# [VUStruct](https://pubmed.ncbi.nlm.nih.gov/39149406/): a compute pipeline for high throughput and personalized structural biology
+# [VUStruct](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1014183): a compute pipeline for high throughput and personalized structural biology
 
 This is the code repository for [VUStruct](https://meilerlab.org/VUStruct)
 
@@ -9,7 +9,7 @@ an additional thin layer of python (flask) code to manage the web back-end  (see
 
 - use of our open [website](https://meilerlab.org/VUStruct)
 - deeper analysis of your data on our cluster
-- deployment of VUStruct to your system
+- deployment of VUStruct [to your SLURM HPC](./HPC_Install.md)
 - suggestions for the VUStruct pipeline
 
 This repository is maintained by
