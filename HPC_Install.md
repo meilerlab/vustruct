@@ -82,27 +82,22 @@ For each type of data, there is a mature .bash script
 with documentation in the top lines, which you should quickly read
 for warnings and tips, before launching the script.
 
-
-
 | data source | function                                                  | SQL integration required? |
-|:------------|:----------------------------------------------------------|:--------------------------|
-| alphafold   | Alphafold 2 structures                                    |                           |
-| clinvar     | Clinvar (includes pathogenic) variants for pathprox calcs | X                         |
-| ensembl     | vep cache file and huge GRCh38 SQL files                  | no and X                  |
-| gnomad      | Gnomad variants (population diversity) for pathprox       | X |                        
-| interpro    | Interpro protein domains                                  ||
-| modbase     | Modbase protein homology models                           ||
-| pdb         | Structured mirror of all experimental depositions         ||
-| sifts       | Alignments from Uniprot to PDB chains                     | X                         |
-| swissmodel  | Structured mirror of all experimental depositions         | X |
-| uniprot     | Extracts the critical IDmapping file.  | X |
-
-
+|:------------|:----------------------------------------------------------|:-------------------------|
+| alphafold   | Alphafold 2 structures                                    |                          |
+| clinvar     | Clinvar (includes pathogenic) variants for pathprox calcs | X                        |
+| ensembl     | vep cache file and huge GRCh38 SQL files                  | no and X                 |
+| gnomad      | Gnomad variants (population diversity) for pathprox       | X                        |                        
+| interpro    | Interpro protein domains                                  |                          |
+| modbase     | Modbase protein homology models                           |                          |
+| pdb         | Structured mirror of all experimental depositions         |                          |
+| sifts       | Alignments from Uniprot to PDB chains                     | X                        |
+| swissmodel  | Structured mirror of all experimental depositions         | |                         |
+| uniprot     | Extracts the critical IDmapping file.  | X                        |
 
 
 When downloading an individual data type, it is essential that _all_ the data is downloaded,
-that .yaml version files are created, and that occasional complex
-post processing processes are copiously logged.
+that .yaml version files are created, and that occasional complex  post processing processes are copiously logged.
 
 In some cases, after download, data must be integrated in 
 the pipeline's SQL database.
@@ -113,8 +108,31 @@ To get started with the download scripts for first time, do
 cd ~
 git clone https://github.com/CapraLab/pipeline_download_scripts.git
 ```
-```
+A challenge with the download scripts is that the data sources are continually changing their
+approaches for publishing data.   Please get in touch if you encounter problems.
+
+
+
 ** STOP !! **  I will resume working on this documentation Thursday
+
+## Integrating downloaded data into the SQL database
+Over recent years, I have strived to bring the pipeline closer to the supplied source data,
+and less dependent on pre-processing and saving of processed data to SQL.  For example,
+the gnomad files are now read directly by the pathoprox program using tabix.  Previously,
+lookups of population frequencies in gnomad files required SQL queries.
+
+The 
+
+### Current 
+
+#### Ensembl Genome
+-- Describe here how to use the public servers as alternative.
+
+#### Clinvar cross-reference to genome
+
+## Download of the Ensembl Variant Effect Predictor (VEP) and supporting files
+Note that this is run frmo a container
+
 
 
 With the exception of Your plan will encompass the varying types of storage that are often available on an HPC cluster. Consider the following:
